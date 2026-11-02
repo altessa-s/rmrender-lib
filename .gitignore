@@ -30,6 +30,4 @@ __pycache__/
 
 # Swift/Apple build products
 .build/
-.swiftpm/
-Artifacts/
 Package.resolved

@@ -219,23 +219,6 @@ signature can still verify for its own revision. The appended revision is
 **not signed**, and the library does not validate certificates, signature
 policies or permissions.
 
-## Swift
-
-`swift/` is a Swift package, `RMRenderC`, with a synchronous `Renderer` for
-`.rm` pages, RMDoc archives and already-fetched document files. With sibling
-`rmlines-lib`, `rmdoc-lib` and `rmmarks-lib` checkouts:
-
-```sh
-python3 scripts/build-xcframework.py
-swift build --package-path swift
-```
-
-The script builds a static `CRMRender.xcframework` for macOS (arm64, x86_64),
-iOS and the iOS Simulator into `swift/Artifacts`; it downloads nothing.
-Without the XCFramework the package links the installed `rmrender-apple-full`
-pkg-config package. Pass `resources/` (or the installed `share/rmrender`) to
-`Renderer(resourceDirectory:)`.
-
 ## Ownership and failures
 
 All inputs are borrowed for the duration of a call. Plans deep-copy their
