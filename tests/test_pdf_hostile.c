@@ -103,8 +103,16 @@ static const char *name(rmr_status s) {
 }
 static double now(void) {
     struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
+    timespec_get(&t, TIME_UTC);
     return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+}
+/* Whether the n bytes at hay contain the len bytes of needle. */
+static bool found(const void *hay, size_t n, const char *needle, size_t len) {
+    const unsigned char *h = hay;
+    for (size_t i = 0; len <= n && i <= n - len; i++)
+        if (!memcmp(h + i, needle, len))
+            return true;
+    return false;
 }
 static rmr_status run(buf *f, size_t page, rmr_limits *l, rmr_buffer *out, rmr_error *e,
                       bool replace_box) {
@@ -289,8 +297,8 @@ static void hostile_h2(void) {
     if (s == RMR_OK) {
         const char *tail = (const char *)out.bytes + f.n;
         size_t n = out.size - f.n;
-        bool shadow = memmem(tail, n, "/Shadow", 7) != nullptr;
-        bool visible = memmem(tail, n, "/Visible", 8) != nullptr;
+        bool shadow = found(tail, n, "/Shadow", 7);
+        bool visible = found(tail, n, "/Visible", 8);
         assert(!shadow && visible);
     }
     assert(s == RMR_OK);
@@ -354,8 +362,8 @@ static void hostile_m3(void) {
     if (s == RMR_OK) {
         const char *tail = (const char *)out.bytes + f.n;
         size_t n = out.size - f.n;
-        assert(memmem(tail, n, "/Caf#e9 ", 8) && memmem(tail, n, "/Caf#e9#20x", 11) &&
-               memmem(tail, n, "(\\351\\))", 8));
+        assert(found(tail, n, "/Caf#e9 ", 8) && found(tail, n, "/Caf#e9#20x", 11) &&
+               found(tail, n, "(\\351\\))", 8));
     }
     assert(s == RMR_OK);
     rmr_buffer_free(&out);
@@ -399,7 +407,7 @@ static void hostile_m4(void) {
     rmr_status s = run(&f, 0, nullptr, &out, &e, false);
     report("M4 unfiltered ObjStm", s, &e, 0);
     if (s == RMR_OK)
-        assert(memmem(out.bytes + f.n, out.size - f.n, "/Packed true", 12));
+        assert(found(out.bytes + f.n, out.size - f.n, "/Packed true", 12));
     assert(s == RMR_OK);
     rmr_buffer_free(&out);
     free(f.b);
@@ -437,9 +445,9 @@ static void hostile_trailer_keys(void) {
     rmr_status s = run(&f, 0, nullptr, &out, &e, false);
     report("L trailer stream-key carry", s, &e, 0);
     if (s == RMR_OK)
-        assert(!memmem(out.bytes + f.n, out.size - f.n, "/F (", 4) &&
-               !memmem(out.bytes + f.n, out.size - f.n, "/DL", 3) &&
-               memmem(out.bytes + f.n, out.size - f.n, "/Root 1 0 R", 11));
+        assert(!found(out.bytes + f.n, out.size - f.n, "/F (", 4) &&
+               !found(out.bytes + f.n, out.size - f.n, "/DL", 3) &&
+               found(out.bytes + f.n, out.size - f.n, "/Root 1 0 R", 11));
     assert(s == RMR_OK);
     rmr_buffer_free(&out);
     free(f.b);
@@ -571,8 +579,8 @@ static void hostile_packed_overlay(void) {
     assert(s == RMR_OK);
     const char *tail = (const char *)out.bytes + f.n;
     size_t n = out.size - f.n;
-    assert(memmem(tail, n, "/ca 0.5", 7) && !memmem(tail, n, "/ObjStm", 7) &&
-           !memmem(tail, n, "/Type /XRef", 11));
+    assert(found(tail, n, "/ca 0.5", 7) && !found(tail, n, "/ObjStm", 7) &&
+           !found(tail, n, "/Type /XRef", 11));
     rmr_buffer_free(&out);
     free(f.b);
     free(ov.b);
