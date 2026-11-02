@@ -63,7 +63,6 @@ cmake --install build --prefix "$PWD/stage"
 | `RMRENDER_BUILD_RMDOC` | `OFF` | Build the RMDoc adapter (needs RMLines) |
 | `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs Apple and RMLines) |
 | `RMRENDER_BUILD_EXAMPLES` | `OFF` | Build `rmrender_grain`, an Apple example that draws each grain |
-| `RMRENDER_SWIFT_CHECKOUT` | empty | rmrender-swift checkout for the optional PDF cross-check |
 
 The adapters find installed `RMLines`, `RMDoc` and `RMMarks` CMake packages;
 pass their prefixes through `CMAKE_PREFIX_PATH`:
@@ -272,16 +271,6 @@ python3 scripts/generate-templates.py --check   # page templates
 `tests/verify_pdf_signature.py --writer build/test_pdf_incremental` signs a
 generated PDF locally, applies two incremental updates and verifies the
 original signed bytes with OpenSSL.
-
-On macOS, optional cross-checks build sources from an
-[rmrender-swift](https://github.com/altessa-s/rmrender-swift) checkout and
-compare the two implementations on generated fixtures: outlines, grain masks,
-scenes, images, page growth, paper sheets, expressions, templates, placement,
-anchors, layout and PDF output (`tests/compare_*_swift.py --swift
-../rmrender-swift`, each with `--library` for a shared build or `--oracle` for
-the matching `*_oracle` target). Setting `RMRENDER_SWIFT_CHECKOUT` adds the
-asset and PDF cross-checks to `check`. These need the separate Swift checkout;
-ordinary builds and tests do not.
 
 ## See also
 

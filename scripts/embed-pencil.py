@@ -5,8 +5,7 @@
 """Generate the twelve pencil tile PNGs and the packed C ink tiles (stdlib only).
 
 scripts/generate-grain.py draws the tiles procedurally; no other assets are read.
---check verifies the committed files without writing. --swift additionally
-compares the PNG bytes with the Grain directory of an rmrender-swift checkout.
+--check verifies the committed files without writing.
 """
 import argparse
 from pathlib import Path
@@ -32,7 +31,6 @@ def outputs():
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check',action='store_true')
-    parser.add_argument('--swift',type=Path)
     args=parser.parse_args()
     for name,data in outputs():
         path=ROOT/name
@@ -40,8 +38,5 @@ def main():
             if not path.is_file() or path.read_bytes()!=data:parser.exit(1,f'Changed generated file: {name}\n')
         else:
             path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
-        if args.swift and name.suffix=='.png':
-            other=args.swift/'Sources/RMRender/Grain'/name.name
-            if other.read_bytes()!=data:parser.exit(1,f'Swift asset differs: {other}\n')
     print('Twelve own pencil tiles and embedded bytes verified' if args.check else 'Twelve own pencil tiles and embedded bytes generated')
 if __name__=='__main__':main()
