@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rmrender-apple-document
+Description: @PROJECT_DESCRIPTION@ (apple-document)
+Version: @PROJECT_VERSION@
+Requires: rmrender-apple-text rmrender-rmdoc
+Libs: -L${libdir} -lrmrender_apple_document
+Cflags: -I${includedir}

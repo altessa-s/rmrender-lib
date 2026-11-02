@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: rmrender-apple
+Description: @PROJECT_DESCRIPTION@ (apple)
+Version: @PROJECT_VERSION@
+Requires: rmrender-core
+Libs: -L${libdir} -lrmrender_apple
+Libs.private: -framework CoreGraphics -framework CoreFoundation -framework CoreText
+Cflags: -I${includedir}

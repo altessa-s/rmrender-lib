@@ -1,0 +1,46 @@
+# Copyright 2026 ALTESSA SOLUTIONS INC.
+# Use of this source code is governed by an MIT-style license that can be
+# found in the LICENSE file.
+
+name: C23
+on: [push, pull_request]
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    container: gcc:15
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update
+      - run: apt-get install -y cmake ninja-build python3 zlib1g-dev
+      - run: cmake -S . -B build -G Ninja -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_WERROR=ON
+      - run: python3 scripts/embed-marker.py --check
+      - run: python3 scripts/embed-pencil.py --check
+      - run: cmake --build build --target all check
+  apple:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install llvm ninja openssl@3
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmlines-lib
+          path: .deps/rmlines
+      - run: cmake -S .deps/rmlines -B build-rmlines -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMLINES_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmlines --target install
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmdoc-lib
+          path: .deps/rmdoc
+      - run: cmake -S .deps/rmdoc -B build-rmdoc -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMDOC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmdoc --target install
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmmarks-lib
+          path: .deps/rmmarks
+      - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmmarks --target install
+      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMRENDER_WERROR=ON -DRMRENDER_BUILD_EXAMPLES=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: python3 scripts/embed-marker.py --check
+      - run: python3 scripts/embed-pencil.py --check
+      - run: cmake --build build --target all check
+      - run: python3 tests/verify_pdf_signature.py --writer build/test_pdf_incremental --openssl "$(brew --prefix openssl@3)/bin/openssl"

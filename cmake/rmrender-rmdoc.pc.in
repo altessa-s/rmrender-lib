@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rmrender-rmdoc
+Description: @PROJECT_DESCRIPTION@ (rmdoc)
+Version: @PROJECT_VERSION@
+Requires: rmrender-rmlines rmdoc
+Libs: -L${libdir} -lrmrender_rmdoc
+Cflags: -I${includedir}

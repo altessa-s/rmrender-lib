@@ -1,0 +1,11 @@
+/* Copyright 2026 ALTESSA SOLUTIONS INC.
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file. */
+#ifndef RMR_APPLE_INTERNAL_H
+#define RMR_APPLE_INTERNAL_H
+#include <CoreGraphics/CoreGraphics.h>
+#include <rmrender/apple.h>
+rmr_status rmr_apple_draw_context(CGContextRef cg, const rmr_plan *plan, const rmr_sheet *sheet,
+                                  const rmr_limits *limits, rmr_cancel_fn cancel, void *context,
+                                  rmr_error *error);
+#endif

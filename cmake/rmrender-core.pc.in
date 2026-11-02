@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: rmrender-core
+Description: @PROJECT_DESCRIPTION@ (core)
+Version: @PROJECT_VERSION@
+Requires:
+Libs: -L${libdir} -lrmrender
+Libs.private: -lm -lz
+Cflags: -I${includedir}
