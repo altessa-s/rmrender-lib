@@ -78,8 +78,22 @@ static double start_adjustment(PangoLayoutLine *line) {
     if (pango_layout_line_get_resolved_direction(line) != PANGO_DIRECTION_RTL)
         return 0;
     const char *text = pango_layout_get_text(line->layout);
-    if (!line->length || pango_layout_get_direction(line->layout, 0) == PANGO_DIRECTION_RTL)
+    if (!line->length)
         return 0;
+    if (pango_layout_get_direction(line->layout, 0) == PANGO_DIRECTION_RTL) {
+        /* A retained pair adjustment at a soft-wrap boundary affects the
+         * first logical glyph's advance, but not CoreText's leading caret. */
+        for (GSList *it = line->runs; it; it = it->next) {
+            PangoGlyphItem *run = it->data;
+            if (run->item->offset != 0)
+                continue;
+            PangoGlyphItemIter cluster;
+            if (pango_glyph_item_iter_init_start(&cluster, run, text))
+                return 2 * (rmr_pango_cluster_adjustment(run, cluster.start_index) -
+                            rmr_pango_cluster_spacing(line->layout, 0, (size_t)cluster.end_index));
+        }
+        return 0;
+    }
     for (const char *c = text; *c; c = g_utf8_next_char(c)) {
         size_t at = (size_t)(c - text);
         if (pango_layout_get_direction(line->layout, (int)at) == PANGO_DIRECTION_RTL)
@@ -586,6 +600,12 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
                                (int)(fmax(1, l->anchors.column - p->indent) * PANGO_SCALE));
         pango_layout_set_wrap(n->layout, PANGO_WRAP_WORD_CHAR);
         PangoAttrList *attrs = pango_attr_list_copy(pango_layout_get_attributes(n->layout));
+        /* Explicit base attributes let Pango merge redundant face overlays
+         * instead of breaking Arabic shaping at an unchanged style boundary. */
+        PangoWeight base_weight =
+            n->metrics.face == RMR_FACE_MEDIUM ? PANGO_WEIGHT_MEDIUM : PANGO_WEIGHT_NORMAL;
+        attr(attrs, pango_attr_weight_new(base_weight), 0, length);
+        attr(attrs, pango_attr_style_new(PANGO_STYLE_NORMAL), 0, length);
         for (size_t j = 0; j < in->face_count; j++) {
             const rm_face_run *f = &in->faces[j];
             if (f->start < 0 || f->end < f->start)
@@ -597,8 +617,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
                    b = (size_t)(g_utf8_offset_to_pointer(copy, f->end) - copy);
             rmr_pango_attributes(fonts, attrs, p->text, a, b, n->metrics.size, n->metrics.face,
                                  f->bold, f->italic);
-            attr(attrs, pango_attr_weight_new(f->bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL), a,
-                 b);
+            attr(attrs, pango_attr_weight_new(f->bold ? PANGO_WEIGHT_BOLD : base_weight), a, b);
             attr(attrs, pango_attr_style_new(f->italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL),
                  a, b);
         }
@@ -737,11 +756,11 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
     if (!l->anchors.count)
         return rmr_plan_create(nullptr, 0, viewport, &limits, out, e);
     layout_sink output = {.sink.maximum = limits.maximum_pdf_bytes < limits.maximum_plan_bytes / 2
-                                             ? limits.maximum_pdf_bytes
-                                             : limits.maximum_plan_bytes / 2};
+                                              ? limits.maximum_pdf_bytes
+                                              : limits.maximum_plan_bytes / 2};
     rmr_sink *sink = &output.sink;
-    cairo_surface_t *surface = cairo_pdf_surface_create_for_stream(layout_write, &output,
-                                                                   viewport.width, viewport.height);
+    cairo_surface_t *surface =
+        cairo_pdf_surface_create_for_stream(layout_write, &output, viewport.width, viewport.height);
     cairo_t *cr = cairo_create(surface);
     cairo_translate(cr, -viewport.x, -viewport.y);
     cairo_set_source_rgb(cr, 0, 0, 0);

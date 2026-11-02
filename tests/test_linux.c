@@ -6,8 +6,10 @@
 #include "pdf_fixture.h"
 #include "test.h"
 #include <fpdf_annot.h>
+#include <fpdf_attachment.h>
 #include <fpdf_doc.h>
 #include <fpdf_edit.h>
+#include <fpdf_signature.h>
 #include <fpdf_text.h>
 #include <fpdfview.h>
 #include <rmrender/linux_pdf.h>
@@ -123,6 +125,113 @@ static void graphics(void) {
     rmr_bitmap_free(&bitmap);
     rmr_plan_free(plan);
 }
+static void preserved_objects(FPDF_DOCUMENT doc) {
+    CHECK(FPDF_GetPageCount(doc) == 2);
+    CHECK(FPDFDoc_GetAttachmentCount(doc) == 1);
+    CHECK(FPDF_GetSignatureCount(doc) == 1);
+    FPDF_SIGNATURE signature = FPDF_GetSignatureObject(doc, 0);
+    const unsigned char expected[] = {0xab, 0xcd, 0xef, 0, 0x11, 0x22};
+    unsigned char contents[16] = {0};
+    CHECK(FPDFSignatureObj_GetContents(signature, contents, sizeof contents) == sizeof expected);
+    CHECK(!memcmp(contents, expected, sizeof expected));
+    FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+    CHECK(page && FPDFPage_GetAnnotCount(page) == 2);
+    FPDF_ANNOTATION widget = FPDFPage_GetAnnot(page, 0), note = FPDFPage_GetAnnot(page, 1);
+    CHECK(widget && note);
+    CHECK(FPDFAnnot_GetSubtype(widget) == FPDF_ANNOT_WIDGET);
+    CHECK(FPDFAnnot_GetSubtype(note) == FPDF_ANNOT_TEXT);
+    unsigned short value[16] = {0};
+    CHECK(FPDFAnnot_GetStringValue(widget, "V", value, sizeof value) == 12);
+    CHECK(value[0] == 'A' && value[4] == 'e' && value[5] == 0);
+    CHECK(FPDFAnnot_GetStringValue(note, "Contents", value, sizeof value) == 14);
+    CHECK(value[0] == 'A' && value[2] == 'n' && value[5] == 'e' && value[6] == 0);
+    FPDFPage_CloseAnnot(widget);
+    FPDFPage_CloseAnnot(note);
+    FPDF_ClosePage(page);
+    page = FPDF_LoadPage(doc, 1);
+    CHECK(page && FPDFPage_GetRotation(page) == 1);
+    FPDF_ClosePage(page);
+    CHECK(FPDFBookmark_GetFirstChild(doc, nullptr));
+}
+static bool has_actual_text(FPDF_PAGEOBJECT object, unsigned depth) {
+    CHECK(depth < 16);
+    const unsigned char expected[] = {0xfe, 0xff, 0xd8, 0x3d, 0xdc, 0x4d, 0xd8, 0x3c, 0xdf, 0xfd};
+    for (int i = 0; i < FPDFPageObj_CountMarks(object); i++) {
+        FPDF_PAGEOBJECTMARK mark = FPDFPageObj_GetMark(object, (unsigned long)i);
+        unsigned char bytes[32];
+        unsigned long length = 0;
+        if (FPDFPageObjMark_GetParamBlobValue(mark, "ActualText", bytes, sizeof bytes, &length) &&
+            length == sizeof expected && !memcmp(bytes, expected, sizeof expected))
+            return true;
+    }
+    if (FPDFPageObj_GetType(object) == FPDF_PAGEOBJ_FORM)
+        for (int i = 0; i < FPDFFormObj_CountObjects(object); i++)
+            if (has_actual_text(FPDFFormObj_GetObject(object, (unsigned long)i), depth + 1))
+                return true;
+    return false;
+}
+static void imported_actual_text(const char *preview) {
+    fixture f = {0};
+    add(&f, "%%PDF-1.7\n");
+    obj(&f, 1, 0, "<< /Type /Catalog /Pages 2 0 R >>");
+    obj(&f, 2, 0, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    obj(&f, 3, 0,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F 5 0 R >> "
+        ">> /Contents 4 0 R >>");
+    stream(
+        &f, 4,
+        "/Span << /ActualText <FEFFD83DDC4DD83CDFFD> >> BDC BT /F 16 Tf 10 50 Td (A) Tj ET EMC\n");
+    obj(&f, 5, 0, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    size_t start = f.n;
+    add(&f, "xref\n0 6\n0000000000 65535 f \n");
+    for (size_t i = 1; i < 6; i++)
+        add(&f, "%010zu 00000 n \n", f.offsets[i]);
+    add(&f, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", start);
+    rmr_linux_pdf_source *src = nullptr;
+    OK(rmr_linux_pdf_source_create((uint8_t *)f.bytes, f.n, nullptr, &src, nullptr));
+    rmr_plan *plan = rectangle((rmr_color){1, 0, 0, 1}, RMR_BLEND_NORMAL);
+    rmr_pdf_page page = {.marks = plan,
+                         .sheet = {100, 100, {1, 0, 0, -1, 0, 100}},
+                         .source_rect = {0, 0, 100, 100},
+                         .has_source = true,
+                         .source_visible = true};
+    for (unsigned route = 0; route < 2; route++) {
+        rmr_buffer pdf = {0};
+        if (route)
+            OK(rmr_linux_pdf_incremental(src, &page, 1, nullptr, nullptr, nullptr, &pdf, nullptr,
+                                         nullptr));
+        else
+            OK(rmr_linux_pdf_overlay(src, &page, 1, nullptr, nullptr, nullptr, &pdf, nullptr,
+                                     nullptr));
+        FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+        CHECK(doc);
+        FPDF_PAGE native = FPDF_LoadPage(doc, 0);
+        CHECK(native);
+        bool found = false;
+        for (int i = 0; i < FPDFPage_CountObjects(native); i++)
+            found |= has_actual_text(FPDFPage_GetObject(native, i), 0);
+        CHECK(found);
+        FPDF_ClosePage(native);
+        FPDF_CloseDocument(doc);
+        if (preview) {
+            char path[512];
+            int n = snprintf(path, sizeof path, "%s-%u.pdf", preview, route);
+            CHECK(n > 0 && (size_t)n < sizeof path);
+            FILE *file = fopen(path, "wb");
+            CHECK(file && fwrite(pdf.bytes, 1, pdf.size, file) == pdf.size);
+            CHECK(fclose(file) == 0);
+            n = snprintf(path, sizeof path, "%s-%u.txt", preview, route);
+            CHECK(n > 0 && (size_t)n < sizeof path);
+            file = fopen(path, "wb");
+            const char *text = "👍🏽";
+            CHECK(file && fwrite(text, 1, strlen(text), file) == strlen(text));
+            CHECK(fclose(file) == 0);
+        }
+        rmr_buffer_free(&pdf);
+    }
+    rmr_plan_free(plan);
+    rmr_linux_pdf_source_free(src);
+}
 static void pdf_source(void) {
     fixture f = source(false);
     rmr_linux_pdf_source *src = nullptr;
@@ -149,6 +258,7 @@ static void pdf_source(void) {
     CHECK(pdf.size > f.n && !memcmp(pdf.bytes, f.bytes, f.n));
     FPDF_DOCUMENT updated = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
     CHECK(updated);
+    preserved_objects(updated);
     FPDF_CloseDocument(updated);
     rmr_buffer_free(&pdf);
     pages[0].source_page = 1;
@@ -403,10 +513,12 @@ static void contour_test(void) {
     rmr_buffer_free(&pdf);
     rmr_plan_free(plan);
 }
-int main(void) {
+int main(int argc, char **argv) {
+    CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
     graphics();
     images();
     pdf_source();
+    imported_actual_text(argc == 3 ? argv[2] : nullptr);
     rotations();
     navigation_test();
     contour_test();

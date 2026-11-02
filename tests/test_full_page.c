@@ -140,15 +140,18 @@ int main(int argc, char **argv) {
     OK(native(layout_create)(&text, 600, fonts, nullptr, &layout, &error));
     const rmr_anchor_layout *anchors = native(layout_anchors)(layout);
     CHECK(anchors->paragraphs[0].line_count == 7);
+    /* Independent CoreText geometry for the style-overlay/soft-wrap fixture. */
+    const double starts[] = {-230.192, -241.136, -244.912, -237.616, -234.608, -235.216, -217.552};
+    const double ends[] = {-202, -194.4288, -202, -194.4288, -202, -202.96, -202};
+    for (size_t li = 0; li < 7; li++) {
+        rmr_text_line measured;
+        OK(native(layout_line)(layout, 0, li, &measured, nullptr));
+        CHECK(fabs(measured.start - starts[li]) < CARET_TOLERANCE);
+        CHECK(fabs(measured.end - ends[li]) < CARET_TOLERANCE);
+    }
     rmr_caret_offsets offsets;
     OK(anchors->caret->measure(anchors->caret->context, 0, 0, 0, &offsets));
-#ifdef RMR_TEST_LINUX
-    /* Marks must follow their own native layout; cross-platform caret metrics
-     * have a separate reference suite. */
-    CHECK(isfinite(offsets.at_start) && isfinite(offsets.at_index));
-#else
     CHECK(fabs(offsets.at_start - 28.192) < CARET_TOLERANCE);
-#endif
     rm_text_anchor anchor = {.paragraph = 0, .offset = 3};
     rmr_point pen;
     OK(rmr_lines_anchor_pen(anchors, &anchor, nullptr, &pen, &error));

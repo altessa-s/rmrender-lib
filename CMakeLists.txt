@@ -340,6 +340,9 @@ if(RMRENDER_BUILD_TESTS)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_linux_emoji_poppler.py
                     $<TARGET_FILE:test_linux_emoji> ${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts
                     ${RMR_PDFTOTEXT})
+                add_test(NAME linux_pdf_text_poppler COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_linux_emoji_poppler.py
+                    $<TARGET_FILE:test_linux> --pdf-fixtures ${RMR_PDFTOTEXT})
             endif()
             add_executable(test_linux_text EXCLUDE_FROM_ALL tests/test_linux_text.c)
             rmr_target(test_linux_text)

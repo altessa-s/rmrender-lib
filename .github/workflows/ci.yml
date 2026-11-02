@@ -75,3 +75,7 @@ jobs:
       - run: cmake --build build-rmdoc --target install
       - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DRMRENDER_BUILD_LINUX=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
       - run: cmake --build build --target all check
+      - run: cmake --install build --prefix "$RUNNER_TEMP/rmr-deps"
+      - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build-consumer
+      - run: LD_LIBRARY_PATH="$RUNNER_TEMP/rmr-deps/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib" ./build-consumer/consumer

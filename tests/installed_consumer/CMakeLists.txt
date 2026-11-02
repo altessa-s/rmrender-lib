@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+project(rmrender_installed_consumer LANGUAGES C)
+find_package(RMRender CONFIG REQUIRED)
+add_executable(consumer main.c)
+target_link_libraries(consumer PRIVATE RMRender::linux_document RMRender::linux_marks)
