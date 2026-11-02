@@ -468,8 +468,8 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
     for (size_t row = 0; row < rows; row++) {
         if (!tick(j))
             return false;
-        unsigned kind = decoded[row * (width + 1)];
-        if (kind > 4)
+        unsigned row_filter = decoded[row * (width + 1)];
+        if (row_filter > 4)
             goto bad;
         for (size_t x = 0; x < width; x++) {
             unsigned raw_value = decoded[row * (width + 1) + 1 + x];
@@ -477,13 +477,13 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
             int up = row ? decoded[(row - 1) * width + x] : 0;
             int corner = row && x >= colors ? decoded[(row - 1) * width + x - colors] : 0;
             int prediction = 0;
-            if (kind == 1)
+            if (row_filter == 1)
                 prediction = left;
-            if (kind == 2)
+            if (row_filter == 2)
                 prediction = up;
-            if (kind == 3)
+            if (row_filter == 3)
                 prediction = (left + up) / 2;
-            if (kind == 4) {
+            if (row_filter == 4) {
                 int p = left + up - corner;
                 int a = abs(p - left), b = abs(p - up), c = abs(p - corner);
                 prediction = a <= b && a <= c ? left : b <= c ? up : corner;
