@@ -16,16 +16,6 @@ RMR_API size_t rmr_apple_pdf_source_count(const rmr_apple_pdf_source *source);
 [[nodiscard]] RMR_API rmr_status rmr_apple_pdf_source_size(const rmr_apple_pdf_source *source,
                                                            size_t page, rmr_point *out,
                                                            rmr_error *error);
-typedef struct {
-    const rmr_plan *marks;
-    rmr_sheet sheet;
-    rmr_rect source_rect; /* Original displayed page in .rm coordinates. */
-    size_t source_page;
-    bool has_source, source_visible;
-} rmr_pdf_page;
-typedef struct {
-    size_t links_preserved, links_dropped;
-} rmr_pdf_report;
 /* Rebuild an ordered PDF with vector source pages and mark plans. Retains URI
  * and supported local links plus remapped outlines. This is a fresh PDF, not
  * incremental editing: forms, signatures and arbitrary annotations are not

@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rmrender-linux
+Description: @PROJECT_DESCRIPTION@ (linux)
+Version: @PROJECT_VERSION@
+Requires: rmrender-core
+Requires.private: cairo pangocairo gdk-pixbuf-2.0
+Libs: -L${libdir} -lrmrender_linux
+Libs.private: -lpdfium -pthread
+Cflags: -I${includedir}

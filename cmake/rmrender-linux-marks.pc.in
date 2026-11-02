@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rmrender-linux-marks
+Description: @PROJECT_DESCRIPTION@ (linux-marks)
+Version: @PROJECT_VERSION@
+Requires: rmrender-linux-text rmmarks
+Requires.private: cairo
+Libs: -L${libdir} -lrmrender_linux_marks
+Cflags: -I${includedir}

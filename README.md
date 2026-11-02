@@ -3,7 +3,8 @@
 Rendering for reMarkable pages and documents: handwriting with its pen
 textures, typed text, highlights, images and page templates, drawn to a bitmap
 or a vector PDF. A C23 library with a portable core and an Apple
-CoreGraphics/CoreText backend, plus adapters for the sibling C packages that
+CoreGraphics/CoreText backend and a Linux Cairo/Pango/PDFium backend, plus
+adapters for the sibling C packages that
 read `.rm` pages, `.rmdoc` archives and highlighted text.
 
 The C libraries need no Swift runtime. The build and ownership conventions
@@ -25,18 +26,22 @@ the shared-library ABI name is the major version.
 |---|---|---|---|
 | Core | `RMRender::core` | zlib | Stroke outlines, grain masks, owning render plans, the backend ABI, paper and sheet sizing, template expressions and JSON templates, `.content` page order, PDF overlay import and structure-preserving PDF updates |
 | Apple | `RMRender::apple` | CoreGraphics, CoreText | RGBA bitmaps, multipage vector PDF, sheet output, PDF source pages with remapped links and outlines |
+| Linux | `RMRender::linux` | Cairo, Pango, GdkPixbuf, PDFium | RGBA bitmaps, vector PDF and source-page composition |
+| Linux text | `RMRender::linux_text` | Linux + RMLines + Fontconfig | Native paragraph layout, anchors and complete notebook pages |
+| Linux document | `RMRender::linux_document` | Linux text + RMDoc | Full document export, fresh or preserving |
 | RMLines | `RMRender::rmlines` | [rmlines-lib](https://github.com/altessa-s/rmlines-lib) | Tool calibration and palettes, stroke/scene/page plans, page growth, anchors, highlights, template store |
 | Apple text | `RMRender::apple_text` | Apple + RMLines | CoreText paragraph layout with the bundled open fonts, complete notebook pages |
 | RMDoc | `RMRender::rmdoc` | RMLines + [rmdoc-lib](https://github.com/altessa-s/rmdoc-lib) | Pages, templates, tombstones and source-page mapping from an unpacked archive |
 | Apple document | `RMRender::apple_document` | Apple text + RMDoc | A whole document to PDF, fresh or as an incremental update of its source PDF |
+| Linux marks | `RMRender::linux_marks` | Linux text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlight extraction and stacked OCR sheets |
 | Apple marks | `RMRender::apple_marks` | Apple text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlighted text on a rendered page and stacked mark sheets for OCR |
 
 Pen textures are sampled in portable C for every grain family (the pencils,
 the paintbrush and both ballpoints): pressure maps along each segment,
 SplitMix64 lattice hashes, and 16 procedural 64×64 tiles embedded as packed
 bits. Nothing is loaded at run time and no platform rasterizer is
-involved. Only the Apple backend draws output; the core builds and is tested on
-Linux without it.
+involved. Apple and Linux backends draw output; the core can also be built
+without either backend. See [Linux setup and compatibility](LINUX.md).
 
 ## Build and install
 
@@ -59,9 +64,10 @@ cmake --install build --prefix "$PWD/stage"
 | `RMRENDER_BUILD_TESTS` | on for a top-level build | Build tests and the `check` target |
 | `RMRENDER_WERROR` | `OFF` | Treat compiler warnings as errors |
 | `RMRENDER_BUILD_APPLE` | on with an Apple SDK | Build the CoreGraphics/CoreText backend |
+| `RMRENDER_BUILD_LINUX` | `OFF` | Build the Cairo/Pango/PDFium backend; see [Linux](LINUX.md) |
 | `RMRENDER_BUILD_RMLINES` | `OFF` | Build the RMLines adapter |
 | `RMRENDER_BUILD_RMDOC` | `OFF` | Build the RMDoc adapter (needs RMLines) |
-| `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs Apple and RMLines) |
+| `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs RMLines and Apple or Linux) |
 | `RMRENDER_BUILD_EXAMPLES` | `OFF` | Build `rmrender_grain`, an Apple example that draws each grain |
 
 The adapters find installed `RMLines`, `RMDoc` and `RMMarks` CMake packages;
@@ -86,6 +92,10 @@ pkg-config names use `rmrender-` and hyphens (`rmrender-core`,
 `rmrender-apple-text`, …); `rmrender-apple-full` brings in the document and
 marks components. `add_subdirectory` is supported; tests default to off when
 embedded. Public names use `rmr_`/`RMR_` and coexist with RMLines' `rm_` names.
+
+The examples below use Apple entry points. Linux uses the matching `linux*.h`
+headers and `rmr_linux_` prefix; its PDF and typography boundaries are documented
+in [LINUX.md](LINUX.md).
 
 ## Draw a plan
 
@@ -188,7 +198,7 @@ rmr_status page_pdf(const uint8_t *bytes, size_t size, const char *fonts_dir,
   directories should take precedence over the bundled ones. The adapters do no
   I/O of their own beyond these stores.
 - **Handwriting only.** `rmr_apple_page_ink_plan` draws ink alone, for OCR, and
-  `rmr_apple_page_marks` returns the highlighted text for
+  `rmr_apple_page_marks` / `rmr_linux_page_marks` return the highlighted text for
   [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib).
 
 ## Documents and PDFs
@@ -258,8 +268,9 @@ each allocation, templates and JSON decoding, PDF parsing and incremental
 updates, Apple bitmap/PDF/text output, page composition, archives and full
 pages. The core alone builds and passes its suites on Linux with GCC.
 
-CI builds the core on Linux and the full package on macOS with ASan/UBSan, and
-checks that the generated tiles are current. Generated files are reproducible:
+CI builds the portable core, the Linux renderer in static/shared configurations,
+and the full Apple package. Renderer jobs use ASan/UBSan; generated tiles are also
+checked. Generated files are reproducible:
 
 ```sh
 python3 scripts/generate-grain.py --check       # grain tile PNGs

@@ -165,11 +165,27 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
     }
     return RMR_OK;
 }
+/* Paragraph text was validated on layout creation. Check UTF-16 scalar
+ * boundaries without allocating a CFString for each anchor query. */
+static bool scalar_boundary(rm_str text, size_t index) {
+    size_t units = 0;
+    for (size_t at = 0; at < text.length && units < index;) {
+        unsigned char lead = (unsigned char)text.bytes[at];
+        units += lead >= 0xf0 ? 2u : 1u;
+        at += lead >= 0xf0 ? 4u : lead >= 0xe0 ? 3u : lead >= 0xc0 ? 2u : 1u;
+    }
+    return units == index;
+}
 static rmr_status caret(void *context, size_t paragraph, size_t line, size_t index,
                         rmr_caret_offsets *out) {
     rmr_apple_layout *l = context;
-    if (paragraph >= l->anchors.count || line >= l->paragraphs[paragraph].line_count ||
-        index > LONG_MAX)
+    if (!l || !out || paragraph >= l->anchors.count ||
+        line >= l->paragraphs[paragraph].line_count || index > LONG_MAX)
+        return RMR_ERR_INVALID_ARGUMENT;
+    const rmr_anchor_paragraph *p = &l->paragraphs[paragraph];
+    rmr_anchor_line range = p->lines[line];
+    if (index < range.location || index - range.location > range.length ||
+        !scalar_boundary(p->text, index))
         return RMR_ERR_INVALID_ARGUMENT;
     CTLineRef native = l->native[paragraph].lines[line];
     CFRange r = CTLineGetStringRange(native);

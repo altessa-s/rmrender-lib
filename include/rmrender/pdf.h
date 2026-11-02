@@ -61,4 +61,18 @@ typedef struct {
                                                const rmr_limits *limits,
                                                rmr_pdf_page_geometry *pages, size_t capacity,
                                                size_t *count, rmr_error *error);
+typedef struct {
+    const rmr_plan *marks;
+    rmr_sheet sheet;
+    rmr_rect source_rect; /* Original displayed page in .rm coordinates. */
+    size_t source_page;
+    bool has_source, source_visible;
+} rmr_pdf_page;
+typedef struct {
+    size_t links_preserved, links_dropped;
+} rmr_pdf_report;
+typedef struct {
+    size_t document_pages, rendered_pages, skipped_blocks, refused_sources;
+    rmr_pdf_report pdf;
+} rmr_document_report;
 #endif

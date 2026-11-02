@@ -1,3 +1,6 @@
+#ifdef __linux__
+#define _POSIX_C_SOURCE 200809L
+#endif
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */

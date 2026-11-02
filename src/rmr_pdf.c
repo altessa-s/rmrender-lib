@@ -1673,3 +1673,230 @@ rmr_status rmr_pdf_pages(const uint8_t *source, size_t size, const rmr_limits *g
                ? RMR_OK
                : rmr_fail(error, j.status, 0, j.reason ? j.reason : "PDF inspection failed");
 }
+
+#include "rmr_pdf_edit.h"
+static void clip_point(writer *w, rmr_transform t, rmr_point p) {
+    real(w, t.a * p.x + t.c * p.y + t.tx);
+    text(w, " ");
+    real(w, t.b * p.x + t.d * p.y + t.ty);
+    text(w, " ");
+}
+rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
+                        rmr_transform transform, const rmr_limits *limits, rmr_buffer *out) {
+    if (!pdf || !size || !out || (path.count && !path.elements))
+        return RMR_ERR_INVALID_ARGUMENT;
+    job j = {.limits = limits ? *limits : rmr_limits_default()};
+    writer w = {.j = &j}, c = {.j = &j};
+    file f;
+    if (path.count > j.limits.maximum_elements)
+        stop(&j, RMR_ERR_LIMIT, "clip path limit");
+    if (tick(&j) && open_file(&f, &j, pdf, size, false)) {
+        if (f.page_count != 1)
+            stop(&j, RMR_ERR_INVALID_ARGUMENT, "clip requires one page");
+        w.next_number = f.next_number;
+        put(&w, pdf, size);
+        text(&w, "\n");
+        text(&c, "q\n");
+        for (size_t i = 0; i < path.count && tick(&j); i++) {
+            const rmr_element *v = &path.elements[i];
+            switch (v->kind) {
+            case RMR_MOVE:
+            case RMR_LINE:
+                clip_point(&c, transform, v->end);
+                text(&c, v->kind == RMR_MOVE ? "m\n" : "l\n");
+                break;
+            case RMR_CURVE:
+                clip_point(&c, transform, v->control1);
+                clip_point(&c, transform, v->control2);
+                clip_point(&c, transform, v->end);
+                text(&c, "c\n");
+                break;
+            case RMR_CLOSE:
+                text(&c, "h\n");
+                break;
+            default:
+                stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid clip operation");
+            }
+        }
+        text(&c, "W n\n");
+        uint32_t start = reserve(&w);
+        begin(&w, start, 0);
+        format(&w, "<< /Length %zu >>\nstream\n", c.data.size);
+        put(&w, c.data.bytes, c.data.size);
+        text(&w, "\nendstream");
+        end(&w);
+        uint32_t close = stream_text(&w, "Q\n");
+        page *p = f.pages;
+        if (p && j.status == RMR_OK) {
+            begin(&w, p->object->number, p->object->generation);
+            text(&w, "<<\n");
+            const char *skip[] = {"Contents"};
+            fields(&w, nullptr, p->object->object, skip, 1);
+            format(&w, "/Contents [%u 0 R ", start);
+            contents(&w, &f, get(p->object->object, "Contents"));
+            format(&w, "%u 0 R] >>", close);
+            end(&w);
+            finish(&w, &f);
+        }
+    }
+    free(c.data.bytes);
+    if (j.status == RMR_OK)
+        *out = w.data;
+    else
+        free(w.data.bytes);
+    release(&j);
+    return j.status;
+}
+
+static void destination(writer *w, page **pages, size_t count, rmr_pdf_destination d) {
+    if (d.page >= count) {
+        stop(w->j, RMR_ERR_INVALID_ARGUMENT, "navigation target outside document");
+        return;
+    }
+    entry *e = pages[d.page]->object;
+    format(w, "/Dest [%u %u R /XYZ ", e->number, e->generation);
+    real(w, d.point.x);
+    text(w, " ");
+    real(w, d.point.y);
+    text(w, " null]\n");
+}
+typedef struct {
+    uint32_t id;
+    size_t first, last, prev, next, visible;
+} outline_entry;
+rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_local_link *links,
+                              size_t link_count, const rmr_pdf_outline *outline,
+                              size_t outline_count, const rmr_limits *limits, rmr_cancel_fn cancel,
+                              void *context, rmr_buffer *out) {
+    if (!pdf || !size || !out || (link_count && !links) || (outline_count && !outline))
+        return RMR_ERR_INVALID_ARGUMENT;
+    job j = {
+        .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
+    writer w = {.j = &j};
+    file f;
+    if (link_count > SIZE_MAX / sizeof(uint32_t) ||
+        outline_count >= SIZE_MAX / sizeof(outline_entry) ||
+        link_count > j.limits.maximum_elements || outline_count >= j.limits.maximum_elements)
+        stop(&j, RMR_ERR_LIMIT, "navigation limit");
+    if (tick(&j) && open_file(&f, &j, pdf, size, false)) {
+        w.next_number = f.next_number;
+        put(&w, pdf, size);
+        text(&w, "\n");
+        page **pages = take(&j, f.page_count * sizeof *pages);
+        uint32_t *ids = take(&j, link_count * sizeof *ids);
+        outline_entry *tree = take(&j, (outline_count + 1) * sizeof *tree);
+        if (j.status == RMR_OK) {
+            size_t at = 0;
+            for (page *p = f.pages; p; p = p->next)
+                pages[at++] = p;
+            for (size_t i = 0; i < link_count && tick(&j); i++) {
+                if (links[i].page >= f.page_count) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "link outside document");
+                    break;
+                }
+                ids[i] = reserve(&w);
+                begin(&w, ids[i], 0);
+                text(&w, "<< /Type /Annot /Subtype /Link /Border [0 0 0] /Rect ");
+                rectangle(&w, links[i].rect);
+                text(&w, "\n");
+                destination(&w, pages, f.page_count, links[i].destination);
+                text(&w, ">>");
+                end(&w);
+            }
+            for (size_t pi = 0; pi < f.page_count && tick(&j); pi++) {
+                bool found = false;
+                for (size_t i = 0; i < link_count && tick(&j); i++)
+                    found |= links[i].page == pi;
+                if (!found)
+                    continue;
+                page *p = pages[pi];
+                begin(&w, p->object->number, p->object->generation);
+                text(&w, "<<\n");
+                const char *skip[] = {"Annots"};
+                fields(&w, nullptr, p->object->object, skip, 1);
+                text(&w, "/Annots [");
+                node *existing = resolve(&f, get(p->object->object, "Annots"), 0);
+                if (existing && existing->type != ARRAY)
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid annotations");
+                for (node *n = existing ? existing->child : nullptr; n && tick(&j); n = n->next) {
+                    value(&w, nullptr, n, 0);
+                    text(&w, " ");
+                }
+                for (size_t i = 0; i < link_count && tick(&j); i++)
+                    if (links[i].page == pi)
+                        format(&w, "%u 0 R ", ids[i]);
+                text(&w, "] >>");
+                end(&w);
+            }
+            for (size_t i = 0; i <= outline_count && tick(&j); i++)
+                tree[i] = (outline_entry){reserve(&w), SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, 0};
+            for (size_t i = 0; i < outline_count && tick(&j); i++) {
+                size_t parent = outline[i].parent;
+                if (parent != SIZE_MAX && parent >= i) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid outline parent");
+                    break;
+                }
+                if (parent == SIZE_MAX)
+                    parent = outline_count;
+                size_t prev = tree[parent].last;
+                tree[i].prev = prev;
+                if (prev != SIZE_MAX)
+                    tree[prev].next = i;
+                else
+                    tree[parent].first = i;
+                tree[parent].last = i;
+            }
+            for (size_t i = outline_count; i > 0 && tick(&j);) {
+                --i;
+                size_t parent = outline[i].parent == SIZE_MAX ? outline_count : outline[i].parent;
+                tree[parent].visible += 1 + (outline[i].open ? tree[i].visible : 0);
+            }
+            for (size_t i = 0; i < outline_count && tick(&j); i++) {
+                const rmr_pdf_outline *o = &outline[i];
+                if ((o->title_size && !o->title) || o->title_size % 2) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid outline title");
+                    break;
+                }
+                begin(&w, tree[i].id, 0);
+                text(&w, "<< /Title <FEFF");
+                for (size_t k = 0; k < o->title_size && tick(&j); k += 2)
+                    format(&w, "%02X%02X", o->title[k + 1], o->title[k]);
+                size_t parent = o->parent == SIZE_MAX ? outline_count : o->parent;
+                format(&w, "> /Parent %u 0 R\n", tree[parent].id);
+                if (tree[i].prev != SIZE_MAX)
+                    format(&w, "/Prev %u 0 R\n", tree[tree[i].prev].id);
+                if (tree[i].next != SIZE_MAX)
+                    format(&w, "/Next %u 0 R\n", tree[tree[i].next].id);
+                if (tree[i].first != SIZE_MAX)
+                    format(&w, "/First %u 0 R /Last %u 0 R /Count %s%zu\n", tree[tree[i].first].id,
+                           tree[tree[i].last].id, o->open ? "" : "-", tree[i].visible);
+                if (o->destination.page != SIZE_MAX)
+                    destination(&w, pages, f.page_count, o->destination);
+                text(&w, ">>");
+                end(&w);
+            }
+            if (outline_count && j.status == RMR_OK) {
+                outline_entry *root = &tree[outline_count];
+                begin(&w, root->id, 0);
+                format(&w, "<< /Type /Outlines /First %u 0 R /Last %u 0 R /Count %zu >>",
+                       tree[root->first].id, tree[root->last].id, root->visible);
+                end(&w);
+                node *ref = get(f.trailer, "Root");
+                begin(&w, ref->number, ref->generation);
+                text(&w, "<<\n");
+                const char *skip[] = {"Outlines"};
+                fields(&w, nullptr, f.root, skip, 1);
+                format(&w, "/Outlines %u 0 R >>", root->id);
+                end(&w);
+            }
+            if (j.status == RMR_OK)
+                finish(&w, &f);
+        }
+    }
+    if (j.status == RMR_OK)
+        *out = w.data;
+    else
+        free(w.data.bytes);
+    release(&j);
+    return j.status;
+}

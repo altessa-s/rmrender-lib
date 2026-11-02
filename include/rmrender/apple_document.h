@@ -6,10 +6,6 @@
 #include "apple_pdf.h"
 #include "apple_text.h"
 #include "archive.h"
-typedef struct {
-    size_t document_pages, rendered_pages, skipped_blocks, refused_sources;
-    rmr_pdf_report pdf;
-} rmr_document_report;
 /* Render an assembled RMDoc archive document. Zero maximum_pages means all.
  * Archive attachments are used unless resources.image overrides them. Templates
  * and fonts stay explicit. Imported PDF pages use native point sizing; notebook

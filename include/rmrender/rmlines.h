@@ -200,7 +200,13 @@ typedef struct {
 #define RMR_CARET_PROVIDER_ABI 1u
 /* Offset values are native caret positions, not typographic widths. The same
  * shaped line must supply both values: at UTF-16 index and at range.location.
- * The provider receives indices into the borrowed layout, not native objects. */
+ * The provider receives indices into the borrowed layout, not native objects.
+ * Built-in Apple/Linux providers accept both line endpoints and scalar boundaries
+ * within the line. They reject null context/output, invalid paragraph/line indices,
+ * indices outside that line and indices inside a UTF-16 surrogate pair with
+ * RMR_ERR_INVALID_ARGUMENT, leaving a nonnull output unchanged. Native offsets
+ * within a composed character are backend-dependent; use grapheme boundaries
+ * for user-visible cursor stops. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;

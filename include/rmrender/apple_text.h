@@ -8,7 +8,6 @@
 /* Resolve a bundled open font by resource name, without the .ttf extension.
  * Bytes are borrowed for the callback's caller. No process-wide registration.
  * A missing font returns UNSUPPORTED; the library never substitutes silently. */
-typedef rmr_status (*rmr_font_resolve_fn)(void *context, const char *resource, rmr_asset_view *out);
 typedef struct rmr_apple_fonts rmr_apple_fonts;
 [[nodiscard]] RMR_API rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
                                                         const rmr_limits *limits,
@@ -60,10 +59,6 @@ RMR_API bool rmr_apple_layout_bottom(const rmr_apple_layout *layout, double *out
                                                        const rmr_apple_fonts *fonts,
                                                        const rmr_limits *limits, rmr_rect *out,
                                                        rmr_error *error);
-typedef struct {
-    size_t paragraph, from, to; /* UTF-16 code-unit range */
-    double baseline, start, end;
-} rmr_text_line;
 [[nodiscard]] RMR_API rmr_status rmr_apple_layout_line(const rmr_apple_layout *layout,
                                                        size_t paragraph, size_t line,
                                                        rmr_text_line *out, rmr_error *error);

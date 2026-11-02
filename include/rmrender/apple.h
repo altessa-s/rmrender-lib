@@ -3,13 +3,9 @@
  * found in the LICENSE file. */
 #ifndef RMR_APPLE_H
 #define RMR_APPLE_H
-#include "backend.h"
+#include "output.h"
 #include "grain.h"
 #include "template.h"
-typedef struct {
-    uint8_t *pixels;
-    size_t width, height, stride;
-} rmr_bitmap;
 /* Eraser path subtraction requires macOS 13+/iOS 16+ and an SDK exposing it.
  * Older runtimes omit RMR_CAP_ERASE and reject affected plans before drawing.
  * RGBA8, premultiplied alpha, sRGB, first row at top, tightly packed.
@@ -23,7 +19,6 @@ typedef struct {
                                                   rmr_color background, const rmr_limits *limits,
                                                   rmr_cancel_fn cancel, void *cancel_context,
                                                   rmr_bitmap *out, rmr_error *error);
-RMR_API void rmr_bitmap_free(rmr_bitmap *bitmap);
 /* Multi-page vector PDF. One viewport per plan; scale is points per .rm unit.
  * Bounded memory output; no file is created, overwritten or removed. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_pdf(const rmr_plan *const *plans, size_t count,
