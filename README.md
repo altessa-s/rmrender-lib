@@ -16,8 +16,8 @@ Part of **[Slate Drive](https://slatedrive.app)**
 ([repository](https://github.com/altessa-s/slatedrive)), the macOS app that
 shows a reMarkable library in Finder.
 
-The version is 0.10.0. Before 1.0 the API and ABI may change between minor
-versions; the shared-library ABI name is `major.minor`.
+The version is 1.0.0. The API and ABI stay compatible within a major version;
+the shared-library ABI name is the major version.
 
 ## What it renders
 
@@ -78,7 +78,7 @@ pkg-config metadata, and `share/rmrender` with the fonts, their licenses, the
 grain tiles and the page templates. For CMake consumers:
 
 ```cmake
-find_package(RMRender 0.10 REQUIRED)
+find_package(RMRender 1 REQUIRED)
 target_link_libraries(your_target PRIVATE RMRender::apple_text)
 ```
 
