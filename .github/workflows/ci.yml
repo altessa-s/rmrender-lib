@@ -56,10 +56,11 @@ jobs:
       - run: cmake --build build-cairo-consumer
       - run: ./build-cairo-consumer/consumer
   linux:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: debian:trixie
     strategy:
       matrix:
+        arch: ["x64", "arm64"]
         shared: ["ON", "OFF"]
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +83,7 @@ jobs:
           path: .deps/rmmarks
       - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER=clang -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmmarks --target install
-      - run: python3 scripts/fetch-pdfium.py --platform linux-x64 --output .deps/pdfium
+      - run: python3 scripts/fetch-pdfium.py --platform linux-${{ matrix.arch }} --output .deps/pdfium
       - run: cmake -S .deps/rmlines -B build-rmlines -G Ninja -DCMAKE_C_COMPILER=clang -DRMLINES_BUILD_TESTS=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmlines --target install
       - run: cmake -S .deps/rmdoc -B build-rmdoc -G Ninja -DCMAKE_C_COMPILER=clang -DRMDOC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"

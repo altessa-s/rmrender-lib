@@ -306,7 +306,7 @@ each allocation, templates and JSON decoding, PDF parsing and incremental
 updates, Apple bitmap/PDF/text output, page composition, archives and full
 pages. The core alone builds and passes its suites on Linux with GCC.
 
-CI builds the portable core, the Linux renderer in static/shared configurations,
+CI builds the portable core, the Linux renderer on x64 and arm64 in static/shared configurations,
 and the full Apple package. Renderer jobs use ASan/UBSan; generated tiles are also
 checked. Generated files are reproducible:
 
