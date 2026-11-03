@@ -37,17 +37,20 @@ rmr_status rmr_apple_pdf_source_create(const uint8_t *bytes, size_t size, const 
                                        rmr_apple_pdf_source **out, rmr_error *e) {
     if (!bytes || !size || !out)
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "missing PDF bytes");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (size > l.maximum_pdf_bytes || size > LONG_MAX)
         return fail(e, RMR_ERR_LIMIT, "source PDF limit");
     rmr_apple_pdf_source *s = calloc(1, sizeof *s);
     if (!s)
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "source allocation failed");
+
     s->data = CFDataCreate(kCFAllocatorDefault, bytes, (CFIndex)size);
     CGDataProviderRef provider = s->data ? CGDataProviderCreateWithCFData(s->data) : nullptr;
     s->document = provider ? CGPDFDocumentCreateWithProvider(provider) : nullptr;
     if (provider)
         CGDataProviderRelease(provider);
+
     rmr_status status =
         !s->data       ? RMR_ERR_OUT_OF_MEMORY
         : !s->document ? RMR_ERR_BACKEND
@@ -56,6 +59,7 @@ rmr_status rmr_apple_pdf_source_create(const uint8_t *bytes, size_t size, const 
             : RMR_OK;
     if (status == RMR_OK && CGPDFDocumentGetNumberOfPages(s->document) > l.maximum_draws)
         status = RMR_ERR_LIMIT;
+
     for (size_t i = 0; status == RMR_OK && i < CGPDFDocumentGetNumberOfPages(s->document); i++) {
         CGPDFDictionaryRef page = CGPDFPageGetDictionary(CGPDFDocumentGetPage(s->document, i + 1));
         CGPDFObjectRef object = nullptr;
@@ -65,10 +69,12 @@ rmr_status rmr_apple_pdf_source_create(const uint8_t *bytes, size_t size, const 
                 status = RMR_ERR_UNSUPPORTED;
         }
     }
+
     if (status != RMR_OK) {
         rmr_apple_pdf_source_free(s);
         return fail(e, status, "PDF could not be opened");
     }
+
     *out = s;
     return RMR_OK;
 }
@@ -81,11 +87,13 @@ rmr_status rmr_apple_pdf_source_size(const rmr_apple_pdf_source *s, size_t page,
                                      rmr_error *e) {
     if (!s || !out || page >= rmr_apple_pdf_source_count(s))
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "source page out of range");
+
     CGPDFPageRef p = CGPDFDocumentGetPage(s->document, page + 1);
     CGRect r = CGPDFPageGetBoxRect(p, kCGPDFMediaBox);
     if (!isfinite(r.size.width) || !isfinite(r.size.height) || r.size.width <= 0 ||
         r.size.height <= 0)
         return fail(e, RMR_ERR_BACKEND, "invalid source media box");
+
     int rotation = CGPDFPageGetRotationAngle(p) % 180;
     *out = rotation ? (rmr_point){r.size.height, r.size.width}
                     : (rmr_point){r.size.width, r.size.height};
@@ -102,10 +110,12 @@ static size_t put(void *context, const void *bytes, size_t size) {
     sink *s = context;
     if (s->status != RMR_OK)
         return 0;
+
     if (size > s->limit - s->bytes.size) {
         s->status = RMR_ERR_LIMIT;
         return 0;
     }
+
     size_t need = s->bytes.size + size;
     if (need > s->capacity) {
         size_t next = s->capacity && s->capacity <= s->limit / 2 ? s->capacity * 2 : need;
@@ -119,6 +129,7 @@ static size_t put(void *context, const void *bytes, size_t size) {
         s->bytes.bytes = p;
         s->capacity = next;
     }
+
     if (size)
         memcpy(s->bytes.bytes + s->bytes.size, bytes, size);
     s->bytes.size = need;
@@ -144,9 +155,11 @@ static bool array_rect(CGPDFArrayRef a, CGRect *out) {
     CGPDFReal v[4];
     if (!a || CGPDFArrayGetCount(a) < 4)
         return false;
+
     for (size_t i = 0; i < 4; i++)
         if (!CGPDFArrayGetNumber(a, i, &v[i]) || !isfinite(v[i]))
             return false;
+
     *out = CGRectMake(fmin(v[0], v[2]), fmin(v[1], v[3]), fabs(v[2] - v[0]), fabs(v[3] - v[1]));
     return true;
 }
@@ -165,6 +178,7 @@ static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name, size
                                  size_t maximum, unsigned depth) {
     if (depth > 64 || *work >= maximum)
         return nullptr;
+
     (*work)++;
     CGPDFArrayRef names = nullptr, kids = nullptr;
     if (CGPDFDictionaryGetArray(tree, "Names", &names)) {
@@ -184,6 +198,7 @@ static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name, size
                 return value;
         }
     }
+
     if (CGPDFDictionaryGetArray(tree, "Kids", &kids)) {
         size_t count = CGPDFArrayGetCount(kids);
         for (size_t i = 0; i < count; i++) {
@@ -198,6 +213,7 @@ static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name, size
                 return found;
         }
     }
+
     return nullptr;
 }
 
@@ -210,12 +226,14 @@ static CGPDFArrayRef destination_array(const rmr_apple_pdf_source *s, CGPDFObjec
     CGPDFDictionaryRef dictionary = nullptr;
     if (CGPDFObjectGetValue(object, kCGPDFObjectTypeArray, &array))
         return array;
+
     if (CGPDFObjectGetValue(object, kCGPDFObjectTypeDictionary, &dictionary)) {
         CGPDFObjectRef value = nullptr;
         if (CGPDFDictionaryGetObject(dictionary, "D", &value))
             return destination_array(s, value, work, maximum, depth + 1);
         return nullptr;
     }
+
     CFStringRef name = pdf_name(object);
     if (!name)
         return nullptr;
@@ -230,6 +248,7 @@ static CGPDFArrayRef destination_array(const rmr_apple_pdf_source *s, CGPDFObjec
     if (!found && CGPDFDictionaryGetDictionary(catalog, "Names", &names) &&
         CGPDFDictionaryGetDictionary(names, "Dests", &destinations))
         found = named_tree(destinations, name, work, maximum, 0);
+
     CFRelease(name);
     return found ? destination_array(s, found, work, maximum, depth + 1) : nullptr;
 }
@@ -252,6 +271,7 @@ static CFStringRef local_name(size_t origin, size_t annotation) {
 static rmr_status destination_append(local_destinations *list, local_destination item) {
     if (list->count == list->maximum)
         return RMR_ERR_LIMIT;
+
     if (list->count == list->capacity) {
         size_t next = list->capacity ? list->capacity * 2 : 16;
         if (next > list->maximum)
@@ -262,6 +282,7 @@ static rmr_status destination_append(local_destinations *list, local_destination
         list->items = memory;
         list->capacity = next;
     }
+
     list->items[list->count++] = item;
     return RMR_OK;
 }
@@ -277,9 +298,11 @@ static size_t explicit_destination(const rmr_apple_pdf_source *s, CGPDFObjectRef
     CGPDFArrayRef array = destination_array(s, object, work, maximum, 0);
     if (!array || CGPDFArrayGetCount(array) < 1)
         return SIZE_MAX;
+
     CGPDFDictionaryRef target = nullptr;
     if (!CGPDFArrayGetDictionary(array, 0, &target))
         return SIZE_MAX;
+
     for (size_t i = 0; i < count; i++) {
         if (*work >= maximum)
             return SIZE_MAX;
@@ -291,6 +314,7 @@ static size_t explicit_destination(const rmr_apple_pdf_source *s, CGPDFObjectRef
             CGPoint position = CGPointMake(CGRectGetMinX(media), CGRectGetMaxY(media));
             const char *mode = nullptr;
             CGPDFReal value;
+
             if (CGPDFArrayGetName(array, 1, &mode)) {
                 if (!strcmp(mode, "XYZ") || !strcmp(mode, "FitV") || !strcmp(mode, "FitBV") ||
                     !strcmp(mode, "FitR"))
@@ -302,6 +326,7 @@ static size_t explicit_destination(const rmr_apple_pdf_source *s, CGPDFObjectRef
                     if (CGPDFArrayGetNumber(array, at, &value) && isfinite(value))
                         position.y = value;
             }
+
             *point = CGPointApplyAffineTransform(position, transform(s, &pages[i]));
             return i;
         }
@@ -317,17 +342,20 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
     CGPDFArrayRef annotations = nullptr;
     if (!CGPDFDictionaryGetArray(CGPDFPageGetDictionary(page), "Annots", &annotations))
         return RMR_OK;
+
     size_t n = CGPDFArrayGetCount(annotations);
     if (n > maximum - *work)
         return RMR_ERR_LIMIT;
     *work += n;
     CGAffineTransform t = transform(s, p);
+
     for (size_t i = 0; i < n; i++) {
         CGPDFDictionaryRef a = nullptr;
         const char *subtype = nullptr;
         if (!CGPDFArrayGetDictionary(annotations, i, &a) ||
             !CGPDFDictionaryGetName(a, "Subtype", &subtype) || strcmp(subtype, "Link"))
             continue;
+
         CGPDFArrayRef rectangle = nullptr;
         CGRect rect;
         if (!CGPDFDictionaryGetArray(a, "Rect", &rectangle) || !array_rect(rectangle, &rect)) {
@@ -335,11 +363,13 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
             continue;
         }
         rect = CGRectApplyAffineTransform(rect, t);
+
         CGPDFDictionaryRef action = nullptr;
         const char *kind = nullptr;
         CGPDFObjectRef dest = nullptr;
         if (CGPDFDictionaryGetDictionary(a, "A", &action))
             CGPDFDictionaryGetName(action, "S", &kind);
+
         if (kind && !strcmp(kind, "URI")) {
             CGPDFStringRef uri = nullptr;
             if (CGPDFDictionaryGetString(action, "URI", &uri)) {
@@ -361,8 +391,10 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
                 CGPDFDictionaryGetObject(action, "D", &dest);
             if (!dest)
                 CGPDFDictionaryGetObject(a, "Dest", &dest);
+
             CGPoint point;
             size_t target = explicit_destination(s, dest, pages, count, work, maximum, &point);
+
             if (target != SIZE_MAX) {
                 if (collect) {
                     rmr_status status =
@@ -371,6 +403,7 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
                         return status;
                     continue;
                 }
+
                 CFStringRef name = local_name(index, i);
                 if (!name)
                     return RMR_ERR_OUT_OF_MEMORY;
@@ -379,11 +412,14 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
                 report->links_preserved++;
                 continue;
             }
+
             if (*work >= maximum)
                 return RMR_ERR_LIMIT;
         }
+
         report->links_dropped++;
     }
+
     return RMR_OK;
 }
 
@@ -392,29 +428,36 @@ static rmr_status outline_children(const rmr_apple_pdf_source *s, CFArrayRef inp
                                    size_t count, size_t *work, size_t maximum, unsigned depth) {
     if (depth > 128)
         return RMR_ERR_LIMIT;
+
     if (!input || CFGetTypeID(input) != CFArrayGetTypeID())
         return RMR_OK;
+
     CFIndex n = CFArrayGetCount(input);
     for (CFIndex i = 0; i < n; i++) {
         if (*work >= maximum)
             return RMR_ERR_LIMIT;
         (*work)++;
+
         CFDictionaryRef old = CFArrayGetValueAtIndex(input, i);
         if (CFGetTypeID(old) != CFDictionaryGetTypeID())
             continue;
+
         CFMutableArrayRef children =
             CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
         if (!children)
             return RMR_ERR_OUT_OF_MEMORY;
+
         rmr_status status = outline_children(s, CFDictionaryGetValue(old, kCGPDFOutlineChildren),
                                              children, pages, count, work, maximum, depth + 1);
         if (status != RMR_OK) {
             CFRelease(children);
             return status;
         }
+
         CFTypeRef target = CFDictionaryGetValue(old, kCGPDFOutlineDestination);
         size_t mapped = SIZE_MAX;
         CFNumberRef number = nullptr;
+
         if (target && CFGetTypeID(target) == CFNumberGetTypeID()) {
             int64_t original = 0;
             if (CFNumberGetValue(target, kCFNumberSInt64Type, &original) && original > 0)
@@ -436,19 +479,23 @@ static rmr_status outline_children(const rmr_apple_pdf_source *s, CFArrayRef inp
             target = number;
         } else if (!target || CFGetTypeID(target) != CFURLGetTypeID())
             target = nullptr;
+
         if (target) {
             CFMutableDictionaryRef item =
                 CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, old);
+
             if (!item) {
                 if (number)
                     CFRelease(number);
                 CFRelease(children);
                 return RMR_ERR_OUT_OF_MEMORY;
             }
+
             CFDictionarySetValue(item, kCGPDFOutlineDestination, target);
             CFDictionaryRemoveValue(item, kCGPDFOutlineChildren);
             if (CFArrayGetCount(children))
                 CFDictionarySetValue(item, kCGPDFOutlineChildren, children);
+
             CFDictionaryRef old_rect = CFDictionaryGetValue(old, kCGPDFOutlineDestinationRect);
             CGRect rect;
             if (mapped != SIZE_MAX && old_rect &&
@@ -461,15 +508,18 @@ static rmr_status outline_children(const rmr_apple_pdf_source *s, CFArrayRef inp
                     CFRelease(new_rect);
                 }
             }
+
             CFArrayAppendValue(output, item);
             CFRelease(item);
         } else
             for (CFIndex j = 0; j < CFArrayGetCount(children); j++)
                 CFArrayAppendValue(output, CFArrayGetValueAtIndex(children, j));
+
         if (number)
             CFRelease(number);
         CFRelease(children);
     }
+
     return RMR_OK;
 }
 
@@ -479,9 +529,11 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                                  rmr_error *e) {
     if (!pages || !count || !out)
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "missing PDF output pages");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (count > l.maximum_draws || count > INT64_MAX)
         return fail(e, RMR_ERR_LIMIT, "PDF page count limit");
+
     for (size_t i = 0; i < count; i++) {
         const rmr_pdf_page *p = &pages[i];
         rmr_transform t = p->sheet.transform;
@@ -500,6 +552,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                 return fail(e, RMR_ERR_INVALID_ARGUMENT, "invalid PDF source placement");
         }
     }
+
     local_destinations targets = {.maximum = l.maximum_plan_bytes / sizeof(local_destination)};
     if (targets.maximum > l.maximum_elements)
         targets.maximum = l.maximum_elements;
@@ -518,6 +571,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                 return fail(e, collected, "PDF destination collection failed");
             }
         }
+
     if (targets.count > 1)
         qsort(targets.items, targets.count, sizeof *targets.items, destination_order);
     size_t next_target = 0;
@@ -528,6 +582,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
         free(targets.items);
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "PDF sink allocation failed");
     }
+
     CGContextRef cg = CGPDFContextCreate(consumer, nullptr, nullptr);
     CGDataConsumerRelease(consumer);
     if (!cg) {
@@ -535,6 +590,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
         free(output.bytes.bytes);
         return fail(e, RMR_ERR_BACKEND, "PDF context unavailable");
     }
+
     rmr_status status = RMR_OK;
     rmr_pdf_report result = {0};
     for (size_t i = 0; i < count; i++) {
@@ -542,6 +598,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
             status = RMR_ERR_CANCELLED;
             break;
         }
+
         const rmr_pdf_page *p = &pages[i];
         CGRect box = CGRectMake(0, 0, p->sheet.width, p->sheet.height);
         rmr_transform placement = p->sheet.transform;
@@ -552,6 +609,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                                   placement.ty));
         if (CGRectIsEmpty(art))
             art = box;
+
         CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&box, sizeof box);
         CFDataRef art_data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&art, sizeof art);
         CGRect crop = box;
@@ -562,6 +620,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                 crop = CGRectApplyAffineTransform(original_crop, transform(source, p));
         }
         CFDataRef crop_data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&crop, sizeof crop);
+
         const void *keys[] = {kCGPDFContextMediaBox, kCGPDFContextArtBox, kCGPDFContextCropBox};
         const void *values[] = {data, art_data, crop_data};
         CFDictionaryRef info = data && art_data && crop_data
@@ -569,6 +628,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                                                         &kCFTypeDictionaryKeyCallBacks,
                                                         &kCFTypeDictionaryValueCallBacks)
                                    : nullptr;
+
         if (data)
             CFRelease(data);
         if (art_data)
@@ -579,6 +639,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
             status = RMR_ERR_OUT_OF_MEMORY;
             break;
         }
+
         CGPDFContextBeginPage(cg, info);
         CFRelease(info);
         CFStringRef name = destination_name(i);
@@ -588,6 +649,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
             CGPDFContextAddDestinationAtPoint(cg, name, CGPointMake(0, p->sheet.height));
             CFRelease(name);
         }
+
         while (status == RMR_OK && next_target < targets.count &&
                targets.items[next_target].page == i) {
             local_destination item = targets.items[next_target++];
@@ -599,6 +661,7 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
                 CFRelease(target_name);
             }
         }
+
         if (status == RMR_OK && p->has_source && p->source_visible) {
             CGContextSaveGState(cg);
             CGContextConcatCTM(cg, transform(source, p));
@@ -607,12 +670,15 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
             status =
                 links(cg, source, pages, count, i, &work, l.maximum_elements, &result, nullptr);
         }
+
         if (status == RMR_OK)
             status = rmr_apple_draw_context(cg, p->marks, &p->sheet, &l, cancel, context, e);
+
         CGPDFContextEndPage(cg);
         if (status != RMR_OK || output.status != RMR_OK)
             break;
     }
+
     if (status == RMR_OK && source) {
         CFDictionaryRef old = CGPDFDocumentGetOutline(source->document);
         if (old) {
@@ -638,15 +704,19 @@ rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_p
             }
         }
     }
+
     CGPDFContextClose(cg);
     CGContextRelease(cg);
     free(targets.items);
+
     if (status == RMR_OK)
         status = output.status;
+
     if (status != RMR_OK) {
         free(output.bytes.bytes);
         return fail(e, status, "PDF overlay failed");
     }
+
     *out = output.bytes;
     if (report)
         *report = result;
@@ -663,8 +733,10 @@ static rmr_status agree(const rmr_apple_pdf_source *source, rmr_pdf_page_geometr
                       geometry, count, &parsed, e);
     if (status != RMR_OK)
         return status;
+
     if (parsed != count)
         return fail(e, RMR_ERR_UNSUPPORTED, "PDF readers disagree on the page count");
+
     for (size_t i = 0; i < count; i++) {
         CGPDFPageRef page = CGPDFDocumentGetPage(source->document, i + 1);
         int rotation = CGPDFPageGetRotationAngle(page) % 360;
@@ -680,6 +752,7 @@ static rmr_status agree(const rmr_apple_pdf_source *source, rmr_pdf_page_geometr
             fabs(CGRectGetHeight(media) - expected.height) > 0.01)
             return fail(e, RMR_ERR_UNSUPPORTED, "PDF readers disagree on a page media box");
     }
+
     return RMR_OK;
 }
 
@@ -689,13 +762,16 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
                                      rmr_pdf_incremental_report *report, rmr_error *e) {
     if (!source || !pages || !out || !count)
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "missing incremental pages");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     if (count != rmr_apple_pdf_source_count(source))
         return fail(e, RMR_ERR_UNSUPPORTED, "incremental output preserves page count/order");
+
     if (count > limits.maximum_draws ||
         count > limits.maximum_plan_bytes /
                     (sizeof(rmr_pdf_overlay) + sizeof(rmr_buffer) + sizeof(rmr_pdf_page_geometry)))
         return fail(e, RMR_ERR_LIMIT, "incremental page limit");
+
     rmr_pdf_overlay *overlays = calloc(count, sizeof *overlays);
     rmr_buffer *pdfs = calloc(count, sizeof *pdfs);
     rmr_pdf_page_geometry *geometry = calloc(count, sizeof *geometry);
@@ -705,28 +781,34 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
         free(geometry);
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "incremental page allocation");
     }
+
     limits.maximum_plan_bytes -= count * (sizeof *overlays + sizeof *pdfs + sizeof *geometry);
     size_t used = 0;
     rmr_status status = agree(source, geometry, count, &limits, e);
+
     for (size_t i = 0; status == RMR_OK && i < count; i++) {
         const rmr_pdf_page *p = &pages[i];
         if (cancel && cancel(context)) {
             status = fail(e, RMR_ERR_CANCELLED, "PDF update cancelled");
             break;
         }
+
         if (!p->has_source || !p->source_visible || p->source_page != i) {
             status = fail(e, RMR_ERR_UNSUPPORTED,
                           "incremental output cannot hide, insert, reorder or remove pages");
             break;
         }
+
         rmr_rect r = p->source_rect;
         if (!p->marks || !isfinite(r.x) || !isfinite(r.y) || !isfinite(r.width) ||
             !isfinite(r.height) || r.width <= 0 || r.height <= 0) {
             status = fail(e, RMR_ERR_INVALID_ARGUMENT, "invalid source placement");
             break;
         }
+
         if (!rmr_plan_count(p->marks))
             continue;
+
         CGPDFPageRef original = CGPDFDocumentGetPage(source->document, i + 1);
         CGAffineTransform t = transform(source, p);
         double determinant = t.a * t.d - t.b * t.c;
@@ -734,15 +816,19 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
             status = fail(e, RMR_ERR_INVALID_ARGUMENT, "singular PDF placement");
             break;
         }
+
         t = CGAffineTransformInvert(t);
         status =
             rmr_apple_pdf_sheets(&p->marks, &p->sheet, 1, &limits, cancel, context, &pdfs[used], e);
+
         if (status != RMR_OK)
             break;
+
         if (pdfs[used].size > limits.maximum_plan_bytes) {
             status = fail(e, RMR_ERR_LIMIT, "retained overlay PDF limit");
             break;
         }
+
         limits.maximum_plan_bytes -= pdfs[used].size;
         CGRect box =
             CGRectApplyAffineTransform(CGRectMake(0, 0, p->sheet.width, p->sheet.height), t);
@@ -752,6 +838,7 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
                       CGRectGetMaxX(box) > CGRectGetMaxX(media) + 0.01 ||
                       CGRectGetMaxY(box) > CGRectGetMaxY(media) + 0.01;
         box = CGRectUnion(box, media);
+
         overlays[used] =
             (rmr_pdf_overlay){.page = i,
                               .pdf = pdfs[used].bytes,
@@ -761,10 +848,12 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
                               .box = {box.origin.x, box.origin.y, box.size.width, box.size.height}};
         used++;
     }
+
     if (status == RMR_OK)
         status = rmr_pdf_incremental(CFDataGetBytePtr(source->data),
                                      (size_t)CFDataGetLength(source->data), overlays, used, &limits,
                                      cancel, context, out, report, e);
+
     for (size_t i = 0; i < count; i++)
         rmr_buffer_free(&pdfs[i]);
     free(pdfs);

@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
 #endif
     F *fonts = nullptr;
     OK(create(argv[1], nullptr, &fonts, nullptr));
+
     for (size_t sample = 0; sample < sizeof samples / sizeof *samples; sample++)
         for (size_t column = 0; column < 4; column++)
             for (size_t style = 0; style < 2; style++) {
@@ -71,6 +72,7 @@ int main(int argc, char **argv) {
                 for (const unsigned char *c = (const unsigned char *)samples[sample]; *c; c++)
                     scalars += (*c & 0xc0) != 0x80;
                 CHECK(scalars <= INT32_MAX);
+
                 rm_face_run face = {
                     .start = 0, .end = (int32_t)scalars, .bold = style != 0, .italic = style != 0};
                 rm_paragraph p = {.text = {samples[sample], strlen(samples[sample])},
@@ -80,9 +82,11 @@ int main(int argc, char **argv) {
                                        .paragraph_count = 1,
                                        .has_column_width = true,
                                        .column_width = columns[column]};
+
                 L *layout = nullptr;
                 OK(layout_create(&block, columns[column], fonts, nullptr, &layout, nullptr));
                 const rmr_anchor_layout *a = anchors(layout);
+
 #if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
                 CFStringRef text =
                     CFStringCreateWithCString(nullptr, samples[sample], kCFStringEncodingUTF8);
@@ -127,13 +131,16 @@ int main(int argc, char **argv) {
                                expected.index, c.at_index, c.at_start);
                 }
 #endif
+
                 layout_free(layout);
             }
+
     release(fonts);
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     CHECK(at == sizeof apple_carets / sizeof *apple_carets);
     FcFini();
 #endif
+
     if (mismatches)
         fprintf(stderr, "%zu caret mismatches\n", mismatches);
     return mismatches ? 1 : 0;

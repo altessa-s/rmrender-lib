@@ -26,6 +26,7 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
                                               : 0;
     if (!count || count > text.length - *at)
         return false;
+
     unsigned value = c & (0x7fu >> count);
     for (unsigned j = 0; j < count; j++) {
         unsigned b = (unsigned char)text.bytes[(*at)++];
@@ -33,6 +34,7 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
             return false;
         value = (value << 6) | (b & 63);
     }
+
     if ((count == 1 && value < 128) || (count == 2 && value < 2048) ||
         (count == 3 && value < 65536) || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff))
         return false;
@@ -73,6 +75,7 @@ rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format, rm_str text
         return fail(error, RMR_ERR_LIMIT, "text metrics work limit");
     if (!utf8(text))
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "invalid text UTF-8");
+
     int level = format ? rm_paragraph_format_heading_level(format) : 0;
     /* Columns: Latin, Noto, CJK, Thai, Arabic, Hebrew. */
     static const double heights[4][6] = {{45.55, 51.55, 54.55, 59.55, 75.55, 51.55},
@@ -82,6 +85,7 @@ rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format, rm_str text
     static const double sizes[4] = {32, 64, 46, 36}, before[4] = {0, 64, 32, 16};
     if (level < 0 || level > 3)
         level = 0;
+
     int dominant = 0;
     bool first_cyrillic = false;
     double height = heights[level][0];
@@ -107,6 +111,7 @@ rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format, rm_str text
         if (script > dominant)
             dominant = script;
     }
+
     double delta = height - heights[level][0], boost = 0;
     if (delta > 0) {
         boost = (dominant == 4 ? .48 : dominant == 2 ? .875 : .768) * delta;
@@ -119,6 +124,7 @@ rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format, rm_str text
             measured[level][dominant] != 0)
             boost = measured[level][dominant];
     }
+
     double size = sizes[level], ascent = .925 * size + boost;
     *out = (rmr_type_metrics){size,
                               height,

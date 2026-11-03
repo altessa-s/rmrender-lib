@@ -26,6 +26,7 @@ typedef struct rmr_linux_fonts rmr_linux_fonts;
                                                                   rmr_linux_fonts **out,
                                                                   rmr_error *error);
 RMR_API void rmr_linux_fonts_free(rmr_linux_fonts *fonts);
+
 typedef struct rmr_linux_layout rmr_linux_layout;
 
 /* Snapshot text and build immutable paragraph/line geometry with Pango.

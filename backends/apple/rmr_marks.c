@@ -22,6 +22,7 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
         status = RMR_ERR_OUT_OF_MEMORY;
         return status;
     }
+
     double widest = 0;
     for (size_t j = 0; j < stroke->point_count; j++) {
         rm_stroke_point p = stroke->points[j];
@@ -37,6 +38,7 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
             CGPathMoveToPoint(path, nullptr, p.x, p.y);
         box = CGRectUnion(box, CGRectMake(p.x - half, p.y - half, half * 2, half * 2));
     }
+
     if (status == RMR_OK && stroke->point_count > 1) {
         CGPathRef outline = CGPathCreateCopyByStrokingPath(
             path, nullptr, widest, style->cap == RMR_CAP_SQUARE ? kCGLineCapSquare : kCGLineCapButt,
@@ -50,6 +52,7 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
             CGPathRelease(outline);
         }
     }
+
     CGPathRelease(path);
     if (status != RMR_OK)
         return status;

@@ -21,6 +21,7 @@ static rmr_status units(void *context, const rmr_unit_span *spans, size_t count,
             fabs(spans[i].from.y) > 1e12 || fabs(spans[i].to.x) > 1e12 ||
             fabs(spans[i].to.y) > 1e12 || spans[i].cap > RMR_CAP_BUTT)
             return RMR_ERR_INVALID_ARGUMENT;
+
     CGColorSpaceRef space = CGColorSpaceCreateDeviceGray();
     CGContextRef cg =
         space ? CGBitmapContextCreate(bytes, width, height, 8, stride, space, kCGImageAlphaNone)
@@ -29,10 +30,12 @@ static rmr_status units(void *context, const rmr_unit_span *spans, size_t count,
         CGColorSpaceRelease(space);
     if (!cg)
         return RMR_ERR_BACKEND;
+
     CGContextTranslateCTM(cg, 0, (double)height);
     CGContextScaleCTM(cg, 1, -1);
     CGContextTranslateCTM(cg, -box.x, -box.y);
     CGContextSetShouldAntialias(cg, false);
+
     for (size_t i = 0; i < count; i++) {
         const rmr_unit_span *s = &spans[i];
         CGContextSetLineCap(cg, s->cap == RMR_CAP_ROUND    ? kCGLineCapRound
@@ -44,6 +47,7 @@ static rmr_status units(void *context, const rmr_unit_span *spans, size_t count,
         CGContextAddLineToPoint(cg, s->to.x, s->to.y);
         CGContextStrokePath(cg);
     }
+
     CGContextRelease(cg);
     return RMR_OK;
 }

@@ -103,12 +103,14 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
                              font_cache *fonts) {
     if (start == end)
         return RMR_OK;
+
     CTFontRef base = cached_font(fonts, m.size, m.face, bold, italic, -1);
     if (!base)
         return RMR_ERR_OUT_OF_MEMORY;
     CFAttributedStringSetAttribute(text, CFRangeMake((CFIndex)start, (CFIndex)(end - start)),
                                    kCTFontAttributeName, base);
     CFRelease(base);
+
     /* Strong Noto/Latin classification works on UTF-16 units. */
     int first = -1;
     for (size_t i = start; i < end; i++)
@@ -116,8 +118,10 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
             first = latin(u[i]) ? 0 : 1;
             break;
         }
+
     int current = first;
     size_t at = start;
+
     while (at < end) {
         if (alphabetic(u[at]) || between(u[at], 0x3040, 0x30ff))
             current = latin(u[at]) ? 0 : 1;
@@ -127,6 +131,7 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
                 if ((latin(u[stop]) ? 0 : 1) != current)
                     break;
             }
+
         if (current != 1) {
             for (size_t i = at; i < stop; i++) {
                 double kern = rmr_ct_kern(u[i], m.face, bold, italic, -1) * m.size;
@@ -146,19 +151,23 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
                     script = script_of(u[i]);
                     break;
                 }
+
             for (size_t from = at; from < stop;) {
                 if (alphabetic(u[from]))
                     script = script_of(u[from]);
                 size_t to = from + 1;
                 while (to < stop && (!alphabetic(u[to]) || script_of(u[to]) == script))
                     to++;
+
                 CTFontRef font = cached_font(fonts, m.size, m.face, bold, italic, script);
                 if (!font)
                     return RMR_ERR_OUT_OF_MEMORY;
+
                 CFAttributedStringSetAttribute(text,
                                                CFRangeMake((CFIndex)from, (CFIndex)(to - from)),
                                                kCTFontAttributeName, font);
                 CFRelease(font);
+
                 for (size_t i = from; i < to; i++) {
                     double kern = rmr_ct_kern(u[i], m.face, bold, italic, script) * m.size;
                     if (kern == 0)
@@ -174,8 +183,10 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
                 from = to;
             }
         }
+
         at = stop;
     }
+
     return RMR_OK;
 }
 
@@ -202,6 +213,7 @@ static rmr_status caret(void *context, size_t paragraph, size_t line, size_t ind
     if (index < range.location || index - range.location > range.length ||
         !scalar_boundary(p->text, index))
         return RMR_ERR_INVALID_ARGUMENT;
+
     CTLineRef native = l->native[paragraph].lines[line];
     CFRange r = CTLineGetStringRange(native);
     *out = (rmr_caret_offsets){CTLineGetOffsetForStringIndex(native, (CFIndex)index, nullptr),
@@ -212,21 +224,26 @@ static rmr_status caret(void *context, size_t paragraph, size_t line, size_t ind
 void rmr_apple_layout_free(rmr_apple_layout *l) {
     if (!l)
         return;
+
     for (size_t i = 0; i < l->anchors.count; i++) {
         native_paragraph *n = &l->native[i];
         rmr_anchor_paragraph *p = &l->paragraphs[i];
+
         if (n->typesetter)
             CFRelease(n->typesetter);
         if (n->marker)
             CFRelease(n->marker);
+
         for (size_t j = 0; j < p->line_count; j++)
             if (n->lines[j])
                 CFRelease(n->lines[j]);
         free(n->lines);
+
         /* These pointers refer to our owned allocations, exposed only as borrowed views. */
         free((void *)(uintptr_t)p->text.bytes);
         free((void *)(uintptr_t)p->lines);
     }
+
     free(l->paragraphs);
     free(l->native);
     free(l);
@@ -251,6 +268,7 @@ static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family fa
     char *label = malloc(label_size);
     if (!label)
         return nullptr;
+
     if (family == RM_LIST_BULLET)
         snprintf(label, label_size, "%s", level == 1 ? "•" : level == 2 ? "◦" : "–");
     else if (level == 1)
@@ -284,9 +302,11 @@ static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family fa
             label[at] = 0;
         }
     }
+
     CFStringRef string =
         CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
     free(label);
+
     CTFontRef font = cached_font(fonts, m.size, m.face, false, false, -1);
     CGColorRef black = CGColorCreateSRGB(0, 0, 0, 1);
     const void *keys[] = {kCTFontAttributeName, kCTForegroundColorAttributeName},
@@ -297,6 +317,7 @@ static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family fa
                                           : nullptr;
     CFAttributedStringRef a =
         attrs && string ? CFAttributedStringCreate(kCFAllocatorDefault, string, attrs) : nullptr;
+
     CTLineRef line = a ? CTLineCreateWithAttributedString(a) : nullptr;
     if (a)
         CFRelease(a);
@@ -308,6 +329,7 @@ static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family fa
         CGColorRelease(black);
     if (string)
         CFRelease(string);
+
     return line;
 }
 
@@ -322,19 +344,23 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
         fabs(text->origin_x) > limits.maximum_coordinate ||
         fabs(text->origin_y) > limits.maximum_coordinate)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid layout input");
+
     double column = text->has_column_width ? text->column_width
                     : text->origin_x < 0   ? -2 * text->origin_x
                                            : page_width;
     if (!isfinite(column) || column <= 0 || column > limits.maximum_coordinate)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text column");
+
     size_t count = text->paragraph_count, base = sizeof(rmr_apple_layout);
     if (count > limits.maximum_elements || base > limits.maximum_plan_bytes ||
         count > (limits.maximum_plan_bytes - base) /
                     (sizeof(rmr_anchor_paragraph) + sizeof(native_paragraph)))
         return text_error(e, RMR_ERR_LIMIT, "paragraph storage limit");
+
     rmr_apple_layout *l = calloc(1, sizeof *l);
     if (!l)
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "layout allocation failed");
+
     l->paragraphs = count ? calloc(count, sizeof *l->paragraphs) : nullptr;
     l->native = count ? calloc(count, sizeof *l->native) : nullptr;
     if (count && (!l->paragraphs || !l->native)) {
@@ -343,11 +369,13 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
         free(l);
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "paragraph allocation failed");
     }
+
     l->bytes = base + count * (sizeof(rmr_anchor_paragraph) + sizeof(native_paragraph));
     l->work = count;
     l->caret = (rmr_caret_provider){RMR_CARET_PROVIDER_ABI, sizeof(rmr_caret_provider), l, caret};
     l->anchors = (rmr_anchor_layout){text->origin_x + 4, fmax(column - 8, 32), l->paragraphs, count,
                                      &l->caret};
+
     size_t ordinals[17] = {0};
     rm_list_family families[17];
     for (size_t i = 0; i < 17; i++)
@@ -356,14 +384,17 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
     rmr_type_metrics previous = {0};
     rmr_status s = RMR_OK;
     font_cache cache = {.source = fonts};
+
     for (size_t i = 0; i < count; i++) {
         const rm_paragraph *input = &text->paragraphs[i];
         rmr_anchor_paragraph *p = &l->paragraphs[i];
         native_paragraph *n = &l->native[i];
         const rm_paragraph_format *format = input->has_format ? &input->format : nullptr;
+
         s = rmr_lines_type_metrics(format, input->text, &limits, &n->metrics, e);
         if (s != RMR_OK)
             break;
+
         size_t length = input->text.length;
         if (length > LONG_MAX || length > limits.maximum_elements - l->work ||
             length > (limits.maximum_plan_bytes - l->bytes) / 5 ||
@@ -371,25 +402,30 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             s = RMR_ERR_LIMIT;
             break;
         }
+
         if (!input->faces && input->face_count) {
             s = RMR_ERR_INVALID_ARGUMENT;
             break;
         }
+
         l->work += length + input->face_count;
         if (length && input->face_count > (limits.maximum_elements - l->work) / length) {
             s = RMR_ERR_LIMIT;
             break;
         }
         l->work += length * input->face_count;
+
         char *copy = length ? malloc(length) : nullptr;
         if (length && !copy) {
             s = RMR_ERR_OUT_OF_MEMORY;
             break;
         }
+
         if (length)
             memcpy(copy, input->text.bytes, length);
         p->text = (rm_str){copy, length};
         l->bytes += length;
+
         n->family = format ? rm_paragraph_style_list_family(rm_paragraph_format_style(format))
                            : RM_LIST_NONE;
         int level = format ? rm_paragraph_format_level(format) : 1;
@@ -398,6 +434,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             break;
         }
         p->indent = n->family == RM_LIST_NONE ? 0 : 48 * (double)level;
+
         size_t ordinal = 0;
         if (n->family != RM_LIST_NONE) {
             for (int k = level + 1; k < 17; k++) {
@@ -414,10 +451,12 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                 ordinals[k] = 0;
                 families[k] = RM_LIST_NONE;
             }
+
         baseline += i ? previous.descent + previous.after + n->metrics.before + n->metrics.ascent
                       : n->metrics.first_baseline_drop;
         p->baseline = baseline;
         previous = n->metrics;
+
         n->checkbox = rm_text_block_checkbox_state(text, i);
         if (n->family == RM_LIST_BULLET || n->family == RM_LIST_NUMBERED) {
             n->marker = marker(&cache, n->metrics, n->family, ordinal, level);
@@ -426,16 +465,19 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                 break;
             }
         }
+
         if (!length) {
             l->bottom = baseline + n->metrics.descent + 24;
             continue;
         }
+
         CFStringRef string = CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8 *)copy,
                                                      (CFIndex)length, kCFStringEncodingUTF8, false);
         if (!string) {
             s = RMR_ERR_INVALID_ARGUMENT;
             break;
         }
+
         size_t units = (size_t)CFStringGetLength(string);
         UniChar *u = malloc(units * sizeof *u);
         char *part = malloc(length);
@@ -449,9 +491,11 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             s = RMR_ERR_OUT_OF_MEMORY;
             break;
         }
+
         CFStringGetCharacters(string, CFRangeMake(0, (CFIndex)units), u);
         p->right_to_left = rtl(u, units);
         CFAttributedStringReplaceString(a, CFRangeMake(0, 0), string);
+
         CTWritingDirection direction =
             p->right_to_left ? kCTWritingDirectionRightToLeft : kCTWritingDirectionLeftToRight;
         CTParagraphStyleSetting setting = {kCTParagraphStyleSpecifierBaseWritingDirection,
@@ -471,6 +515,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             CFRelease(style);
         if (black)
             CGColorRelease(black);
+
         for (size_t f = 0; s == RMR_OK && f < input->face_count; f++) {
             const rm_face_run *run = &input->faces[f];
             if (run->start < 0 || run->end < run->start)
@@ -481,13 +526,16 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                 continue;
             s = attributes(a, u, from, to, n->metrics, run->bold, run->italic, &cache);
         }
+
         if (s == RMR_OK) {
             n->typesetter = CTTypesetterCreateWithAttributedString(a);
             if (!n->typesetter)
                 s = RMR_ERR_OUT_OF_MEMORY;
         }
+
         CFRelease(a);
         p->has_typesetter = n->typesetter != nullptr;
+
         size_t capacity = 0;
         rmr_anchor_line *lines = nullptr;
         rmr_type_metrics last = n->metrics;
@@ -507,6 +555,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                         break;
                     }
             }
+
             CFRange range = CFRangeMake((CFIndex)start, (CFIndex)taken);
             CFIndex used = 0;
             CFIndex converted = CFStringGetBytes(string, range, kCFStringEncodingUTF8, 0, false,
@@ -518,6 +567,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             s = rmr_lines_type_metrics(format, (rm_str){part, (size_t)used}, &limits, &last, e);
             if (s != RMR_OK)
                 break;
+
             if (p->line_count)
                 baseline += last.height;
             if (!isfinite(baseline) || fabs(baseline) > limits.maximum_coordinate) {
@@ -528,6 +578,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                 s = RMR_ERR_LIMIT;
                 break;
             }
+
             l->work++;
             if (p->line_count == capacity) {
                 size_t next = capacity ? capacity * 2 : 8;
@@ -554,6 +605,7 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                 capacity = next;
                 l->bytes += growth * (sizeof *lines + sizeof *n->lines);
             }
+
             CTLineRef line = CTTypesetterCreateLine(n->typesetter, range);
             if (!line) {
                 s = RMR_ERR_OUT_OF_MEMORY;
@@ -563,21 +615,26 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
             n->lines[p->line_count++] = line;
             start += taken;
         }
+
         l->bottom = baseline + last.descent + 24;
         free(u);
         free(part);
         CFRelease(string);
+
         if (s != RMR_OK)
             break;
     }
+
     clear_fonts(&cache);
     if (s == RMR_OK && (!isfinite(l->bottom) || fabs(l->bottom) > limits.maximum_coordinate ||
                         fabs(l->anchors.left) > limits.maximum_coordinate))
         s = RMR_ERR_LIMIT;
+
     if (s != RMR_OK) {
         rmr_apple_layout_free(l);
         return text_error(e, s, "paragraph layout failed");
     }
+
     *out = l;
     return RMR_OK;
 }
@@ -592,10 +649,12 @@ static size_t put_pdf(void *context, const void *bytes, size_t size) {
     pdf_bytes *p = context;
     if (p->status != RMR_OK)
         return 0;
+
     if (size > p->maximum - p->buffer.size) {
         p->status = RMR_ERR_LIMIT;
         return 0;
     }
+
     size_t need = p->buffer.size + size;
     if (need > p->capacity) {
         size_t next = p->capacity && p->capacity <= p->maximum / 2 ? p->capacity * 2 : need;
@@ -609,6 +668,7 @@ static size_t put_pdf(void *context, const void *bytes, size_t size) {
         p->buffer.bytes = data;
         p->capacity = next;
     }
+
     memcpy(p->buffer.bytes + p->buffer.size, bytes, size);
     p->buffer.size = need;
     return size;
@@ -616,10 +676,12 @@ static size_t put_pdf(void *context, const void *bytes, size_t size) {
 
 static void checkbox(CGContextRef cg, rm_checkbox_state state, double x, double y) {
     CGRect box = CGRectMake(x, y - 1.74, 26.67, 26.67);
+
     CGContextSaveGState(cg);
     CGContextSetRGBFillColor(cg, 0, 0, 0, 1);
     CGContextSetRGBStrokeColor(cg, 0, 0, 0, 1);
     CGContextSetLineWidth(cg, 2.5);
+
     if (state == RM_CHECKBOX_TICKED) {
         CGContextFillRect(cg, box);
         CGContextSetRGBStrokeColor(cg, 1, 1, 1, 1);
@@ -635,6 +697,7 @@ static void checkbox(CGContextRef cg, rm_checkbox_state state, double x, double 
             CGContextStrokePath(cg);
         }
     }
+
     CGContextRestoreGState(cg);
 }
 
@@ -642,21 +705,26 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
                                  const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!l || !out)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing layout/output");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     rmr_plan *validation = nullptr;
     rmr_status s = rmr_plan_create(nullptr, 0, viewport, &limits, &validation, e);
     if (s != RMR_OK)
         return s;
+
     rmr_plan_free(validation);
     if (!l->anchors.count)
         return rmr_plan_create(nullptr, 0, viewport, &limits, out, e);
+
     pdf_bytes data = {.maximum = limits.maximum_pdf_bytes};
     if (data.maximum > limits.maximum_plan_bytes / 2)
         data.maximum = limits.maximum_plan_bytes / 2;
+
     CGDataConsumerCallbacks callbacks = {put_pdf, nullptr};
     CGDataConsumerRef consumer = CGDataConsumerCreate(&data, &callbacks);
     if (!consumer)
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "PDF consumer allocation failed");
+
     CGRect box = CGRectMake(0, 0, viewport.width, viewport.height);
     CGContextRef cg = CGPDFContextCreate(consumer, &box, nullptr);
     CGDataConsumerRelease(consumer);
@@ -664,13 +732,16 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
         free(data.buffer.bytes);
         return text_error(e, RMR_ERR_BACKEND, "PDF context failed");
     }
+
     CGPDFContextBeginPage(cg, nullptr);
     CGContextSetTextMatrix(cg, CGAffineTransformIdentity);
+
     for (size_t i = 0; i < l->anchors.count; i++) {
         const rmr_anchor_paragraph *p = &l->paragraphs[i];
         const native_paragraph *n = &l->native[i];
         double x = l->anchors.left + p->indent - viewport.x;
         double y = viewport.height - (p->baseline - viewport.y);
+
         if (n->marker) {
             double marker_x =
                 n->family == RM_LIST_BULLET
@@ -680,6 +751,7 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
             CTLineDraw(n->marker, cg);
         } else if (n->family == RM_LIST_CHECKBOX)
             checkbox(cg, n->checkbox, x - 41.33, y);
+
         for (size_t j = 0; j < p->line_count; j++) {
             CTLineRef line = n->lines[j];
             double margin = p->right_to_left ? l->anchors.left + l->anchors.column - p->indent -
@@ -688,8 +760,10 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
                                              : l->anchors.left + p->indent;
             x = margin - viewport.x;
             y = viewport.height - (p->lines[j].baseline - viewport.y);
+
             CGContextSetTextPosition(cg, x, y);
             CTLineDraw(line, cg);
+
             if (n->checkbox == RM_CHECKBOX_TICKED) {
                 double rule = y + n->metrics.size * .3;
                 CGContextSetLineWidth(cg, fmax(n->metrics.size * .065, .6));
@@ -701,25 +775,30 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
             }
         }
     }
+
     CGPDFContextEndPage(cg);
     CGPDFContextClose(cg);
     CGContextRelease(cg);
+
     if (data.status != RMR_OK) {
         free(data.buffer.bytes);
         return text_error(e, data.status, "text PDF exceeds output budget");
     }
+
     rmr_element clip[] = {
         {.kind = RMR_MOVE, .end = {viewport.x, viewport.y}},
         {.kind = RMR_LINE, .end = {viewport.x + viewport.width, viewport.y}},
         {.kind = RMR_LINE, .end = {viewport.x + viewport.width, viewport.y + viewport.height}},
         {.kind = RMR_LINE, .end = {viewport.x, viewport.y + viewport.height}},
         {.kind = RMR_CLOSE}};
+
     rmr_draw draw = {.mode = RMR_PDF,
                      .path = {clip, 5},
                      .color = {0, 0, 0, 1},
                      .image = {data.buffer.bytes,
                                data.buffer.size,
                                {viewport.width, 0, 0, viewport.height, viewport.x, viewport.y}}};
+
     rmr_limits remaining = limits;
     remaining.maximum_plan_bytes -= data.capacity;
     s = rmr_plan_create(&draw, 1, viewport, &remaining, out, e);
@@ -731,13 +810,16 @@ rmr_status rmr_apple_layout_line(const rmr_apple_layout *l, size_t paragraph, si
                                  rmr_text_line *out, rmr_error *e) {
     if (!l || !out || paragraph >= l->anchors.count || index >= l->paragraphs[paragraph].line_count)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text line index");
+
     const rmr_anchor_paragraph *p = &l->paragraphs[paragraph];
     rmr_anchor_line visual = p->lines[index];
     CTLineRef line = l->native[paragraph].lines[index];
+
     double start = p->right_to_left
                        ? l->anchors.left + l->anchors.column - p->indent -
                              CTLineGetOffsetForStringIndex(line, (CFIndex)visual.location, nullptr)
                        : l->anchors.left + p->indent;
+
     *out = (rmr_text_line){paragraph,
                            visual.location,
                            visual.location + visual.length,
@@ -754,18 +836,22 @@ rmr_status rmr_apple_text_width(rm_str text, double size, rmr_type_face face, bo
     if (!fonts || !out || (!text.bytes && text.length) || !isfinite(size) || size <= 0 ||
         size > 100000 || face > RMR_FACE_SERIF)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text measurement");
+
     if (text.length > l.maximum_elements || text.length > LONG_MAX ||
         text.length > l.maximum_plan_bytes / sizeof(UniChar))
         return text_error(e, RMR_ERR_LIMIT, "text measurement limit");
+
     CFStringRef string =
         CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8 *)(text.bytes ? text.bytes : ""),
                                 (CFIndex)text.length, kCFStringEncodingUTF8, false);
     if (!string)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text UTF-8");
+
     CFIndex count = CFStringGetLength(string);
     UniChar *units = malloc((size_t)(count ? count : 1) * sizeof *units);
     CFMutableAttributedStringRef attributed =
         CFAttributedStringCreateMutable(kCFAllocatorDefault, 0);
+
     if (!units || !attributed) {
         free(units);
         if (attributed)
@@ -773,21 +859,26 @@ rmr_status rmr_apple_text_width(rm_str text, double size, rmr_type_face face, bo
         CFRelease(string);
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "text allocation failed");
     }
+
     CFStringGetCharacters(string, CFRangeMake(0, count), units);
     CFAttributedStringReplaceString(attributed, CFRangeMake(0, 0), string);
     CFRelease(string);
+
     font_cache cache = {.source = fonts};
     rmr_status status =
         attributes(attributed, units, 0, (size_t)count,
                    (rmr_type_metrics){.size = size, .face = face}, bold, italic, &cache);
+
     CTLineRef line = status == RMR_OK ? CTLineCreateWithAttributedString(attributed) : nullptr;
     CFRelease(attributed);
     clear_fonts(&cache);
     if (status == RMR_OK && !line)
         status = RMR_ERR_OUT_OF_MEMORY;
+
     double width = 0;
     if (line) {
         width = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
+
         if (less_rightmost) {
             CFArrayRef runs = CTLineGetGlyphRuns(line);
             double farthest = 0, advance = 0;
@@ -819,11 +910,15 @@ rmr_status rmr_apple_text_width(rm_str text, double size, rmr_type_face face, bo
             }
             width -= advance;
         }
+
         CFRelease(line);
     }
+
     free(units);
+
     if (status != RMR_OK)
         return text_error(e, status, "text measurement failed");
+
     *out = width;
     return RMR_OK;
 }

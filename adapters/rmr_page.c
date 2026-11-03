@@ -24,9 +24,11 @@ rmr_status rmr_lines_document_canvas(const rm_page *const *pages, size_t count,
                                      const rmr_limits *given, rmr_point *out, rmr_error *error) {
     if (!out || (count && !pages))
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "missing canvas input/output");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     if (count > limits.maximum_elements)
         return fail(error, RMR_ERR_LIMIT, "canvas page count limit");
+
     rmr_point size = plausible(content_size) ? content_size : (rmr_point){1404, 1872};
     for (size_t i = 0; i < count; i++) {
         const rm_page *p = pages[i];
@@ -38,6 +40,7 @@ rmr_status rmr_lines_document_canvas(const rm_page *const *pages, size_t count,
             break;
         }
     }
+
     if (landscape && size.y > size.x)
         size = (rmr_point){size.y, size.x};
     *out = size;
@@ -49,6 +52,7 @@ rmr_status rmr_lines_composed_page_plan(const rm_page *page, rmr_point canvas, r
                                         const rmr_limits *given, rmr_plan **out, rmr_error *error) {
     if (!page || !out || !plausible(canvas))
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "invalid composed page input");
+
     rmr_page_resources resources = given_resources ? *given_resources : (rmr_page_resources){0};
     bool visible =
         page->background_visible && page->has_template_name && page->template_name.length;
@@ -56,6 +60,7 @@ rmr_status rmr_lines_composed_page_plan(const rm_page *page, rmr_point canvas, r
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "missing template name bytes");
     if (visible && !resources.template)
         return fail(error, RMR_ERR_UNSUPPORTED, "template resolver required");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     rmr_rect viewport;
     rmr_status status =
@@ -66,26 +71,31 @@ rmr_status rmr_lines_composed_page_plan(const rm_page *page, rmr_point canvas, r
     status = rmr_template_page_extent(canvas, viewport, &extent, error);
     if (status != RMR_OK)
         return status;
+
     const rmr_template *model = nullptr;
     if (visible) {
         status = resources.template(resources.template_context, page->template_name, &model);
         if (status != RMR_OK)
             return fail(error, status, "template resolution failed");
     }
+
     rmr_plan *foreground = nullptr;
     status = rmr_lines_scene_plan(page, viewport, resources.image, resources.image_context,
                                   resources.raster, &limits, &foreground, error);
     if (status != RMR_OK)
         return status;
+
     if (!model) {
         *out = foreground;
         return RMR_OK;
     }
+
     size_t bytes = rmr_plan_bytes(foreground);
     if (bytes > limits.maximum_plan_bytes) {
         rmr_plan_free(foreground);
         return fail(error, RMR_ERR_LIMIT, "page memory limit");
     }
+
     limits.maximum_plan_bytes -= bytes;
     rmr_plan *composed = nullptr;
     status = rmr_template_background_plan_with_text(model, canvas, extent, foreground, true,

@@ -40,6 +40,7 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
                                   double *result) {
     if (!rmr_ot_has(b, 0, 20) || rmr_ot_uint(b, 0, 4) != 0x10000)
         return false;
+
     uint32_t outer = 0, inner = glyph, map_offset = rmr_ot_uint(b, 8, 4);
     if (map_offset) {
         rmr_ot_bytes map = rmr_ot_tail(b, map_offset);
@@ -57,10 +58,12 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
         outer = entry >> bits;
         inner = entry & ((1u << bits) - 1);
     }
+
     if (outer == 0xffff && inner == 0xffff) {
         *result = 0;
         return true;
     }
+
     uint32_t store_offset = rmr_ot_uint(b, 4, 4);
     if (!store_offset)
         return false;
@@ -68,6 +71,7 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
     if (!rmr_ot_has(store, 0, 8) || rmr_ot_uint(store, 0, 2) != 1 ||
         outer >= rmr_ot_uint(store, 6, 2) || !rmr_ot_has(store, 8, ((size_t)outer + 1) * 4))
         return false;
+
     rmr_ot_bytes regions = rmr_ot_tail(store, rmr_ot_uint(store, 2, 4));
     rmr_ot_bytes data = rmr_ot_tail(store, rmr_ot_uint(store, 8 + (size_t)outer * 4, 4));
     if (!rmr_ot_has(regions, 0, 4) || !rmr_ot_has(data, 0, 6))
@@ -76,6 +80,7 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
     if (!axes || axes != count || region_count >= 0x8000 ||
         (region_count && axes > (regions.size - 4) / 6 / region_count))
         return false;
+
     unsigned items = rmr_ot_uint(data, 0, 2), words = rmr_ot_uint(data, 2, 2);
     unsigned columns = rmr_ot_uint(data, 4, 2), large = (words & 0x8000) ? 4 : 2;
     words &= 0x7fff;
@@ -85,8 +90,10 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
     size_t row_start = 6 + (size_t)columns * 2;
     if ((items && row_size > (data.size - row_start) / items))
         return false;
+
     size_t at = row_start + inner * row_size;
     double delta = 0;
+
     for (unsigned i = 0; i < columns; i++) {
         unsigned region = rmr_ot_uint(data, 6 + (size_t)i * 2, 2);
         if (region >= region_count)
@@ -111,6 +118,7 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
         delta += scalar * rmr_ot_int(data, at, bytes);
         at += bytes;
     }
+
     *result = delta;
     return true;
 }

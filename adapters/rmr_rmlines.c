@@ -64,6 +64,7 @@ static rmr_color palette(rm_pen_color c, bool darkens) {
                                        {250.0 / 255, 231.0 / 255, 25.0 / 255, 1},
                                        {190.0 / 255, 234.0 / 255, 254.0 / 255, 1},
                                        {1, 195.0 / 255, 140.0 / 255, 1}};
+
     if (darkens) {
         if (c == RM_COLOR_YELLOW || c == RM_COLOR_YELLOW_2 || c == RM_COLOR_HIGHLIGHT)
             return (rmr_color){254.0 / 255, 253.0 / 255, 96.0 / 255, 1};
@@ -74,6 +75,7 @@ static rmr_color palette(rm_pen_color c, bool darkens) {
         if (c == RM_COLOR_GRAY_OVERLAP)
             return (rmr_color){0, 0, 0, 1};
     }
+
     return colors[c];
 }
 
@@ -81,6 +83,7 @@ rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error 
     if (!s || !out || (!s->points && s->point_count) || s->color < RM_COLOR_BLACK ||
         s->color > RM_COLOR_HIGHLIGHTER_ORANGE)
         return error(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid stroke");
+
     bool darkens = highlighter(s->tool) || s->tool == RM_TOOL_SHADER;
     rmr_stroke_style result = {.color = palette(s->color, darkens),
                                .blend = darkens ? RMR_BLEND_DARKEN : RMR_BLEND_NORMAL,
@@ -91,6 +94,7 @@ rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error 
                                           s->tool == RM_TOOL_FINELINER_2,
                                .eraser =
                                    s->tool == RM_TOOL_ERASER || s->tool == RM_TOOL_ERASER_AREA};
+
     float sum = 0;
     bool varying = false;
     for (size_t i = 0; i < s->point_count; i++) {
@@ -98,11 +102,13 @@ rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error 
         if (s->points[i].width != s->points[0].width)
             varying = true;
     }
+
     if (s->tool == RM_TOOL_UNKNOWN)
         result.stroked = !varying;
     result.line_width = s->point_count ? rmr_line_width((double)sum / (double)s->point_count) : 0.7;
     result.color.alpha =
         s->tool == RM_TOOL_SHADER || (darkens && s->color == RM_COLOR_GRAY_OVERLAP) ? 0.25098 : 1;
+
     if (s->has_argb) {
         result.color.red = (double)((s->argb >> 16) & 255) / 255;
         result.color.green = (double)((s->argb >> 8) & 255) / 255;
@@ -111,6 +117,7 @@ rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error 
         if (alpha)
             result.color.alpha = (double)alpha / 255;
     }
+
     *out = result;
     return RMR_OK;
 }
@@ -120,15 +127,19 @@ rmr_status rmr_lines_outline(const rm_stroke *s, const rmr_limits *given, rmr_pa
     rmr_limits l = given ? *given : rmr_limits_default();
     if (!s || !out || (!s->points && s->point_count))
         return error(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid stroke");
+
     if (s->point_count > l.maximum_points ||
         s->point_count > l.maximum_plan_bytes / sizeof(rmr_sample))
         return error(e, RMR_ERR_LIMIT, 0, "stroke points limit");
+
     rmr_sample *points = calloc(s->point_count ? s->point_count : 1, sizeof *points);
     if (!points)
         return error(e, RMR_ERR_OUT_OF_MEMORY, 0, "stroke allocation failed");
+
     for (size_t i = 0; i < s->point_count; i++)
         points[i] = (rmr_sample){{s->points[i].x, s->points[i].y},
                                  rmr_line_width(rmr_drawn_width(s->tool, s->points[i]))};
+
     l.maximum_plan_bytes -= s->point_count * sizeof *points;
     rmr_status status =
         rmr_outline(points, s->point_count, ending(s),
@@ -142,26 +153,33 @@ rmr_status rmr_lines_mask_with_raster(const rm_stroke *s, const rmr_unit_raster 
     rmr_limits l = given ? *given : rmr_limits_default();
     if (!s || !out || (!s->points && s->point_count))
         return error(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid stroke");
+
     if (grain(s->tool) == RMR_GRAIN_SOLID)
         return error(e, RMR_ERR_UNSUPPORTED, 0, "solid ink has no mask");
+
     if (raster && (raster->abi_version != RMR_UNIT_RASTER_ABI ||
                    raster->struct_size < sizeof *raster || !raster->render))
         return error(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid unit rasterizer ABI");
+
     if (s->point_count > l.maximum_points ||
         s->point_count > l.maximum_plan_bytes / sizeof(rmr_grain_point))
         return error(e, RMR_ERR_LIMIT, 0, "grain point limit");
+
     if (s->point_count < 2) {
         *out = (rmr_mask){0};
         return RMR_OK;
     }
+
     rmr_grain_point *points = calloc(s->point_count, sizeof *points);
     if (!points)
         return error(e, RMR_ERR_OUT_OF_MEMORY, 0, "grain points allocation failed");
+
     for (size_t i = 0; i < s->point_count; i++) {
         rm_stroke_point p = s->points[i];
         points[i] = (rmr_grain_point){p.x, p.y, rmr_line_width(rmr_drawn_width(s->tool, p)),
                                       p.pressure, p.speed};
     }
+
     l.maximum_plan_bytes -= s->point_count * sizeof *points;
     rmr_rect box;
     rmr_status status = rmr_grain_box(points, s->point_count, &l, &box, e);
@@ -189,6 +207,7 @@ static rmr_rect path_box(rmr_path path) {
             y1 = fmax(y1, p[k].y);
         }
     }
+
     return isfinite(x0) ? (rmr_rect){x0, y0, x1 - x0, y1 - y0} : (rmr_rect){0};
 }
 
@@ -202,11 +221,13 @@ static rmr_rect stroke_reach(const rm_stroke *s, rmr_cap cap) {
         y0 = fmin(y0, p.y);
         y1 = fmax(y1, p.y);
     }
+
     double pad = widest / 4 / 2 *
                      (highlighter(s->tool)    ? 2
                       : cap == RMR_CAP_SQUARE ? sqrt(2)
                                               : 1) +
                  1;
+
     return isfinite(x0) ? (rmr_rect){x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad}
                         : (rmr_rect){0};
 }
@@ -229,10 +250,12 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
     rmr_limits l = given ? *given : rmr_limits_default();
     if (!out || (!strokes && count))
         return error(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid strokes");
+
     if (count > l.maximum_draws ||
         count > l.maximum_plan_bytes / (sizeof(rmr_draw) + sizeof(rmr_path) + sizeof(rmr_mask) +
                                         sizeof(erase_record) + sizeof(rmr_rect)))
         return error(e, RMR_ERR_LIMIT, 0, "draw count limit");
+
     /* Preflight every unsupported feature before allocating or producing a plan. */
     size_t total_points = 0;
     for (size_t i = 0; i < count; i++) {
@@ -248,8 +271,10 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
         if (s->has_anchor)
             return error(e, RMR_ERR_UNSUPPORTED, i, "text anchors await placement");
     }
+
     if (!count)
         return rmr_plan_create(nullptr, 0, viewport, &l, out, e);
+
     rmr_draw *draws = calloc(count ? count : 1, sizeof *draws);
     rmr_path *paths = calloc(count ? count : 1, sizeof *paths);
     rmr_mask *masks = calloc(count, sizeof *masks);
@@ -264,6 +289,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
         free(paths);
         return error(e, RMR_ERR_OUT_OF_MEMORY, 0, "draw allocation failed");
     }
+
     rmr_status status = RMR_OK;
     size_t used_bytes = count * (sizeof *draws + sizeof *paths + sizeof *masks + sizeof *erasers +
                                  sizeof *reaches),
@@ -276,6 +302,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
             break;
         if (style.eraser && (s->tool == RM_TOOL_ERASER_AREA || s->point_count < 2))
             continue;
+
         if (style.stroked && s->point_count > 1) {
             if (s->point_count > l.maximum_elements - used_elements ||
                 s->point_count > (l.maximum_plan_bytes - used_bytes) / sizeof(rmr_element)) {
@@ -301,6 +328,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
         }
         used_bytes += paths[i].count * sizeof(rmr_element);
         used_elements += paths[i].count;
+
         if (style.grain != RMR_GRAIN_SOLID && s->point_count > 1) {
             rmr_limits remaining = l;
             remaining.maximum_plan_bytes -= used_bytes;
@@ -309,6 +337,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
                 break;
             used_bytes += masks[i].stride * masks[i].height;
         }
+
         draws[i] = (rmr_draw){.path = {paths[i].elements, paths[i].count},
                               .mode = style.stroked ? RMR_STROKE : RMR_FILL,
                               .color = style.color,
@@ -320,6 +349,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
                               .mask = {masks[i].bytes, masks[i].width, masks[i].height,
                                        masks[i].stride, masks[i].box}};
         reaches[i] = stroke_reach(s, style.cap);
+
         if (s->tool == RM_TOOL_SHADER && s->has_source_id && s->point_count > 1) {
             bool continues = i && same_source(&strokes[i - 1], s);
             draws[i].group = continues ? draws[i - 1].group : (uint64_t)i + 1;
@@ -329,6 +359,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
             draws[i].blend = RMR_BLEND_NORMAL;
         }
     }
+
     if (status == RMR_OK) {
         size_t erase_count = 0, reference_count = 0, work = 0;
         for (size_t i = 0; i < count; i++)
@@ -337,6 +368,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
                     erasers[erase_count++] = (erase_record){i, path_box(paths[i])};
                 draws[i].path = (rmr_path_view){0};
             }
+
         for (size_t i = 0; i < count && status == RMR_OK; i++) {
             if (!draws[i].path.count)
                 continue;
@@ -357,6 +389,7 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
                 }
             }
         }
+
         if (status == RMR_OK && reference_count) {
             if (reference_count > (l.maximum_plan_bytes - used_bytes) / sizeof *cuts)
                 status = error(e, RMR_ERR_LIMIT, 0, "eraser reference memory limit");
@@ -382,15 +415,18 @@ rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rm
             }
         }
     }
+
     if (status == RMR_OK) {
         rmr_limits remaining = l;
         remaining.maximum_plan_bytes -= used_bytes;
         status = rmr_plan_create(draws, count, viewport, &remaining, out, e);
     }
+
     for (size_t i = 0; i < count; i++) {
         rmr_path_free(&paths[i]);
         rmr_mask_free(&masks[i]);
     }
+
     free(cuts);
     free(erasers);
     free(reaches);

@@ -18,21 +18,25 @@ int main(void) {
         {{name2, sizeof name2 - 1}, {(const uint8_t *)RM_HEADER, RM_HEADER_LENGTH}}};
     rmd_buffer zip = {0};
     CHECK(rmd_pack(files, 2, &zip, nullptr) == RMD_OK);
+
     rmd_reader *reader = nullptr;
     CHECK(rmd_reader_open((rmd_bytes){zip.bytes, zip.size}, nullptr, &reader, nullptr) == RMD_OK);
     rmd_archive archive = {0};
     CHECK(rmd_reader_unpack(reader, nullptr, nullptr, &archive, nullptr) == RMD_OK);
     rmd_reader_close(reader);
     rmd_buffer_free(&zip);
+
     rmr_archive_document *document = nullptr;
     rmr_error error = {0};
     OK(rmr_archive_document_create(&archive, DOC, true, nullptr, &document, &error));
     CHECK(rmr_archive_document_count(document) == 1 &&
           !strcmp(rmr_archive_document_page(document, 0)->id, PAGE));
+
     rm_page *page = nullptr;
     OK(rmr_archive_document_parse_page(document, 0, &page, &error));
     CHECK(page->stroke_count == 0);
     rm_page_free(page);
+
     rmr_buffer output = {0};
     rmr_document_report report = {0};
     OK(rmr_linux_document_pdf(document, nullptr, nullptr, RMR_PAPER_A4, 0, nullptr, nullptr,
@@ -42,6 +46,7 @@ int main(void) {
     rmr_buffer_free(&output);
     rmr_archive_document_free(document);
     rmd_archive_free(&archive);
+
     fixture original = source(false);
     const char pdfname[] = DOC ".pdf";
     rmd_file pdf_file = {{pdfname, sizeof pdfname - 1},
@@ -49,6 +54,7 @@ int main(void) {
     rmd_archive pdf_archive = {.files = &pdf_file, .count = 1};
     document = nullptr;
     OK(rmr_archive_document_create(&pdf_archive, DOC, true, nullptr, &document, &error));
+
     rmr_status status =
         rmr_linux_document_pdf_preserving(document, nullptr, nullptr, RMR_PAPER_A4, 0, nullptr,
                                           nullptr, nullptr, &output, &report, &error);
@@ -56,9 +62,11 @@ int main(void) {
     CHECK(output.size == original.n && !memcmp(output.bytes, original.bytes, original.n));
     CHECK(report.document_pages == 2 && report.rendered_pages == 2);
     rmr_buffer_free(&output);
+
     CHECK(rmr_linux_document_pdf_preserving(document, nullptr, nullptr, RMR_PAPER_A4, 1, nullptr,
                                             nullptr, nullptr, &output, &report,
                                             &error) == RMR_ERR_UNSUPPORTED);
+
     rmr_archive_document_free(document);
     return 0;
 }

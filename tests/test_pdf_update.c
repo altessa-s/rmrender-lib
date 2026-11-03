@@ -16,12 +16,14 @@ static fixture overlay_fixture(void) {
     obj(&f, 1, 0, "<< /Type /Catalog /Pages 2 0 R >>");
     obj(&f, 2, 0, "<< /Type /Pages /Kids [3 4 R] /Count 1 /MediaBox [0 0 200 200] >>");
     obj(&f, 3, 4, "<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>");
+
     f.offsets[4] = f.n;
     const char *paint = "1 0 0 rg 50 50 100 100 re f\n";
     add(&f, "4 0 obj\n<< /Length 5 0 R >>\nstream\n%s\nendstream\nendobj\n", paint);
     char length[30];
     snprintf(length, sizeof length, "%zu", strlen(paint));
     obj(&f, 5, 0, length);
+
     size_t x = f.n;
     add(&f, "xref\n0 6\n0000000000 65535 f \n");
     for (unsigned i = 1; i < 6; i++)
@@ -57,6 +59,7 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
     const char *objects[] = {
         "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> >>"};
+
     if (packed) {
         char header[128], payload[512];
         snprintf(header, sizeof header, "1 0 2 %zu 3 %zu ", strlen(objects[0]) + 1,
@@ -72,10 +75,12 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
         for (unsigned i = 0; i < 3; i++)
             obj(&f, i + 1, 0, objects[i]);
     }
+
     f.offsets[6] = f.n;
     uint8_t raw[56] = {0}, encoded[256];
     size_t n = 0;
     uint8_t previous[7] = {0};
+
     for (unsigned i = 0; i < 7; i++) {
         bool inside = packed && i >= 1 && i <= 3;
         uint32_t at = inside ? 5 : (uint32_t)f.offsets[i];
@@ -95,6 +100,7 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
             raw[n++] = predictor ? (uint8_t)(row[k] - previous[k]) : row[k];
         memcpy(previous, row, 7);
     }
+
     const uint8_t *data = raw;
     if (compressed) {
         uLongf size = sizeof encoded;
@@ -102,6 +108,7 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
         data = encoded;
         n = (size_t)size;
     }
+
     add(&f, "6 0 obj\n<< /Type /XRef /Root 1 0 R /Size 7 /W [1 4 2] /Length %zu %s %s >>\nstream\n",
         n, compressed ? "/Filter /FlateDecode" : "",
         predictor ? "/DecodeParms << /Predictor 12 /Columns 7 >>" : "");
@@ -109,6 +116,7 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
     memcpy(f.bytes + f.n, data, n);
     f.n += n;
     add(&f, "\nendstream\nendobj\n");
+
     size_t start = f.offsets[6];
     if (hybrid) {
         start = f.n;
@@ -117,6 +125,7 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
             add(&f, "%010zu 00000 %c \n", f.offsets[i], f.offsets[i] ? 'n' : 'f');
         add(&f, "trailer\n<< /Root 1 0 R /Size 7 /XRefStm %zu >>\n", f.offsets[6]);
     }
+
     add(&f, "startxref\n%zu\n%%%%EOF\n", start);
     return f;
 }
@@ -132,6 +141,7 @@ static void rewrite_check(const uint8_t *bytes, size_t size, size_t expected_pag
     size_t count = 0;
     assert(rmr_pdf_pages(fresh.bytes, fresh.size, nullptr, nullptr, 0, &count, nullptr) == RMR_OK);
     assert(count == expected_pages);
+
     /* A subsequent append must resolve the newly emitted xref independently. */
     fixture ov = overlay_fixture();
     rmr_pdf_overlay o = {.pdf = (uint8_t *)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
@@ -147,6 +157,7 @@ static void rewrite_failures(fixture *f) {
     assert(rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, nullptr, cancel_rewrite, nullptr, &out,
                            nullptr) == RMR_ERR_CANCELLED);
     assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+
     size_t allocations;
     for (allocations = 0; allocations < 3000; allocations++) {
         rmr_test_fail_after(allocations);
@@ -161,10 +172,12 @@ static void rewrite_failures(fixture *f) {
         assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
     }
     assert(allocations < 3000);
+
     rmr_limits l = rmr_limits_default();
     l.maximum_plan_bytes = 64;
     assert(rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, &l, nullptr, nullptr, &out, nullptr) ==
            RMR_ERR_LIMIT);
+
     fixture sparse = *f;
     size_t previous = lastxref(&sparse), at = sparse.n;
     add(&sparse,
@@ -177,6 +190,7 @@ static void rewrite_failures(fixture *f) {
     assert(rmr_pdf_rewrite((uint8_t *)sparse.bytes, sparse.n, &l, nullptr, nullptr, &out,
                            nullptr) == RMR_ERR_LIMIT);
     assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+
     fixture certified = source(true);
     assert(rmr_pdf_rewrite((uint8_t *)certified.bytes, certified.n, nullptr, nullptr, nullptr, &out,
                            nullptr) == RMR_ERR_UNSUPPORTED);
@@ -188,22 +202,27 @@ static void select_check(void) {
     rmr_buffer out = {0};
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, nullptr, nullptr, nullptr, &out,
                                 nullptr) == RMR_OK);
+
     rmr_pdf_page_geometry g[3];
     size_t count;
     assert(rmr_pdf_pages(out.bytes, out.size, nullptr, g, 3, &count, nullptr) == RMR_OK);
     assert(count == 3 && g[0].rotate == 90 && g[1].rotate == 0 && g[2].rotate == 0);
+
     rmr_buffer_free(&out);
     out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, nullptr, cancel_rewrite, nullptr,
                                 &out, nullptr) == RMR_ERR_CANCELLED);
+
     const size_t invalid[] = {2};
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, invalid, 1, nullptr, nullptr, nullptr,
                                 &out, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_draws = 2;
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, &limits, nullptr, nullptr, &out,
                                 nullptr) == RMR_ERR_LIMIT);
     assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+
     size_t allocations;
     for (allocations = 0; allocations < 3000; allocations++) {
         out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
@@ -245,11 +264,13 @@ static void select_labels_check(void) {
     obj(&f, 4, 0, "<< /Type /Page /Parent 2 0 R >>");
     obj(&f, 5, 0, "<< /Type /Page /Parent 2 0 R >>");
     obj(&f, 6, 0, "<< /S /D /St 5 >>");
+
     size_t x = f.n;
     add(&f, "xref\n0 7\n0000000000 65535 f \n");
     for (unsigned i = 1; i < 7; i++)
         add(&f, "%010zu %05u n \n", f.offsets[i], f.gen[i]);
     add(&f, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", x);
+
     const size_t order[] = {2, 1, 0, 1};
     rmr_buffer out = {0};
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
@@ -260,6 +281,7 @@ static void select_labels_check(void) {
     assert(rmr_pdf_pages(out.bytes, out.size, nullptr, nullptr, 0, &count, nullptr) == RMR_OK);
     assert(count == 4);
     rmr_buffer_free(&out);
+
     char *start = strstr(f.bytes, "/St 5 >>");
     assert(start);
     memcpy(start, "/St +5>>", 8);
@@ -267,6 +289,7 @@ static void select_labels_check(void) {
                                 nullptr) == RMR_OK);
     assert(squashed_contains(&out, "/Nums[0<</S/D/St5>>"));
     rmr_buffer_free(&out);
+
     const char *invalid[] = {"/St(5)>>", "/St 0 >>"};
     for (size_t i = 0; i < 2; i++) {
         memcpy(start, invalid[i], 8);
@@ -288,6 +311,7 @@ static void reserved_check(void) {
     assert(rmr_pdf_rewrite((uint8_t *)zero.bytes, zero.n, nullptr, nullptr, nullptr, &out,
                            nullptr) == RMR_ERR_INVALID_ARGUMENT);
     assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+
     fixture direct = overlay_fixture();
     char *trailer = strstr(direct.bytes, "trailer");
     assert(trailer);
@@ -299,6 +323,7 @@ static void reserved_check(void) {
     size_t count;
     assert(rmr_pdf_pages((uint8_t *)direct.bytes, direct.n, nullptr, nullptr, 0, &count, nullptr) ==
            RMR_ERR_INVALID_ARGUMENT);
+
     /* The last header runs into object 1 without a line break. */
     const char *const headers[][2] = {
         {"%PDF-2.0\n", "%PDF-2.0\n"}, {"%PDF-x.7\n", "%PDF-1.7\n"}, {"%PDF-1.71", "%PDF-1.7\n"}};
@@ -316,14 +341,18 @@ int main(void) {
     select_check();
     select_labels_check();
     reserved_check();
+
     fixture f = source(false), ov = overlay_fixture();
     rmr_pdf_overlay o = {.pdf = (uint8_t *)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
+
     rewrite_check((uint8_t *)f.bytes, f.n, 2);
     rewrite_failures(&f);
+
     rmr_buffer output = {0};
     assert(run(&f, &o, nullptr, &output) == RMR_OK);
     assert(output.size > f.n && !memcmp(output.bytes, f.bytes, f.n));
     rmr_buffer_free(&output);
+
     for (unsigned flags = 0; flags < 16; flags++) {
         bool packed = (flags & 1) != 0, compressed = (flags & 2) != 0;
         bool predictor = compressed && (flags & 4), hybrid = (flags & 8) != 0;
@@ -338,6 +367,7 @@ int main(void) {
         rmr_buffer_free(&again);
         rmr_buffer_free(&output);
     }
+
     fixture compressed_input = stream_fixture(true, true, true, true, false);
     size_t failed_allocations = 0;
     for (; failed_allocations < 3000; failed_allocations++) {
@@ -353,8 +383,10 @@ int main(void) {
         assert(tested.bytes == (uint8_t *)(uintptr_t)1 && tested.size == 19);
     }
     assert(failed_allocations < 3000);
+
     fixture invalid_index = stream_fixture(true, true, true, true, true);
     assert(run(&invalid_index, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     /* Quartz's unused live offset-zero row is allowed only in an overlay.
      * If reachable, it remains a hard error; source validation stays strict. */
     fixture reserved = ov;
@@ -368,6 +400,7 @@ int main(void) {
     revision(&reserved, "4 1\n0000000000 00000 n ", "");
     unused.size = reserved.n;
     assert(run(&f, &unused, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     /* The default unit may be written as an integer or real. Non-default and
      * nonnumeric values are refused; no truncation of 1.5 to 1 is allowed. */
     const char *units[] = {"1", "1.0", "+1.00", "2", "1.5", "0", "null"};
@@ -389,6 +422,7 @@ int main(void) {
             assert(changed.bytes == (uint8_t *)(uintptr_t)1 && changed.size == 17);
         }
     }
+
     size_t allocations = 0;
     for (; allocations < 2000; allocations++) {
         rmr_buffer out = {(uint8_t *)(uintptr_t)1, 22};
@@ -403,6 +437,7 @@ int main(void) {
         assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 22);
     }
     assert(allocations < 2000);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_plan_bytes = 64;
     assert(run(&f, &o, &limits, &output) == RMR_ERR_LIMIT);
@@ -412,28 +447,35 @@ int main(void) {
     limits = rmr_limits_default();
     limits.maximum_pdf_bytes = f.n;
     assert(run(&f, &o, &limits, &output) == RMR_ERR_LIMIT);
+
     fixture bad = f;
     revision(&bad, "1 1\n0000000000 00001 f ", "");
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     bad = f;
     revision(&bad, "0 1\n0000000000 65535 f ", "/XRefStm 20");
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     bad = f;
     revision(&bad, "0 1\n0000000000 65535 f ", "/Encrypt null");
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_UNSUPPORTED);
+
     bad = f;
     size_t x = bad.n;
     add(&bad, "17 0 obj\n<< /Type /XRef >>\nendobj\nstartxref\n%zu\n%%%%EOF\n", x);
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     bad = f;
     revision(&bad, "0 1\n0000000000 65535 f ", "");
     assert(run(&bad, &o, nullptr, &output) == RMR_OK);
     rmr_buffer_free(&output);
+
     bad = f;
     char *page = strstr(bad.bytes, "/Kids [3 7 R");
     assert(page);
     page[9] = '0';
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     /* A linearized-style first xref can point forward to the main table.
      * /Prev means revision order, not necessarily decreasing byte offsets. */
     bad = f;
@@ -457,14 +499,17 @@ int main(void) {
     add(&bad, "startxref\n%zu\n%%%%EOF\n", first);
     assert(run(&bad, &o, nullptr, &output) == RMR_OK);
     rmr_buffer_free(&output);
+
     /* The same chain made cyclic must fail without publishing partial output. */
     size_t root_prev = (size_t)(prev - bad.bytes) + 6;
     snprintf(offset_text, sizeof offset_text, "%010zu", first);
     memcpy(bad.bytes + root_prev, offset_text, 10);
     assert(run(&bad, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+
     rmr_pdf_overlay duplicate[] = {o, o};
     assert(rmr_pdf_incremental((uint8_t *)f.bytes, f.n, duplicate, 2, nullptr, nullptr, nullptr,
                                &output, nullptr, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+
     puts("portable PDF update/refusal/allocation tests passed");
     return 0;
 }

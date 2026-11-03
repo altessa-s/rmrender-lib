@@ -66,17 +66,20 @@ static bool work(parser *p, size_t n) {
 static void *allocate(parser *p, size_t count, size_t size) {
     if (!count || p->status != RMR_OK)
         return nullptr;
+
     size_t left = p->limits.maximum_plan_bytes - p->bytes;
     if (left < sizeof(block) || count > (left - sizeof(block)) / size) {
         fail(p, RMR_ERR_LIMIT, p->pos, "JSON memory limit");
         return nullptr;
     }
+
     size_t bytes = sizeof(block) + count * size;
     block *b = rmr_calloc(1, bytes);
     if (!b) {
         fail(p, RMR_ERR_OUT_OF_MEMORY, p->pos, nullptr);
         return nullptr;
     }
+
     b->next = p->doc->blocks;
     p->doc->blocks = b;
     p->bytes += bytes;
@@ -134,9 +137,11 @@ static char *string(parser *p) {
         fail(p, RMR_ERR_INVALID_ARGUMENT, start, "unterminated JSON string");
         return nullptr;
     }
+
     char *out = allocate(p, end - start + 1, 1);
     if (!out)
         return nullptr;
+
     size_t n = 0;
     while (p->pos < end && p->status == RMR_OK) {
         unsigned char c = (unsigned char)p->source[p->pos++];
@@ -189,10 +194,12 @@ static char *string(parser *p) {
                 fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "unpaired surrogate");
                 break;
             }
+
             if (!v) {
                 fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "NUL string unsupported");
                 break;
             }
+
             if (v < 0x80)
                 out[n++] = (char)v;
             else if (v < 0x800) {
@@ -214,6 +221,7 @@ static char *string(parser *p) {
             fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos - 1, "invalid string escape");
         }
     }
+
     out[n] = 0;
     if (p->status == RMR_OK)
         p->pos = end + 1;
@@ -232,6 +240,7 @@ static node *parse(parser *p, unsigned depth) {
     }
     if (!work(p, 1))
         return nullptr;
+
     node *v = allocate(p, 1, sizeof *v);
     if (!v)
         return nullptr;
@@ -247,6 +256,7 @@ static node *parse(parser *p, unsigned depth) {
         char close = c == '{' ? '}' : ']';
         if (take(p, close))
             return v;
+
         node **tail = &v->child;
         do {
             char *key = nullptr;
@@ -254,6 +264,7 @@ static node *parse(parser *p, unsigned depth) {
                 key = string(p);
                 if (!key || p->status != RMR_OK)
                     return v;
+
                 size_t key_work = strlen(key) + 1;
                 for (node *n = v->child; n; n = n->next) {
                     if (!work(p, key_work))
@@ -263,21 +274,26 @@ static node *parse(parser *p, unsigned depth) {
                         return v;
                     }
                 }
+
                 if (!take(p, ':')) {
                     fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "missing colon");
                     return v;
                 }
             }
+
             node *child = parse(p, depth + 1);
             if (!child || p->status != RMR_OK)
                 return v;
+
             child->key = key;
             *tail = child;
             tail = &child->next;
             v->count++;
+
             if (take(p, close))
                 return v;
         } while (take(p, ','));
+
         fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "missing JSON delimiter");
     } else if (c == '"') {
         v->type = STRING;
@@ -294,6 +310,7 @@ static node *parse(parser *p, unsigned depth) {
         else
             while (digit(p))
                 p->pos++;
+
         if (p->pos < p->length && p->source[p->pos] == '.') {
             p->pos++;
             if (!digit(p))
@@ -301,6 +318,7 @@ static node *parse(parser *p, unsigned depth) {
             while (digit(p))
                 p->pos++;
         }
+
         if (p->pos < p->length && (p->source[p->pos] == 'e' || p->source[p->pos] == 'E')) {
             p->pos++;
             if (p->pos < p->length && (p->source[p->pos] == '+' || p->source[p->pos] == '-'))
@@ -310,6 +328,7 @@ static node *parse(parser *p, unsigned depth) {
             while (digit(p))
                 p->pos++;
         }
+
         size_t len = p->pos - start;
         char *buffer = allocate(p, len + 1, 1);
         if (!buffer)
@@ -320,6 +339,7 @@ static node *parse(parser *p, unsigned depth) {
         if (!isfinite(v->number))
             goto number_error;
         return v;
+
     number_error:
         fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "invalid JSON number");
     } else {
@@ -332,6 +352,7 @@ static node *parse(parser *p, unsigned depth) {
             v->type = c == 'n' ? NIL : BOOLEAN;
         }
     }
+
     return v;
 }
 
@@ -371,9 +392,11 @@ static void value(parser *p, node *n, rmr_template_value *out) {
     }
     if (!type(p, n, STRING))
         return;
+
     program *pr = allocate(p, 1, sizeof *pr);
     if (!pr)
         return;
+
     rmr_limits l = p->limits;
     l.maximum_plan_bytes -= p->bytes;
     l.maximum_elements -= p->work;
@@ -383,11 +406,13 @@ static void value(parser *p, node *n, rmr_template_value *out) {
         fail(p, status, n->offset, e.message);
         return;
     }
+
     pr->next = p->doc->programs;
     p->doc->programs = pr;
     p->bytes += rmr_expression_bytes(pr->expression);
     if (!work(p, rmr_expression_cost(pr->expression)))
         return;
+
     out->expression = pr->expression;
 }
 
@@ -396,6 +421,7 @@ static void box(parser *p, node *n, rmr_template_box *out) {
         return;
     if (!type(p, n, OBJECT))
         return;
+
     const char *keys[] = {"x", "y", "width", "height"};
     rmr_template_value *values[] = {&out->x, &out->y, &out->width, &out->height};
     for (size_t i = 0; i < 4; i++) {
@@ -408,6 +434,7 @@ static void box(parser *p, node *n, rmr_template_box *out) {
 static void repeat(parser *p, node *n, rmr_template_repeat *out) {
     if (!n)
         return;
+
     if (n->type == STRING) {
         if (!strcmp(n->text, "down") || !strcmp(n->text, "right") || !strcmp(n->text, "infinite")) {
             out->kind = RMR_REPEAT_FORWARD;
@@ -418,6 +445,7 @@ static void repeat(parser *p, node *n, rmr_template_repeat *out) {
             return;
         }
     }
+
     out->kind = RMR_REPEAT_COUNT;
     value(p, n, &out->count);
 }
@@ -425,6 +453,7 @@ static void repeat(parser *p, node *n, rmr_template_repeat *out) {
 static void color(parser *p, node *n, rmr_color *out) {
     if (!type(p, n, STRING))
         return;
+
     char lower[16] = {0};
     size_t len = strlen(n->text);
     if (len < sizeof lower)
@@ -432,6 +461,7 @@ static void color(parser *p, node *n, rmr_color *out) {
             char c = n->text[i];
             lower[i] = c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c;
         }
+
     double gray = -1;
     if (!strcmp(lower, "black"))
         gray = 0;
@@ -445,6 +475,7 @@ static void color(parser *p, node *n, rmr_color *out) {
         *out = (rmr_color){gray, gray, gray, 1};
         return;
     }
+
     const char *s = n->text;
     if (*s == '#') {
         s++;
@@ -454,6 +485,7 @@ static void color(parser *p, node *n, rmr_color *out) {
         fail(p, RMR_ERR_INVALID_ARGUMENT, n->offset, "invalid template color");
         return;
     }
+
     uint32_t v = 0;
     for (size_t i = 0; i < len; i++) {
         int h = hex((unsigned char)s[i]);
@@ -463,6 +495,7 @@ static void color(parser *p, node *n, rmr_color *out) {
         }
         v = (v << 4) | (unsigned)h;
     }
+
     if (len == 6)
         v = (v << 8) | 255;
     *out = (rmr_color){(double)(v >> 24) / 255, (double)((v >> 16) & 255) / 255,
@@ -478,6 +511,7 @@ static void path(parser *p, node *n, rmr_template_path *out) {
     node *data = field(p, n, "data");
     if (!type(p, data, ARRAY))
         return;
+
     size_t count = 0;
     for (node *v = data->child; v && p->status == RMR_OK;) {
         if (!work(p, 1))
@@ -492,8 +526,10 @@ static void path(parser *p, node *n, rmr_template_path *out) {
             fail(p, RMR_ERR_UNSUPPORTED, v->offset, "unsupported path command");
             return;
         }
+
         v = v->next;
         count++;
+
         for (size_t i = 0; i < args; i++) {
             if (!v || command(v)) {
                 fail(p, RMR_ERR_INVALID_ARGUMENT, v ? v->offset : data->offset,
@@ -503,11 +539,13 @@ static void path(parser *p, node *n, rmr_template_path *out) {
             v = v->next;
         }
     }
+
     rmr_template_element *elements = allocate(p, count, sizeof *elements);
     out->elements = elements;
     out->count = count;
     if (count && !elements)
         return;
+
     node *v = data->child;
     bool open = false;
     for (size_t i = 0; i < count && p->status == RMR_OK; i++) {
@@ -516,6 +554,7 @@ static void path(parser *p, node *n, rmr_template_path *out) {
             fail(p, RMR_ERR_INVALID_ARGUMENT, v->offset, "path must start with move");
             return;
         }
+
         open = c != 'Z';
         v = v->next;
         rmr_template_element *e = &elements[i];
@@ -528,6 +567,7 @@ static void path(parser *p, node *n, rmr_template_path *out) {
             v = v->next;
         }
     }
+
     node *vwidth = optional(p, n, "strokeWidth"), *stroke = optional(p, n, "strokeColor"),
          *fill = optional(p, n, "fillColor");
     if (vwidth) {
@@ -548,16 +588,20 @@ static void items(parser *p, node *n, const rmr_template_item **out, size_t *cou
                   unsigned depth) {
     if (!type(p, n, ARRAY))
         return;
+
     rmr_template_item *list = allocate(p, n->count, sizeof *list);
     if (n->count && !list)
         return;
+
     *out = list;
     *count = n->count;
     size_t i = 0;
+
     for (node *v = n->child; v && p->status == RMR_OK; v = v->next, i++) {
         node *t = field(p, v, "type");
         if (!type(p, t, STRING))
             return;
+
         if (!strcmp(t->text, "path")) {
             list[i].kind = RMR_TEMPLATE_PATH;
             path(p, v, &list[i].path);
@@ -566,14 +610,17 @@ static void items(parser *p, node *n, const rmr_template_item **out, size_t *cou
                 fail(p, RMR_ERR_LIMIT, v->offset, "template group nesting limit");
                 return;
             }
+
             list[i].kind = RMR_TEMPLATE_GROUP;
             rmr_template_group *g = &list[i].group;
             box(p, optional(p, v, "boundingBox"), &g->box);
+
             node *r = optional(p, v, "repeat");
             if (r) {
                 repeat(p, optional(p, r, "rows"), &g->rows);
                 repeat(p, optional(p, r, "columns"), &g->columns);
             }
+
             items(p, field(p, v, "children"), &g->children, &g->count, depth + 1);
         } else if (!strcmp(t->text, "text")) {
             list[i].kind = RMR_TEMPLATE_TEXT;
@@ -581,12 +628,14 @@ static void items(parser *p, node *n, const rmr_template_item **out, size_t *cou
             node *text = field(p, v, "text");
             if (!type(p, text, STRING))
                 return;
+
             label->utf8 = text->text;
             label->size = strlen(text->text);
             if (label->size > 65536) {
                 fail(p, RMR_ERR_LIMIT, text->offset, "text byte limit");
                 return;
             }
+
             node *size = optional(p, v, "fontSize");
             if (size) {
                 label->has_font_size = true;
@@ -618,37 +667,46 @@ rmr_status rmr_template_document_decode(const char *json, size_t length, const r
                                         rmr_template_document **out, rmr_error *error) {
     if (!json || !out)
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing JSON input/output");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     /* Bound the scan as well as allocation, even for whitespace-only inputs. */
     if (length > l.maximum_plan_bytes || sizeof(rmr_template_document) > l.maximum_plan_bytes)
         return rmr_fail(error, RMR_ERR_LIMIT, 0, "JSON byte limit");
+
     if (!rmr_utf8_valid(json, length))
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "invalid JSON UTF-8");
+
     rmr_template_document *d = rmr_calloc(1, sizeof *d);
     if (!d)
         return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
+
     parser p = {.source = json,
                 .length = length,
                 .limits = l,
                 .doc = d,
                 .error = error,
                 .bytes = sizeof *d};
+
     p.locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
     if (!p.locale) {
         free(d);
         return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, "numeric locale unavailable");
     }
+
     node *root = parse(&p, 0);
     space(&p);
     if (p.pos != length)
         fail(&p, RMR_ERR_INVALID_ARGUMENT, p.pos, "trailing JSON data");
+
     if (p.status == RMR_OK && type(&p, root, OBJECT)) {
         node *name = field(&p, root, "name");
         if (type(&p, name, STRING))
             d->name = name->text;
+
         node *orientation = optional(&p, root, "orientation");
         if (orientation && type(&p, orientation, STRING))
             d->orientation = orientation->text;
+
         node *categories = optional(&p, root, "categories");
         if (categories && type(&p, categories, ARRAY)) {
             d->categories = allocate(&p, categories->count, sizeof *d->categories);
@@ -662,6 +720,7 @@ rmr_status rmr_template_document_decode(const char *json, size_t length, const r
                 }
             }
         }
+
         node *constants = optional(&p, root, "constants");
         if (constants && type(&p, constants, ARRAY)) {
             if (constants->count > 250)
@@ -689,6 +748,7 @@ rmr_status rmr_template_document_decode(const char *json, size_t length, const r
                             break;
                         }
                     }
+
                     if (cs[i].length > 65536)
                         fail(&p, RMR_ERR_LIMIT, v->offset, "constant name limit");
                     if (!cs[i].length)
@@ -697,13 +757,17 @@ rmr_status rmr_template_document_decode(const char *json, size_t length, const r
                 }
             }
         }
+
         items(&p, field(&p, root, "items"), &d->model.items, &d->model.count, 0);
     }
+
     freelocale(p.locale);
+
     if (p.status != RMR_OK) {
         rmr_template_document_free(d);
         return p.status;
     }
+
     *out = d;
     return RMR_OK;
 }
@@ -769,6 +833,7 @@ static bool source_index(const char *text, size_t *out) {
     bool negative = *p == '-';
     if (negative)
         p++;
+
     const char *digits = p;
     size_t count = 0, fraction = 0;
     bool decimal = false;
@@ -782,6 +847,7 @@ static bool source_index(const char *text, size_t *out) {
         }
         p++;
     }
+
     int exponent = 0;
     if (*p) {
         p++;
@@ -796,9 +862,11 @@ static bool source_index(const char *text, size_t *out) {
         if (minus)
             exponent = -exponent;
     }
+
     /* Fraction/count are bounded by the JSON allocation limit. Work stays
      * linear in the token length; huge exponents never cause long loops. */
     int64_t end = (int64_t)count - (int64_t)fraction + exponent;
+
     uint64_t value = 0;
     size_t index = 0;
     for (p = digits; *p && *p != 'e' && *p != 'E'; p++) {
@@ -815,6 +883,7 @@ static bool source_index(const char *text, size_t *out) {
         }
         index++;
     }
+
     if (value) {
         if (negative || end - (int64_t)count > 18)
             return false;
@@ -824,6 +893,7 @@ static bool source_index(const char *text, size_t *out) {
             value *= 10;
         }
     }
+
     if (value > SIZE_MAX)
         return false;
     *out = (size_t)value;
@@ -833,6 +903,7 @@ static bool source_index(const char *text, size_t *out) {
 static void redirection(parser *p, node *n, bool stamp, rmr_document_page *page) {
     if (!n || n->type == NIL)
         return;
+
     if (stamp) {
         if (n->type != OBJECT) {
             page->refused_source = true;
@@ -842,6 +913,7 @@ static void redirection(parser *p, node *n, bool stamp, rmr_document_page *page)
         if (!n)
             return;
     }
+
     if (n->type == NUMBER && source_index(n->text, &page->source_page)) {
         page->has_source = true;
     } else
@@ -852,43 +924,53 @@ rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr
                                       rmr_document_layout **out, rmr_error *error) {
     if (!json || !out)
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing content JSON");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (length > l.maximum_plan_bytes || sizeof(rmr_template_document) > l.maximum_plan_bytes)
         return rmr_fail(error, RMR_ERR_LIMIT, 0, "content byte limit");
+
     if (!rmr_utf8_valid(json, length))
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "invalid content UTF-8");
+
     rmr_template_document *storage = rmr_calloc(1, sizeof *storage);
     if (!storage)
         return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
+
     parser p = {.source = json,
                 .length = length,
                 .limits = l,
                 .doc = storage,
                 .error = error,
                 .bytes = sizeof *storage};
+
     p.locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
     if (!p.locale) {
         free(storage);
         return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, "numeric locale unavailable");
     }
+
     node *root = parse(&p, 0);
     space(&p);
     if (p.pos != length)
         fail(&p, RMR_ERR_INVALID_ARGUMENT, p.pos, "trailing content JSON");
+
     rmr_document_layout *d = allocate(&p, 1, sizeof *d);
     if (d && type(&p, root, OBJECT)) {
         d->storage = storage;
+
         node *w = content_optional(&p, root, "customZoomPageWidth"),
              *h = content_optional(&p, root, "customZoomPageHeight");
         bool valid_w = !w || type(&p, w, NUMBER), valid_h = !h || type(&p, h, NUMBER);
         if (w && h && valid_w && valid_h && w->number > 0 && h->number > 0 && w->number <= 100000 &&
             h->number <= 100000)
             d->canvas = (rmr_point){w->number, h->number};
+
         node *orientation = content_optional(&p, root, "orientation");
         if (orientation && orientation->type == OBJECT)
             orientation = content_optional(&p, orientation, "value");
         d->landscape =
             orientation && orientation->type == STRING && !strcmp(orientation->text, "landscape");
+
         node *cp = content_optional(&p, root, "cPages"), *pages = nullptr;
         if (cp && type(&p, cp, OBJECT))
             pages = content_optional(&p, cp, "pages");
@@ -897,27 +979,32 @@ rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr
         bool crdt = pages && pages->count;
         if (!crdt)
             pages = content_optional(&p, root, "pages");
+
         node *redirects = crdt ? nullptr : content_optional(&p, root, "redirectionPageMap");
         if (redirects && !type(&p, redirects, ARRAY))
             redirects = nullptr;
+
         if (pages && type(&p, pages, ARRAY)) {
             ordered_page *ordered = allocate(&p, pages->count, sizeof *ordered);
             d->pages = allocate(&p, pages->count, sizeof *d->pages);
             d->deleted = allocate(&p, pages->count, sizeof *d->deleted);
             size_t alive = 0, position = 0;
             node *redir = redirects ? redirects->child : nullptr;
+
             for (node *entry = pages->child; p.status == RMR_OK && entry;
                  entry = entry->next, position++) {
                 node *id = crdt ? field(&p, entry, "id") : entry;
                 if (!type(&p, id, STRING))
                     break;
                 ordered_page item = {.page = {.id = id->text}, .key = "", .position = position};
+
                 if (crdt) {
                     node *deleted = stamped(&p, entry, "deleted");
                     if (deleted && type(&p, deleted, NUMBER) && deleted->number == 1) {
                         d->deleted[d->deleted_count++] = id->text;
                         continue;
                     }
+
                     node *name = stamped(&p, entry, "template"), *key = stamped(&p, entry, "idx");
                     if (name && type(&p, name, STRING))
                         item.page.template_name = name->text;
@@ -929,11 +1016,14 @@ rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr
                     if (redir)
                         redir = redir->next;
                 }
+
                 ordered[alive++] = item;
             }
+
             if (p.status == RMR_OK) {
                 if (crdt && alive > 1)
                     qsort(ordered, alive, sizeof *ordered, page_order);
+
                 for (size_t i = 0; i < alive; i++) {
                     bool duplicate = false;
                     for (size_t j = 0; j < d->count; j++) {
@@ -952,11 +1042,14 @@ rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr
             }
         }
     }
+
     freelocale(p.locale);
+
     if (p.status != RMR_OK) {
         rmr_template_document_free(storage);
         return p.status;
     }
+
     d->bytes = p.bytes;
     *out = d;
     return RMR_OK;

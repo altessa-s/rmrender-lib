@@ -95,17 +95,21 @@ static rmr_status incremental(const void *bytes, size_t n, rmr_buffer *out, rmr_
     assert(rmr_apple_pdf_source_create(bytes, n, nullptr, &src, nullptr) == RMR_OK);
     size_t count = rmr_apple_pdf_source_count(src);
     assert(count == 1);
+
     rmr_plan *plan = mark();
     rmr_point size = {0};
     assert(rmr_apple_pdf_source_size(src, 0, &size, nullptr) == RMR_OK);
+
     rmr_pdf_page page = {
         .marks = plan,
         .sheet = {.width = size.x, .height = size.y, .transform = {1, 0, 0, -1, 100, size.y}},
         .source_rect = {-100, 0, 200, 200},
         .has_source = true,
         .source_visible = true};
+
     rmr_status s =
         rmr_apple_pdf_incremental(src, &page, 1, nullptr, nullptr, nullptr, out, nullptr, e);
+
     rmr_plan_free(plan);
     rmr_apple_pdf_source_free(src);
     return s;
@@ -138,6 +142,7 @@ int main(void) {
     char extra[64];
     snprintf(extra, sizeof extra, "/XRefStm %zu", xs);
     xref(&h, 5, extra);
+
     rmr_buffer out = {0};
     rmr_error e = {0};
     view before = describe(h.b, h.n);
@@ -159,6 +164,7 @@ int main(void) {
     obj(&c, 3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>");
     obj(&c, 4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 999 999] >>");
     xref(&c, 5, "");
+
     out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 7};
     rmr_status s = incremental(c.b, c.n, &out, &e);
     assert(s == RMR_ERR_UNSUPPORTED && strstr(e.message, "page count"));

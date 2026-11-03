@@ -49,6 +49,7 @@ static cairo_status_t font_init(cairo_scaled_font_t *font, cairo_t *cr,
     y = extents->height;
     cairo_matrix_transform_distance(&data->inverse, &x, &y);
     extents->height = hypot(x, y);
+
     cairo_matrix_transform_distance(&data->inverse, &extents->max_x_advance,
                                     &extents->max_y_advance);
     return cairo_scaled_font_status(data->native);
@@ -59,11 +60,13 @@ static cairo_status_t font_render(cairo_scaled_font_t *font, unsigned long index
     emoji_font *data = font_data(font);
     if (!index || index > data->count)
         return CAIRO_STATUS_USER_FONT_ERROR;
+
     emoji_alias alias = data->aliases[index - 1];
     cairo_glyph_t *glyphs = data->glyphs + alias.first;
     cairo_scaled_font_glyph_extents(data->native, glyphs, alias.count, extents);
     extents->x_advance = alias.advance;
     extents->y_advance = 0;
+
     double left = INFINITY, top = INFINITY, right = -INFINITY, bottom = -INFINITY;
     for (unsigned corner = 0; corner < 4; corner++) {
         double x = extents->x_bearing + ((corner & 1) ? extents->width : 0);
@@ -79,6 +82,7 @@ static cairo_status_t font_render(cairo_scaled_font_t *font, unsigned long index
     extents->width = right - left;
     extents->height = bottom - top;
     cairo_matrix_transform_distance(&data->inverse, &extents->x_advance, &extents->y_advance);
+
     /* Keep the native size while obtaining outlines. Recreating a one-unit
      * font loses FreeType precision before the PDF font matrix scales it up. */
     cairo_transform(cr, &data->inverse);
@@ -127,6 +131,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
             return RMR_OK;
         }
     }
+
     size_t count = (size_t)run->glyphs->num_glyphs;
     if (!count)
         return RMR_OK;
@@ -137,6 +142,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
     size_t available = limits->maximum_plan_bytes - *retained;
     if (owned > available || count * sizeof(cairo_glyph_t) > available - owned)
         return RMR_ERR_LIMIT;
+
     emoji_font *data = calloc(1, sizeof *data);
     cairo_glyph_t *positions = calloc(count, sizeof *positions);
     if (data) {
@@ -152,12 +158,14 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
         free(positions);
         return RMR_ERR_OUT_OF_MEMORY;
     }
+
     cairo_scaled_font_t *source =
         pango_cairo_font_get_scaled_font(PANGO_CAIRO_FONT(run->item->analysis.font));
     cairo_font_options_t *options = cairo_font_options_create();
     cairo_scaled_font_get_font_options(source, options);
     cairo_matrix_t matrix;
     cairo_scaled_font_get_font_matrix(source, &matrix);
+
     /* Normalize the first emitted cluster to a half-em horizontal advance.
      * Poppler estimates Type3 text size from that advance. Compensating in
      * the font matrix and its inverse preserves outlines and real advances. */
@@ -170,6 +178,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
         matrix.xx *= scale;
         matrix.yx *= scale;
     }
+
     data->native = cairo_scaled_font_reference(source);
     data->inverse = matrix;
     if (cairo_matrix_invert(&data->inverse) != CAIRO_STATUS_SUCCESS) {
@@ -178,6 +187,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
         free(positions);
         return RMR_ERR_BACKEND;
     }
+
     cairo_font_face_t *face = cairo_user_font_face_create();
     cairo_status_t cs = cairo_font_face_set_user_data(face, &emoji_key, data, font_free);
     if (cs != CAIRO_STATUS_SUCCESS) {
@@ -191,6 +201,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
     cairo_user_font_face_set_init_func(face, font_init);
     cairo_user_font_face_set_render_glyph_func(face, font_render);
     cairo_user_font_face_set_unicode_to_glyph_func(face, no_unicode);
+
     double x, y;
     cairo_get_current_point(cr, &x, &y);
     double pen = x;
@@ -200,6 +211,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
                                        y + (double)geometry.y_offset / PANGO_SCALE};
         pen += (double)geometry.width / PANGO_SCALE;
     }
+
     cairo_save(cr);
     cairo_set_font_face(cr, face);
     cairo_set_font_matrix(cr, &matrix);
@@ -225,6 +237,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
         cairo_text_cluster_t span = {(int)length, 1};
         cairo_show_text_glyphs(cr, text + start, (int)length, &output, 1, &span, 1, 0);
     }
+
     cs = cairo_status(cr);
     cairo_restore(cr);
     cairo_font_face_destroy(face);
@@ -244,9 +257,11 @@ rmr_status rmr_pango_show_line(cairo_t *cr, PangoLayoutLine *line, const rmr_lim
         pango_cairo_show_layout_line(cr, line);
         return RMR_OK;
     }
+
     const char *text = pango_layout_get_text(line->layout);
     double x, y;
     cairo_get_current_point(cr, &x, &y);
+
     for (GSList *it = line->runs; it; it = it->next) {
         PangoGlyphItem *run = it->data;
         x += (double)run->start_x_offset / PANGO_SCALE;

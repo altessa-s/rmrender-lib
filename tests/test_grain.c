@@ -37,9 +37,11 @@ int main(void) {
     rmr_rect edge;
     OK(rmr_grain_box(&minimum, 1, nullptr, &edge, nullptr));
     CHECK(edge.x == -2); /* Keep Double width for bounds, Float only in raster. */
+
     rmr_rect box;
     OK(rmr_grain_box(points, 3, nullptr, &box, nullptr));
     CHECK(box.x == -7 && box.y == -7 && box.width == 58 && box.height == 28);
+
     rmr_mask mask = {0}, again = {0};
     OK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, box, nullptr, nullptr, &mask, nullptr));
     OK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, box, nullptr, nullptr, &again, nullptr));
@@ -48,18 +50,23 @@ int main(void) {
     for (size_t row = 0; row < mask.height; row++)
         CHECK((mask.bytes[row * mask.stride + 14] & 15) == 15);
     rmr_mask_free(&again);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_plan_bytes = 100;
     CHECK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, box, nullptr, &limits, &again, nullptr) ==
               RMR_ERR_LIMIT &&
           !again.bytes);
+
     CHECK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, (rmr_rect){0, 0, 16385, 10}, nullptr, nullptr,
                          &again, nullptr) == RMR_ERR_LIMIT);
+
     CHECK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, (rmr_rect){0.5, 0, 20, 20}, nullptr, nullptr,
                          &again, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+
     points[0].x = NAN;
     CHECK(rmr_grain_mask(points, 3, RMR_GRAIN_STREAK, box, nullptr, nullptr, &again, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
+
     points[0].x = 0;
     for (size_t fail = 0; fail < 2; fail++) {
         rmr_test_fail_after(fail);
@@ -67,6 +74,7 @@ int main(void) {
                   RMR_ERR_OUT_OF_MEMORY &&
               !again.bytes);
     }
+
     rmr_test_fail_after(SIZE_MAX);
     rmr_element path[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                           {.kind = RMR_LINE, .end = {40, 0}},
@@ -77,9 +85,11 @@ int main(void) {
                      .mask = {mask.bytes, mask.width, mask.height, mask.stride, mask.box}};
     rmr_plan *plan = nullptr;
     OK(rmr_plan_create(&draw, 1, (rmr_rect){-20, -20, 100, 100}, nullptr, &plan, nullptr));
+
     rmr_backend backend = {RMR_BACKEND_ABI, sizeof backend, RMR_CAP_FILL,  nullptr,
                            untouched_begin, untouched_draw, untouched_end, untouched_abort};
     CHECK(rmr_plan_execute(plan, &backend, nullptr, nullptr, nullptr) == RMR_ERR_UNSUPPORTED);
+
     for (size_t fail = 0; fail < 4; fail++) {
         rmr_plan *failed = nullptr;
         rmr_test_fail_after(fail);
@@ -87,23 +97,27 @@ int main(void) {
                               nullptr) == RMR_ERR_OUT_OF_MEMORY &&
               !failed);
     }
+
     rmr_test_fail_after(SIZE_MAX);
     rmr_plan *failed = nullptr;
     draw.mask.stride = SIZE_MAX;
     CHECK(rmr_plan_create(&draw, 1, (rmr_rect){-20, -20, 100, 100}, nullptr, &failed, nullptr) ==
               RMR_ERR_LIMIT &&
           !failed);
+
     draw.mask.stride = mask.stride;
     draw.mode = RMR_STROKE;
     draw.line_width = 1;
     CHECK(rmr_plan_create(&draw, 1, (rmr_rect){-20, -20, 100, 100}, nullptr, &failed, nullptr) ==
               RMR_ERR_INVALID_ARGUMENT &&
           !failed);
+
     const rmr_draw *owned = rmr_plan_draw(plan, 0);
     CHECK(owned->mask.bytes != mask.bytes &&
           memcmp(owned->mask.bytes, mask.bytes, mask.stride * mask.height) == 0);
     rmr_mask_free(&mask);
     CHECK(owned->mask.width == 116);
+
     rmr_plan_free(plan);
     puts("grain mask passed");
     return 0;

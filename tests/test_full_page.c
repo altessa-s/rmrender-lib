@@ -36,10 +36,12 @@ static void marks_contract(void) {
                               .id = {2, 3}};
     rm_page page = {
         .strokes = strokes, .stroke_count = 2, .highlights = &highlight, .highlight_count = 1};
+
     rmr_page_marks *marks = nullptr;
     rmr_rect frame = {0, 0, 100, 100};
     OK(native(page_marks)(&page, (rmr_point){100, 100}, frame, (rm_str){id, 4}, nullptr, nullptr,
                           &marks, nullptr));
+
     const rmm_marked_page *view = rmr_page_marks_view(marks);
     CHECK(view->band_count == 2 && view->highlight_count == 1);
     CHECK(fabs(view->bands[0].box.x0 - .1) < .0001);
@@ -51,19 +53,23 @@ static void marks_contract(void) {
     CHECK(view->highlights[0].band.box.x0 == 0);
     CHECK(fabs(view->highlights[0].band.box.x1 - .4) < .0001);
     CHECK(fabs(view->highlights[0].band.box.y1 - .45) < .0001);
+
     words[0] = id[0] = 'X';
     CHECK(!memcmp(view->highlights[0].text.bytes, "owned", 5));
     CHECK(!memcmp(view->page_id.bytes, "page", 4));
+
     rmr_page_marks *out = marks;
     rmr_limits small = rmr_limits_default();
     small.maximum_plan_bytes = 1;
     CHECK(native(page_marks)(&page, (rmr_point){100, 100}, frame, (rm_str){0}, nullptr, &small,
                              &out, nullptr) == RMR_ERR_LIMIT);
     CHECK(out == marks);
+
     rectangles[0].width = -1;
     CHECK(native(page_marks)(&page, (rmr_point){100, 100}, frame, (rm_str){0}, nullptr, nullptr,
                              &out, nullptr) == RMR_ERR_INVALID_ARGUMENT);
     CHECK(out == marks);
+
     rmr_page_marks_free(marks);
     rmr_page_marks_free(nullptr);
     CHECK(!rmr_page_marks_view(nullptr));
@@ -76,6 +82,7 @@ static void sheet_contract(void) {
             pixels[y * 20 + x * 4] = 64;
             pixels[y * 20 + x * 4 + 3] = 128;
         }
+
     rmr_bitmap page = {pixels, 4, 4, 20};
     rmm_page_box boxes[] = {{0, .25, .5, .75}, {2, 2, 3, 3}};
     rmr_mark_sheet sheet = {0};
@@ -87,6 +94,7 @@ static void sheet_contract(void) {
     CHECK(sheet.bitmap.pixels[3 * sheet.bitmap.stride] == 0);
     CHECK(sheet.strips[0].on_page.y0 == .25 && sheet.strips[0].in_sheet.y0 == .25);
     CHECK(sheet.strips[0].in_sheet.y1 == .75);
+
     rmm_placed_text piece = {RMM_STR("recognized"), sheet.strips[0].in_sheet};
     rmm_line line = {&piece, 1};
     size_t number = 7;
@@ -97,23 +105,29 @@ static void sheet_contract(void) {
     CHECK(reading->items[0].lines[0].pieces[0].box.y0 == boxes[0].y0);
     CHECK(reading->items[0].lines[0].pieces[0].box.y1 == boxes[0].y1);
     rmm_readings_free(reading);
+
     rmr_mark_sheet out = sheet;
     rmr_limits small = rmr_limits_default();
     small.maximum_plan_bytes = 1;
     CHECK(native(mark_sheet)(&page, boxes, 2, 0, 1, &small, &out, nullptr) == RMR_ERR_LIMIT);
     CHECK(out.bitmap.pixels == sheet.bitmap.pixels);
+
     boxes[0].x1 = -1;
     CHECK(native(mark_sheet)(&page, boxes, 2, 0, 1, nullptr, &out, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
     CHECK(out.bitmap.pixels == sheet.bitmap.pixels);
+
     rmr_mark_sheet_free(&sheet);
     CHECK(!sheet.bitmap.pixels && !sheet.strips && !sheet.count);
+
     OK(native(mark_sheet)(&page, nullptr, 0, 0, 1, nullptr, &sheet, nullptr));
     CHECK(!sheet.bitmap.pixels && !sheet.count);
+
     boxes[0] = (rmm_page_box){.25, .25, .75, .75};
     OK(native(mark_sheet)(&page, boxes, 1, 1, 0, nullptr, &sheet, nullptr));
     CHECK(sheet.bitmap.width == 4 && sheet.bitmap.height == 4);
     rmr_mark_sheet_free(&sheet);
+
     rmm_page_box around = rmr_mark_around((rmm_page_box){.1, .1, .9, .9}, 1);
     CHECK(around.x0 == 0 && around.y0 == 0 && around.x1 == 1 && around.y1 == 1);
 }
@@ -121,10 +135,12 @@ static void sheet_contract(void) {
 int main(int argc, char **argv) {
     marks_contract();
     sheet_contract();
+
     CHECK(argc == 2);
     native(fonts) *fonts = nullptr;
     rmr_error error = {0};
     OK(native(fonts_create_directory)(argv[1], nullptr, &fonts, &error));
+
     const char *words = "مرحبا بالعالم العربية";
     rm_face_run run = {0, 2, false, false};
     rm_paragraph paragraph = {.text = {words, strlen(words)},
@@ -138,10 +154,12 @@ int main(int argc, char **argv) {
                           .paragraph_count = 1,
                           .has_column_width = true,
                           .column_width = 100};
+
     native(layout) *layout = nullptr;
     OK(native(layout_create)(&text, 600, fonts, nullptr, &layout, &error));
     const rmr_anchor_layout *anchors = native(layout_anchors)(layout);
     CHECK(anchors->paragraphs[0].line_count == 7);
+
     /* Independent CoreText geometry for the style-overlay/soft-wrap fixture. */
     const double starts[] = {-230.192, -241.136, -244.912, -237.616, -234.608, -235.216, -217.552};
     const double ends[] = {-202, -194.4288, -202, -194.4288, -202, -202.96, -202};
@@ -151,13 +169,16 @@ int main(int argc, char **argv) {
         CHECK(fabs(measured.start - starts[li]) < CARET_TOLERANCE);
         CHECK(fabs(measured.end - ends[li]) < CARET_TOLERANCE);
     }
+
     rmr_caret_offsets offsets;
     OK(anchors->caret->measure(anchors->caret->context, 0, 0, 0, &offsets));
     CHECK(fabs(offsets.at_start - 28.192) < CARET_TOLERANCE);
+
     rm_text_anchor anchor = {.paragraph = 0, .offset = 3};
     rmr_point pen;
     OK(rmr_lines_anchor_pen(anchors, &anchor, nullptr, &pen, &error));
     CHECK(fabs(pen.y - 209.15) < 1e-8);
+
     native(layout_free)(layout);
     rm_stroke_point points[] = {{.x = 0, .y = 0, .width = 40}, {.x = 50, .y = 0, .width = 40}};
     rm_stroke stroke = {.tool = RM_TOOL_HIGHLIGHTER_2,
@@ -181,17 +202,20 @@ int main(int argc, char **argv) {
                     .highlights = &highlight,
                     .highlight_count = 1};
     rmr_plan *plan = nullptr;
+
     OK(native(page_plan)(&page, (rmr_point){600, 400}, RMR_EDGE_RIBBON, 0, nullptr, fonts, nullptr,
                          &plan, &error));
     CHECK(rmr_plan_count(plan) >= 3);
     rmr_rect viewport = rmr_plan_viewport(plan);
     CHECK(viewport.height == 400);
+
     rmr_plan_free(plan);
     plan = nullptr;
     OK(native(page_plan)(&page, (rmr_point){600, 400}, RMR_EDGE_UNCUT, 0, nullptr, fonts, nullptr,
                          &plan, &error));
     viewport = rmr_plan_viewport(plan);
     CHECK(viewport.height > 600);
+
     rmr_page_marks *marks = nullptr;
     OK(native(page_marks)(&page, (rmr_point){600, 400}, viewport, (rm_str){"page", 4}, fonts,
                           nullptr, &marks, &error));
@@ -203,6 +227,7 @@ int main(int argc, char **argv) {
           .0001);
     CHECK(fabs(view->bands[0].box.y0 -
                fmin(1, fmax(0, (pen.y - 5 - viewport.y) / viewport.height))) < .0001);
+
     native(fonts_free)(fonts);
     rmr_bitmap bitmap = {0};
     OK(native(bitmap)(plan, .5, (rmr_color){1, 1, 1, 1}, nullptr, nullptr, nullptr, &bitmap,
@@ -212,6 +237,7 @@ int main(int argc, char **argv) {
         if (bitmap.pixels[i] < 200)
             ink++;
     CHECK(ink > 100);
+
     rmm_page_box blocks[] = {view->bands[0].box, view->highlights[0].band.box};
     rmr_mark_sheet sheet = {0};
     OK(native(mark_sheet)(&bitmap, blocks, 2, 2, 3, nullptr, &sheet, &error));
@@ -221,14 +247,17 @@ int main(int argc, char **argv) {
     rmr_mark_sheet_free(&sheet);
     rmr_page_marks_free(marks);
     rmr_bitmap_free(&bitmap);
+
     rmr_buffer pdf = {0};
     const rmr_plan *plans[] = {plan};
     OK(native(pdf)(plans, 1, RMR_POINTS_PER_UNIT, nullptr, nullptr, nullptr, &pdf, &error));
     CHECK(pdf.size > 1000);
     rmr_buffer_free(&pdf);
     rmr_plan_free(plan);
+
 #ifdef RMR_TEST_LINUX
     FcFini();
 #endif
+
     return 0;
 }

@@ -13,6 +13,7 @@ int main(void) {
     CGContextRef cg = CGPDFContextCreate(consumer, &box, nullptr);
     CGDataConsumerRelease(consumer);
     CHECK(cg);
+
     CGPDFContextBeginPage(cg, nullptr);
     CGContextSetRGBFillColor(cg, 1, 0, 0, 1);
     CGContextFillRect(cg, box);
@@ -22,11 +23,13 @@ int main(void) {
     CFRelease(url);
     CGPDFContextSetDestinationForRect(cg, CFSTR("second"), CGRectMake(20, 50, 40, 30));
     CGPDFContextEndPage(cg);
+
     CGPDFContextBeginPage(cg, nullptr);
     CGContextSetRGBFillColor(cg, 0, 0, 1, 1);
     CGContextFillRect(cg, box);
     CGPDFContextAddDestinationAtPoint(cg, CFSTR("second"), CGPointMake(0, 200));
     CGPDFContextEndPage(cg);
+
     int destination = 2;
     CFNumberRef n = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &destination);
     const void *keys[] = {kCGPDFOutlineTitle, kCGPDFOutlineDestination},
@@ -38,6 +41,7 @@ int main(void) {
     const void *items[] = {item};
     CFArrayRef children = CFArrayCreate(kCFAllocatorDefault, items, 1, &kCFTypeArrayCallBacks);
     CFRelease(item);
+
     const void *root_keys[] = {kCGPDFOutlineChildren}, *root_values[] = {children};
     CFDictionaryRef root =
         CFDictionaryCreate(kCFAllocatorDefault, root_keys, root_values, 1,
@@ -47,6 +51,7 @@ int main(void) {
     CFRelease(root);
     CGPDFContextClose(cg);
     CGContextRelease(cg);
+
     rmr_apple_pdf_source *source = nullptr;
     OK(rmr_apple_pdf_source_create(CFDataGetBytePtr(bytes), (size_t)CFDataGetLength(bytes), nullptr,
                                    &source, nullptr));
@@ -55,6 +60,7 @@ int main(void) {
     rmr_point size;
     OK(rmr_apple_pdf_source_size(source, 0, &size, nullptr));
     CHECK(size.x == 100 && size.y == 200);
+
     rmr_plan *empty = nullptr;
     OK(rmr_plan_create(nullptr, 0, (rmr_rect){0, 0, 100, 200}, nullptr, &empty, nullptr));
     rmr_pdf_page pages[2];
@@ -65,16 +71,19 @@ int main(void) {
                                   .source_page = 1 - i,
                                   .has_source = true,
                                   .source_visible = true};
+
     rmr_buffer result = {0};
     rmr_pdf_report report = {0};
     rmr_error e = {0};
     OK(rmr_apple_pdf_overlay(source, pages, 2, nullptr, nullptr, nullptr, &result, &report, &e));
     CHECK(report.links_preserved == 2 && report.links_dropped == 0);
+
     CGDataProviderRef provider =
         CGDataProviderCreateWithData(nullptr, result.bytes, result.size, nullptr);
     CGPDFDocumentRef document = CGPDFDocumentCreateWithProvider(provider);
     CGDataProviderRelease(provider);
     CHECK(document && CGPDFDocumentGetNumberOfPages(document) == 2);
+
     root = CGPDFDocumentGetOutline(document);
     CHECK(root);
     children = CFDictionaryGetValue(root, kCGPDFOutlineChildren);
@@ -82,17 +91,21 @@ int main(void) {
     item = CFArrayGetValueAtIndex(children, 0);
     n = CFDictionaryGetValue(item, kCGPDFOutlineDestination);
     CHECK(CFNumberGetValue(n, kCFNumberIntType, &destination) && destination == 1);
+
     CGPDFArrayRef annotations = nullptr;
     CHECK(CGPDFDictionaryGetArray(CGPDFPageGetDictionary(CGPDFDocumentGetPage(document, 2)),
                                   "Annots", &annotations));
     CHECK(CGPDFArrayGetCount(annotations) == 2);
+
     CGPDFDocumentRelease(document);
     rmr_buffer_free(&result);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_pdf_bytes = 20;
     CHECK(rmr_apple_pdf_overlay(source, pages, 2, &limits, nullptr, nullptr, &result, nullptr,
                                 &e) == RMR_ERR_LIMIT);
     CHECK(result.bytes == nullptr);
+
     rmr_apple_pdf_source_free(source);
     rmr_plan_free(empty);
     return 0;

@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
     rmr_error e = {0};
     if (argc != 2 || create(argv[1], 0, &fonts, &e))
         return 1;
+
     for (size_t size_index = 0; size_index < 4; size_index++)
         for (size_t i = 0; i < 9; i++)
             for (unsigned face = 0; face < 3; face++)
@@ -48,6 +49,7 @@ int main(int argc, char **argv) {
                         printf("%g %zu %u %u %u %.9f\n", metric_sizes[size_index], i, face, bold,
                                italic, w);
                     }
+
     const char *sample = "Hello world Hello world Hello world";
     rm_paragraph para = {.text = {sample, strlen(sample)}};
     rm_text_block block = {.origin_x = -100,
@@ -59,6 +61,7 @@ int main(int argc, char **argv) {
     L *l = 0;
     if (layout_create(&block, 200, fonts, 0, &l, &e))
         return 3;
+
     const rmr_anchor_layout *a = anchors(l);
     for (size_t i = 0; i < a->paragraphs[0].line_count; i++) {
         rmr_text_line line;
@@ -67,12 +70,14 @@ int main(int argc, char **argv) {
         printf("LINE %zu %zu %.9f %.9f %.9f\n", line.from, line.to, line.baseline, line.start,
                line.end);
     }
+
     for (size_t i = 0; i <= 11; i++) {
         rmr_caret_offsets c;
         if (a->caret->measure(a->caret->context, 0, 0, i, &c))
             return 5;
         printf("CARET %zu %.9f %.9f\n", i, c.at_index, c.at_start);
     }
+
     layout_free(l);
     release(fonts);
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)

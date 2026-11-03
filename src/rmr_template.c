@@ -36,6 +36,7 @@ static rmr_status value(builder *b, rmr_template_value v, double *out) {
         *out = v.number;
         return RMR_OK;
     }
+
     if (rmr_expression_stack_bytes(v.expression) > b->limits.maximum_plan_bytes - b->allocated)
         return fail(b, RMR_ERR_LIMIT, "template expression stack limit");
     return rmr_expression_evaluate(v.expression, b->bindings, b->binding_count, out, b->error);
@@ -72,6 +73,7 @@ static rmr_status environment(builder *b, const rmr_template *t) {
     bind(b, "parentHeight", 12, b->canvas.y);
     bind(b, "paperOriginX", 12, (b->canvas.x - b->canvas.y) / 2);
     bind(b, "paperOriginY", 12, 0);
+
     for (size_t i = 0; i < t->constant_count; i++) {
         const rmr_template_constant *c = &t->constants[i];
         if (!name_valid(c->name, c->length))
@@ -82,6 +84,7 @@ static rmr_status environment(builder *b, const rmr_template *t) {
             return s;
         bind(b, c->name, c->length, number);
     }
+
     return RMR_OK;
 }
 
@@ -93,6 +96,7 @@ static rmr_status repetitions(builder *b, rmr_template_repeat repeat, double ste
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid repetition kind");
     if (repeat.kind == RMR_REPEAT_ONCE || step <= 0)
         return RMR_OK;
+
     double n;
     if (repeat.kind == RMR_REPEAT_COUNT) {
         rmr_status s = value(b, repeat.count, &n);
@@ -104,6 +108,7 @@ static rmr_status repetitions(builder *b, rmr_template_repeat repeat, double ste
         n = ceil(start / step) + 1;
         *direction = -1;
     }
+
     if (isfinite(n))
         *count = (size_t)fmin(fmax(trunc(n), 1), 10000);
     return RMR_OK;
@@ -118,6 +123,7 @@ static rmr_status point(builder *b, rmr_template_value x, rmr_template_value y, 
     s = value(b, y, &py);
     if (s != RMR_OK)
         return s;
+
     *out = (rmr_point){origin.x + px - b->canvas.x / 2, origin.y + py};
     return rmr_point_valid(*out, b->limits.maximum_coordinate)
                ? RMR_OK
@@ -133,6 +139,7 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
         return RMR_OK;
     if (b->draw_count == b->limits.maximum_draws)
         return fail(b, RMR_ERR_LIMIT, "template draw limit");
+
     bool stroked = !p->has_fill || p->has_stroke_width || p->has_stroke_color;
     rmr_draw d = {.mode = p->has_fill ? (stroked ? RMR_FILL_STROKE : RMR_FILL) : RMR_STROKE,
                   .color = p->fill,
@@ -142,20 +149,24 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
     rmr_color stroke = p->has_stroke_color   ? p->stroke
                        : p->has_stroke_width ? (rmr_color){0, 0, 0, 1}
                                              : (rmr_color){.752941, .752941, .752941, 1};
+
     if (stroked && p->has_stroke_width) {
         rmr_status s = value(b, p->stroke_width, &d.line_width);
         if (s != RMR_OK)
             return s;
     }
+
     if ((p->has_fill && !rmr_color_valid(p->fill)) ||
         (stroked && (!rmr_color_valid(stroke) || !isfinite(d.line_width) || d.line_width <= 0 ||
                      d.line_width > b->limits.maximum_width)))
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template paint");
+
     if (!p->has_fill)
         d.color = stroke;
     d.stroke_color = stroke;
     bool open = false;
     size_t start = b->element_count;
+
     for (size_t i = 0; i < p->count; i++) {
         const rmr_template_element *v = &p->elements[i];
         rmr_status s = charge(b, 1);
@@ -163,6 +174,7 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
             return s;
         if (v->kind > RMR_CLOSE || (v->kind != RMR_MOVE && !open))
             return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template path structure");
+
         rmr_element e = {.kind = v->kind};
         if (v->kind == RMR_MOVE)
             open = true;
@@ -173,6 +185,7 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
             if (s != RMR_OK)
                 return s;
         }
+
         if (v->kind == RMR_CURVE) {
             s = point(b, v->control1_x, v->control1_y, origin, &e.control1);
             if (s != RMR_OK)
@@ -181,10 +194,12 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
             if (s != RMR_OK)
                 return s;
         }
+
         if (b->elements)
             b->elements[b->element_count] = e;
         b->element_count++;
     }
+
     if (b->draws) {
         d.path = (rmr_path_view){b->elements + start, p->count};
         b->draws[b->draw_count] = d;
@@ -200,11 +215,13 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
         return fail(b, RMR_ERR_LIMIT, "text byte limit");
     if ((!t->utf8 && t->size) || !rmr_utf8_valid(t->utf8, t->size))
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid text UTF-8");
+
     rmr_status s = charge(b, t->size + 1);
     if (s != RMR_OK)
         return s;
     if (b->draw_count == b->limits.maximum_draws)
         return fail(b, RMR_ERR_LIMIT, "template draw limit");
+
     double size = 24;
     if (t->has_font_size) {
         s = value(b, t->font_size, &size);
@@ -213,10 +230,12 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
     }
     if (!isfinite(size) || size <= 0 || size > b->limits.maximum_width)
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template font size");
+
     rmr_text_metrics m = {0};
     s = b->provider->measure(b->provider->context, t->utf8, t->size, size, &m);
     if (s != RMR_OK)
         return fail(b, s, "text measurement failed");
+
     if (!isfinite(m.width) || m.width < 0 || m.width > b->limits.maximum_coordinate ||
         !isfinite(m.bounds.width) || !isfinite(m.bounds.height) || m.bounds.width < 0 ||
         m.bounds.height < 0 ||
@@ -224,6 +243,7 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
         !rmr_point_valid((rmr_point){m.bounds.x + m.bounds.width, m.bounds.y + m.bounds.height},
                          b->limits.maximum_coordinate))
         return fail(b, RMR_ERR_BACKEND, "invalid text metrics");
+
     size_t saved_count = b->binding_count, slot = saved_count;
     for (size_t i = 0; i < saved_count; i++)
         if (b->bindings[i].length == 9 && !memcmp(b->bindings[i].name, "textWidth", 9)) {
@@ -234,6 +254,7 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
         return fail(b, RMR_ERR_LIMIT, "textWidth binding limit");
     rmr_binding saved = slot < saved_count ? b->bindings[slot] : (rmr_binding){0};
     bind(b, "textWidth", 9, m.width);
+
     rmr_point position;
     s = point(b, t->position.x, t->position.y, origin, &position);
     /* Resolve the whole position box, even though only origin is used. */
@@ -247,6 +268,7 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
         b->bindings[slot] = saved;
     if (s != RMR_OK)
         return s;
+
     if (b->draws)
         b->draws[b->draw_count] = (rmr_draw){.mode = RMR_TEXT,
                                              .color = {0, 0, 0, 1},
@@ -261,27 +283,32 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "missing template items");
     if (count > b->limits.maximum_elements - b->work)
         return fail(b, RMR_ERR_LIMIT, "template item limit");
+
     for (size_t i = 0; i < count; i++) {
         rmr_status s = charge(b, 1);
         if (s != RMR_OK)
             return s;
         const rmr_template_item *item = &list[i];
+
         if (item->kind == RMR_TEMPLATE_TEXT) {
             s = text_item(b, &item->text, origin);
             if (s != RMR_OK)
                 return s;
             continue;
         }
+
         if (item->kind == RMR_TEMPLATE_PATH) {
             s = path(b, &item->path, origin);
             if (s != RMR_OK)
                 return s;
             continue;
         }
+
         if (item->kind != RMR_TEMPLATE_GROUP)
             return fail(b, RMR_ERR_UNSUPPORTED, "unsupported template item");
         if (depth == 32)
             return fail(b, RMR_ERR_LIMIT, "template group nesting limit");
+
         const rmr_template_group *g = &item->group;
         double x, y, w, h;
         s = value(b, g->box.x, &x);
@@ -296,6 +323,7 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
         s = value(b, g->box.height, &h);
         if (s != RMR_OK)
             return s;
+
         double parent_w = b->bindings[2].value, parent_h = b->bindings[3].value;
         if (w <= 0)
             w = parent_w;
@@ -306,6 +334,7 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
             fabs(h) > b->limits.maximum_coordinate ||
             !rmr_point_valid(start, b->limits.maximum_coordinate))
             return fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template group box");
+
         size_t rows, columns;
         double dy, dx;
         s = repetitions(b, g->rows, h, start.y, b->extent.y, &rows, &dy);
@@ -314,8 +343,10 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
         s = repetitions(b, g->columns, w, start.x, b->extent.x, &columns, &dx);
         if (s != RMR_OK)
             return s;
+
         b->bindings[2].value = w;
         b->bindings[3].value = h;
+
         for (size_t row = 0; row < rows; row++)
             for (size_t column = 0; column < columns; column++) {
                 /* Charge even empty repeated groups, so nested empty cells are bounded. */
@@ -328,9 +359,11 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
                 if (s != RMR_OK)
                     return s;
             }
+
         b->bindings[2].value = parent_w;
         b->bindings[3].value = parent_h;
     }
+
     return RMR_OK;
 }
 
@@ -340,6 +373,7 @@ rmr_status rmr_template_plan_with_text(const rmr_template *t, rmr_point canvas, 
     if (provider && (provider->abi_version != RMR_TEXT_PROVIDER_ABI ||
                      provider->struct_size < sizeof *provider || !provider->measure))
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid text provider ABI");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (!t || !out || (t->constant_count && !t->constants) || !isfinite(l.maximum_coordinate) ||
         l.maximum_coordinate <= 0 || l.maximum_coordinate > 1e12 || !isfinite(l.maximum_width) ||
@@ -350,6 +384,7 @@ rmr_status rmr_template_plan_with_text(const rmr_template *t, rmr_point canvas, 
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid template input");
     if (t->constant_count > 250)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "template constant limit");
+
     builder b = {.limits = l, .provider = provider, .canvas = canvas, .extent = extent, .error = e};
     rmr_status s = environment(&b, t);
     if (s != RMR_OK)
@@ -357,12 +392,14 @@ rmr_status rmr_template_plan_with_text(const rmr_template *t, rmr_point canvas, 
     s = items(&b, t->items, t->count, (rmr_point){0}, 0);
     if (s != RMR_OK)
         return s;
+
     if (b.draw_count > l.maximum_plan_bytes / sizeof(rmr_draw))
         return fail(&b, RMR_ERR_LIMIT, "template scratch limit");
     size_t bytes = b.draw_count * sizeof(rmr_draw);
     if (b.element_count > (l.maximum_plan_bytes - bytes) / sizeof(rmr_element))
         return fail(&b, RMR_ERR_LIMIT, "template scratch limit");
     bytes += b.element_count * sizeof(rmr_element);
+
     b.draws = b.draw_count ? rmr_calloc(b.draw_count, sizeof *b.draws) : nullptr;
     b.elements = b.element_count ? rmr_calloc(b.element_count, sizeof *b.elements) : nullptr;
     if ((b.draw_count && !b.draws) || (b.element_count && !b.elements)) {
@@ -370,17 +407,21 @@ rmr_status rmr_template_plan_with_text(const rmr_template *t, rmr_point canvas, 
         free(b.elements);
         return fail(&b, RMR_ERR_OUT_OF_MEMORY, nullptr);
     }
+
     b.allocated = bytes;
     b.draw_count = 0;
     b.element_count = 0;
     b.work = 0;
+
     s = environment(&b, t);
     if (s == RMR_OK)
         s = items(&b, t->items, t->count, (rmr_point){0}, 0);
+
     if (s == RMR_OK) {
         l.maximum_plan_bytes -= bytes;
         s = rmr_plan_create(b.draws, b.draw_count, viewport, &l, out, e);
     }
+
     free(b.draws);
     free(b.elements);
     return s;
@@ -393,15 +434,18 @@ rmr_status rmr_template_background_plan_with_text(const rmr_template *t, rmr_poi
                                                   rmr_error *e) {
     if (!foreground || !out)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "missing foreground or output");
+
     if (!visible)
         return rmr_plan_create(foreground->draws, foreground->count, foreground->viewport, given,
                                out, e);
+
     rmr_limits l = given ? *given : rmr_limits_default();
     rmr_plan *background = nullptr;
     rmr_status s = rmr_template_plan_with_text(t, canvas, extent, foreground->viewport, provider,
                                                &l, &background, e);
     if (s != RMR_OK)
         return s;
+
     size_t count = foreground->count, bytes = rmr_plan_bytes(background);
     rmr_draw *draws = nullptr;
     if (count > l.maximum_draws || background->count > l.maximum_draws - count) {
@@ -414,17 +458,20 @@ rmr_status rmr_template_background_plan_with_text(const rmr_template *t, rmr_poi
         goto done;
     }
     bytes += count * sizeof *draws;
+
     draws = count ? rmr_calloc(count, sizeof *draws) : nullptr;
     if (count && !draws) {
         s = rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
         goto done;
     }
+
     if (background->count)
         memcpy(draws, background->draws, background->count * sizeof *draws);
     if (foreground->count)
         memcpy(draws + background->count, foreground->draws, foreground->count * sizeof *draws);
     l.maximum_plan_bytes -= bytes;
     s = rmr_plan_create(draws, count, foreground->viewport, &l, out, e);
+
 done:
     free(draws);
     rmr_plan_free(background);
@@ -451,6 +498,7 @@ rmr_status rmr_template_page_extent(rmr_point canvas, rmr_rect viewport, rmr_poi
     /* Coordinate conversion can lose a few ulps at an unchanged canvas edge. */
     double ex = 8 * DBL_EPSILON * fmax(canvas.x, fmax(fabs(viewport.x), fabs(viewport.width)));
     double ey = 8 * DBL_EPSILON * fmax(canvas.y, fmax(fabs(viewport.y), fabs(viewport.height)));
+
     if (!out || !isfinite(canvas.x) || !isfinite(canvas.y) || canvas.x <= 0 || canvas.y <= 0 ||
         canvas.x > 100000 || canvas.y > 100000 || !isfinite(viewport.x) || !isfinite(viewport.y) ||
         !isfinite(viewport.width) || !isfinite(viewport.height) || viewport.width <= 0 ||
@@ -459,6 +507,7 @@ rmr_status rmr_template_page_extent(rmr_point canvas, rmr_rect viewport, rmr_poi
         canvas.y - bottom > ey)
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
                         "viewport must contain a plausible canvas");
+
     *out = (rmr_point){fmin(fmax(canvas.x, right + canvas.x / 2), 100000),
                        fmin(fmax(canvas.y, bottom), 100000)};
     return RMR_OK;

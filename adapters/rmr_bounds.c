@@ -41,6 +41,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
     if (page->stroke_count > l.maximum_draws ||
         page->image_count > l.maximum_draws - page->stroke_count)
         return fail(e, RMR_ERR_LIMIT, 0, "page bounds item limit");
+
     rmr_rect bounds = {0, 0, w, h};
     double leftmost = INFINITY, rightmost = -INFINITY, deepest = INFINITY, highest = -INFINITY;
     size_t points = 0;
@@ -72,6 +73,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
             include(&bounds, x, y, edge == RMR_EDGE_CENTRELINE ? 0 : width / 2);
         }
     }
+
     if (page->image_count > (l.maximum_points - points) / 4)
         return fail(e, RMR_ERR_LIMIT, 0, "bounds image vertex limit");
     for (size_t i = 0; i < page->image_count; i++) {
@@ -92,6 +94,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
             include(&bounds, x, y, 0);
         }
     }
+
     if (text) {
         if (!isfinite(text->origin_x) || !isfinite(text->origin_y) || !isfinite(text->bottom) ||
             fabs(text->origin_x) > l.maximum_coordinate ||
@@ -115,12 +118,14 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
         } else
             include(&bounds, bounds.x, bottom, 0);
     }
+
     bool squared = edge != RMR_EDGE_CENTRELINE && (leftmost < 0 || rightmost > w);
     if (squared) {
         double side = fmax(w, h);
         bounds.x = (w - side) / 2;
         bounds.width = side;
     }
+
     if (edge == RMR_EDGE_RIBBON && isfinite(deepest)) {
         if (deepest < -47) {
             bounds.y -= 47;
@@ -130,10 +135,12 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
             bounds.y = 0;
         }
     }
+
     if (edge == RMR_EDGE_UNCUT && deepest < 0) {
         bounds.y -= 47;
         bounds.height += 47;
     }
+
     if (edge == RMR_EDGE_RIBBON) {
         if (!squared && isfinite(leftmost) && leftmost >= 0 && bounds.x < 0) {
             bounds.width -= -bounds.x;
@@ -144,6 +151,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
         if (isfinite(highest) && highest <= h && bounds.y + bounds.height > h)
             bounds.height -= (bounds.y + bounds.height) - h;
     }
+
     if (edge == RMR_EDGE_CENTRELINE) {
         if (bounds.x < 0) {
             bounds.x -= margin;
@@ -158,6 +166,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
         if (bounds.y + bounds.height > h)
             bounds.height += margin;
     }
+
     rmr_rect result = {bounds.x - w / 2, h - (bounds.y + bounds.height), bounds.width,
                        bounds.height};
     if (fabs(result.x) > l.maximum_coordinate ||
@@ -183,6 +192,7 @@ rmr_status rmr_lines_page_plan(const rm_page *page, double w, double h, rmr_ink_
                                rmr_plan **out, rmr_error *e) {
     if (!out)
         return fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "missing plan output");
+
     rmr_rect viewport;
     rmr_status s = rmr_lines_content_bounds(page, w, h, edge, margin, limits, &viewport, e);
     if (s != RMR_OK)

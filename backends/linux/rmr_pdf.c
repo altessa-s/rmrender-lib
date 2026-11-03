@@ -30,6 +30,7 @@ rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const 
                                        rmr_linux_pdf_source **out, rmr_error *e) {
     if (!bytes || !size || !out)
         return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "missing PDF input");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     size_t count = 0;
     rmr_status status = rmr_pdf_pages(bytes, size, &l, nullptr, 0, &count, e);
@@ -37,6 +38,7 @@ rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const 
         return status;
     if (!count || count > INT_MAX || count > l.maximum_plan_bytes / sizeof(rmr_pdf_page_geometry))
         return rmr_linux_error(e, RMR_ERR_LIMIT, "PDF page limit");
+
     rmr_linux_pdf_source *s = calloc(1, sizeof *s);
     if (!s)
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
@@ -46,14 +48,17 @@ rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const 
         rmr_linux_pdf_source_free(s);
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
     }
+
     memcpy(s->data.bytes, bytes, size);
     s->data.size = size;
     s->count = count;
     status = rmr_pdf_pages(bytes, size, &l, s->geometry, count, &count, e);
+
     rmr_pdfium_lock();
     FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(bytes, size, nullptr);
     if (status == RMR_OK && (!doc || FPDF_GetPageCount(doc) != (int)count))
         status = RMR_ERR_UNSUPPORTED;
+
     for (size_t i = 0; i < count && status == RMR_OK; i++) {
         FPDF_PAGE page = FPDF_LoadPage(doc, (int)i);
         float a, b, c, d;
@@ -73,10 +78,12 @@ rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const 
     if (doc)
         FPDF_CloseDocument(doc);
     rmr_pdfium_unlock();
+
     if (status != RMR_OK) {
         rmr_linux_pdf_source_free(s);
         return rmr_linux_error(e, status, "PDF readers disagree or source unsupported");
     }
+
     *out = s;
     return RMR_OK;
 }
@@ -85,6 +92,7 @@ rmr_status rmr_linux_pdf_source_size(const rmr_linux_pdf_source *s, size_t page,
                                      rmr_error *e) {
     if (!s || !out || page >= s->count)
         return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "source page out of range");
+
     rmr_pdf_page_geometry g = s->geometry[page];
     *out = g.rotate % 180 ? (rmr_point){g.media.height, g.media.width}
                           : (rmr_point){g.media.width, g.media.height};
@@ -100,6 +108,7 @@ static rmr_transform concat(rmr_transform a, rmr_transform b) {
 static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page *p) {
     rmr_rect m = g.media, r = p->source_rect;
     rmr_transform t;
+
     switch (g.rotate) {
     case 90:
         t = (rmr_transform){0, 1 / m.width, 1 / m.height, 0, -m.y / m.height, -m.x / m.width};
@@ -115,6 +124,7 @@ static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page *p) {
         t = (rmr_transform){1 / m.width, 0, 0, -1 / m.height, -m.x / m.width, 1 + m.y / m.height};
         break;
     }
+
     return concat(concat(t, (rmr_transform){r.width, 0, 0, r.height, r.x, r.y}),
                   p->sheet.transform);
 }
@@ -133,12 +143,14 @@ static rmr_rect box(rmr_transform t, double w, double h) {
     double x[] = {t.tx, t.a * w + t.tx, t.c * h + t.tx, t.a * w + t.c * h + t.tx},
            y[] = {t.ty, t.b * w + t.ty, t.d * h + t.ty, t.b * w + t.d * h + t.ty};
     double left = x[0], right = x[0], bottom = y[0], top = y[0];
+
     for (size_t i = 1; i < 4; i++) {
         left = fmin(left, x[i]);
         right = fmax(right, x[i]);
         bottom = fmin(bottom, y[i]);
         top = fmax(top, y[i]);
     }
+
     return (rmr_rect){left, bottom, right - left, top - bottom};
 }
 
@@ -151,10 +163,12 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
     if (count != source->count)
         return rmr_linux_error(e, RMR_ERR_UNSUPPORTED,
                                "incremental output preserves page count/order");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (count > l.maximum_draws ||
         count > l.maximum_plan_bytes / (sizeof(rmr_pdf_overlay) + sizeof(rmr_buffer)))
         return rmr_linux_error(e, RMR_ERR_LIMIT, "PDF allocation limit");
+
     rmr_pdf_overlay *overlays = calloc(count, sizeof *overlays);
     rmr_buffer *pdfs = calloc(count, sizeof *pdfs);
     if (!overlays || !pdfs) {
@@ -163,6 +177,7 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
     }
     l.maximum_plan_bytes -= count * (sizeof *overlays + sizeof *pdfs);
+
     size_t used = 0;
     rmr_status s = RMR_OK;
     for (size_t i = 0; i < count && s == RMR_OK; i++) {
@@ -171,16 +186,19 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
             s = RMR_ERR_CANCELLED;
             break;
         }
+
         if (!p->has_source || !p->source_visible || p->source_page != i) {
             s = RMR_ERR_UNSUPPORTED;
             break;
         }
+
         rmr_rect r = p->source_rect;
         if (!p->marks || !isfinite(r.x) || !isfinite(r.y) || !isfinite(r.width) ||
             !isfinite(r.height) || r.width <= 0 || r.height <= 0) {
             s = RMR_ERR_INVALID_ARGUMENT;
             break;
         }
+
         if (!rmr_plan_count(p->marks))
             continue;
         rmr_transform t = inverse(placement(source->geometry[i], p));
@@ -192,6 +210,7 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
             break;
         }
         l.maximum_plan_bytes -= pdfs[used].size;
+
         rmr_rect b = box(t, p->sheet.width, p->sheet.height), m = source->geometry[i].media;
         double left = fmin(b.x, m.x), bottom = fmin(b.y, m.y),
                right = fmax(b.x + b.width, m.x + m.width),
@@ -206,12 +225,14 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
                                            .box = {left, bottom, right - left, top - bottom}};
         used++;
     }
+
     bool reported = false;
     if (s == RMR_OK) {
         s = rmr_pdf_incremental(source->data.bytes, source->data.size, overlays, used, &l, cancel,
                                 ctx, out, report, e);
         reported = s != RMR_OK;
     }
+
     for (size_t i = 0; i < count; i++)
         rmr_buffer_free(&pdfs[i]);
     free(pdfs);
@@ -244,6 +265,7 @@ static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest, const rmr_linux
     int index = FPDFDest_GetDestPageIndex(src, dest);
     if (index < 0 || (size_t)index >= source->count)
         return false;
+
     size_t target = SIZE_MAX;
     if (current < count && pages[current].has_source && pages[current].source_visible &&
         pages[current].source_page == (size_t)index)
@@ -252,6 +274,7 @@ static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest, const rmr_linux
         target = page_map[index];
     if (target == SIZE_MAX)
         return false;
+
     rmr_rect m = source->geometry[index].media;
     FPDF_BOOL has_x = 0, has_y = 0, has_zoom = 0;
     float x = 0, y = 0, zoom = 0;
@@ -259,6 +282,7 @@ static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest, const rmr_linux
     double px = has_x ? x : m.x, py = has_y ? y : m.y + m.height;
     if (!isfinite(px) || !isfinite(py))
         return false;
+
     rmr_transform t = placement(source->geometry[index], &pages[target]);
     *out = (rmr_pdf_destination){target, {t.a * px + t.c * py + t.tx, t.b * px + t.d * py + t.ty}};
     return true;
@@ -288,14 +312,17 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
         if (pages[i].has_source && pages[i].source_visible &&
             n->page_map[pages[i].source_page] == SIZE_MAX)
             n->page_map[pages[i].source_page] = i;
+
     for (size_t i = 0; i < count; i++) {
         if (cancel && cancel(ctx))
             return RMR_ERR_CANCELLED;
         if (!pages[i].has_source || !pages[i].source_visible)
             continue;
+
         FPDF_PAGE page = FPDF_LoadPage(src, (int)pages[i].source_page);
         if (!page)
             return RMR_ERR_BACKEND;
+
         int pos = 0;
         FPDF_LINK link;
         rmr_status status = RMR_OK;
@@ -304,9 +331,11 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                 status = RMR_ERR_LIMIT;
                 break;
             }
+
             FPDF_DEST dest = link_destination(src, link);
             if (!dest)
                 continue; /* URI/unsupported links counted by the composition pass. */
+
             rmr_pdf_local_link entry = {.page = i};
             FS_RECTF rect;
             if (!local_destination(src, dest, source, pages, count, i, n->page_map,
@@ -323,6 +352,7 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                 status = RMR_ERR_LIMIT;
                 break;
             }
+
             void *next = realloc(n->links, (n->link_count + 1) * sizeof entry);
             if (!next) {
                 status = RMR_ERR_OUT_OF_MEMORY;
@@ -337,6 +367,7 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
         if (status != RMR_OK)
             return status;
     }
+
     /* Breadth first traversal keeps parents before children and bounds cyclic trees. */
     size_t parent = SIZE_MAX;
     for (;;) {
@@ -347,11 +378,13 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                 return RMR_ERR_CANCELLED;
             if (++n->work > l->maximum_elements)
                 return RMR_ERR_LIMIT;
+
             unsigned long length = FPDFBookmark_GetTitle(b, nullptr, 0);
             size_t fixed = sizeof(rmr_pdf_outline) + sizeof(FPDF_BOOKMARK);
             if (length < 2 || length % 2 || length > l->maximum_plan_bytes - n->bytes ||
                 fixed > l->maximum_plan_bytes - n->bytes - length)
                 return RMR_ERR_LIMIT;
+
             uint8_t *title = malloc(length);
             if (!title)
                 return RMR_ERR_OUT_OF_MEMORY;
@@ -372,6 +405,7 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                 return RMR_ERR_OUT_OF_MEMORY;
             }
             n->bookmarks = handles;
+
             rmr_pdf_outline entry = {.parent = parent,
                                      .title = title,
                                      .title_size = length - 2,
@@ -383,15 +417,18 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                 dest = FPDFAction_GetDest(src, action);
             local_destination(src, dest, source, pages, count, SIZE_MAX, n->page_map,
                               &entry.destination);
+
             n->outline[n->outline_count] = entry;
             n->bookmarks[n->outline_count++] = b;
             n->bytes += fixed + length;
             b = FPDFBookmark_GetNextSibling(src, b);
         }
+
         parent = parent == SIZE_MAX ? 0 : parent + 1;
         if (parent >= n->outline_count)
             break;
     }
+
     return RMR_OK;
 }
 
@@ -400,12 +437,15 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                                  void *ctx, rmr_buffer *out, rmr_pdf_report *report, rmr_error *e) {
     if (!pages || !count || !out)
         return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "missing PDF pages");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (count > l.maximum_draws || count > INT_MAX)
         return rmr_linux_error(e, RMR_ERR_LIMIT, "PDF page limit");
+
     rmr_buffer result = {0};
     rmr_status s = RMR_OK;
     rmr_pdf_report stats = {0};
+
     rmr_pdfium_lock();
     FPDF_DOCUMENT dest = FPDF_CreateNewDocument(),
                   src = source
@@ -413,24 +453,29 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                             : nullptr;
     if (!dest || (source && !src))
         s = RMR_ERR_BACKEND;
+
     for (size_t i = 0; i < count && s == RMR_OK; i++) {
         if (cancel && cancel(ctx)) {
             s = RMR_ERR_CANCELLED;
             break;
         }
+
         const rmr_pdf_page *p = &pages[i];
         if (!p->marks || (p->has_source && (!source || p->source_page >= source->count))) {
             s = RMR_ERR_INVALID_ARGUMENT;
             break;
         }
+
         rmr_buffer overlay = {0};
         s = rmr_linux_render_pdf(&p->marks, &p->sheet, 1, &l, cancel, ctx, &overlay, e);
         if (s != RMR_OK)
             break;
+
         FPDF_DOCUMENT marks = FPDF_LoadMemDocument64(overlay.bytes, overlay.size, nullptr);
         FPDF_PAGE page = FPDFPage_New(dest, (int)i, p->sheet.width, p->sheet.height);
         if (!marks || !page)
             s = RMR_ERR_BACKEND;
+
         if (s == RMR_OK && p->has_source && p->source_visible) {
             rmr_rect r = p->source_rect;
             if (!isfinite(r.width) || !isfinite(r.height) || !isfinite(r.x) || !isfinite(r.y) ||
@@ -456,6 +501,7 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                         FPDFPage_SetCropBox(page, (float)b.x, (float)b.y, (float)(b.x + b.width),
                                             (float)(b.y + b.height));
                     }
+
                     int pos = 0;
                     FPDF_LINK link;
                     size_t work = 0;
@@ -464,6 +510,7 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                             s = RMR_ERR_LIMIT;
                             break;
                         }
+
                         if (link_destination(src, link))
                             continue;
                         FPDF_ACTION action = FPDFLink_GetAction(link);
@@ -476,6 +523,7 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                             stats.links_dropped++;
                             continue;
                         }
+
                         char *uri = malloc(length);
                         if (!uri) {
                             s = RMR_ERR_OUT_OF_MEMORY;
@@ -487,6 +535,7 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                             stats.links_dropped++;
                             continue;
                         }
+
                         rmr_transform shifted = t;
                         shifted.tx += t.a * rect.left + t.c * rect.bottom;
                         shifted.ty += t.b * rect.left + t.d * rect.bottom;
@@ -507,6 +556,7 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
                 }
             }
         }
+
         if (s == RMR_OK)
             s = rmr_pdfium_form(dest, page, marks, 0, (rmr_transform){1, 0, 0, 1, 0, 0});
         if (s == RMR_OK && !FPDFPage_GenerateContent(page))
@@ -517,11 +567,14 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
             FPDF_CloseDocument(marks);
         rmr_buffer_free(&overlay);
     }
+
     if (s == RMR_OK)
         s = rmr_pdfium_save(dest, &l, &result);
+
     navigation nav = {0};
     if (s == RMR_OK && src)
         s = navigation_collect(&nav, src, source, pages, count, &l, cancel, ctx, &stats);
+
     if (s == RMR_OK && (nav.link_count || nav.outline_count)) {
         rmr_buffer edited = {0};
         rmr_limits remaining = l;
@@ -533,12 +586,14 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
             result = edited;
         }
     }
+
     navigation_free(&nav);
     if (src)
         FPDF_CloseDocument(src);
     if (dest)
         FPDF_CloseDocument(dest);
     rmr_pdfium_unlock();
+
     if (s == RMR_OK) {
         *out = result;
         if (report)

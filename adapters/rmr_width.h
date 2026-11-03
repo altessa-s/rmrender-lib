@@ -32,6 +32,7 @@ static inline float rmr_drawn_width(rm_pen_tool tool, rm_stroke_point p) {
             }
         scale = 0.72 * opening;
     }
+
     return scale == 1 ? p.width : p.width * (float)scale;
 }
 

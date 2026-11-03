@@ -293,6 +293,7 @@ typedef struct {
                                                           size_t count, rmr_rect viewport,
                                                           const rmr_limits *limits, rmr_plan **out,
                                                           rmr_error *error);
+
 typedef struct rmr_template_store rmr_template_store;
 
 /* Filesystem adapter for our generated template files. One borrowed decoded

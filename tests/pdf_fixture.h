@@ -39,33 +39,40 @@ static void stream(fixture *f, unsigned id, const char *body) {
 static fixture source(bool certified) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
+
     obj(&f, 1, 0,
         certified ? "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 11 0 R >> >>"
                   : "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Metadata 12 0 R /Outlines 13 "
                     "0 R /Names << /EmbeddedFiles 15 0 R >> /Custom (keep\\(this\\)) >>");
     obj(&f, 2, 0,
         "<< /Type /Pages /Kids [3 7 R 6 0 R] /Count 2 /MediaBox [0 0 200 200] /Resources 5 0 R >>");
+
     obj(&f, 3, 7,
         "<< /Type /Page /Parent 2 0 R /Contents 16 0 R /Annots [8 0 R 9 0 R] /CropBox [0 0 200 "
         "200] /Custom <00ff12> >>");
     stream(&f, 4, "0 0 1 rg 0 0 200 200 re f\n");
     obj(&f, 5, 0, "<< /ExtGState << /RMGs0 << /ca 0.2 >> >> >>");
     obj(&f, 6, 0, "<< /Type /Page /Parent 2 0 R /Rotate 90 /Contents 4 0 R >>");
+
     obj(&f, 7, 0, "<< /Fields [8 0 R 10 0 R] /NeedAppearances true >>");
     obj(&f, 8, 0,
         "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /V (Alice) /Rect [10 150 100 180] /P 3 "
         "7 R >>");
     obj(&f, 9, 0,
         "<< /Type /Annot /Subtype /Text /Contents (A note) /Rect [10 20 30 40] /P 3 7 R >>");
+
     obj(&f, 10, 0, "<< /FT /Sig /T (Signature) /V 11 0 R >>");
     /* Synthetic signature dictionary tests object preservation, not cryptography. */
     obj(&f, 11, 0, "<< /Type /Sig /ByteRange [0 10 20 30] /Contents <abcdef001122> >>");
+
     stream(&f, 12, "<metadata>unchanged</metadata>");
     obj(&f, 13, 0, "<< /Type /Outlines /First 14 0 R /Last 14 0 R /Count 1 >>");
     obj(&f, 14, 0, "<< /Title (Chapter) /Parent 13 0 R /Dest [3 7 R /XYZ 10 100 null] >>");
+
     obj(&f, 15, 0,
         "<< /Names [(file.txt) << /Type /Filespec /F (file.txt) /EF << /F 12 0 R >> >>] >>");
     obj(&f, 16, 0, "[4 0 R]");
+
     size_t x = f.n;
     add(&f, "xref\n0 17\n0000000000 65535 f \n");
     for (unsigned i = 1; i < 17; i++)

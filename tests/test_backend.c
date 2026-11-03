@@ -41,6 +41,7 @@ int main(void) {
     rmr_backend b = {RMR_BACKEND_ABI, sizeof b, RMR_CAP_FILL, &c, begin, draw, end, abort_draw};
     CHECK(rmr_plan_execute(plan, &b, nullptr, nullptr, nullptr) == RMR_ERR_UNSUPPORTED);
     CHECK(c.began == 0);
+
     b.capabilities |= RMR_CAP_MULTIPLY;
     for (int fail = 0; fail < 4; fail++) {
         c = (calls){.fail = fail};
@@ -50,6 +51,7 @@ int main(void) {
         CHECK(c.drawn == (fail == 1 ? 0 : 1));
         CHECK(c.ended == (fail == 1 || fail == 2 ? 0 : 1));
     }
+
     for (int at = 1; at <= 3; at++) {
         c = (calls){.cancel_at = at};
         CHECK(rmr_plan_execute(plan, &b, cancel, &c, nullptr) == RMR_ERR_CANCELLED);
@@ -57,10 +59,12 @@ int main(void) {
         CHECK(c.aborted == (at == 1 ? 0 : 1));
         CHECK(!c.ended);
     }
+
     b.abi_version = 99;
     c = (calls){0};
     CHECK(rmr_plan_execute(plan, &b, nullptr, nullptr, nullptr) == RMR_ERR_INVALID_ARGUMENT);
     CHECK(!c.began);
+
     rmr_plan_free(plan);
     puts("backend passed");
     return 0;

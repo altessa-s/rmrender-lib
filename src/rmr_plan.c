@@ -14,6 +14,7 @@ static void include(rmr_point p, double *x0, double *y0, double *x1, double *y1)
 static rmr_status validate_path(rmr_path_view path, rmr_limits l, size_t index, rmr_error *e) {
     if (!path.elements && path.count)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, index, "missing path elements");
+
     bool open = false;
     for (size_t j = 0; j < path.count; j++) {
         const rmr_element *item = &path.elements[j];
@@ -30,6 +31,7 @@ static rmr_status validate_path(rmr_path_view path, rmr_limits l, size_t index, 
         if (item->kind == RMR_CLOSE)
             open = false;
     }
+
     return RMR_OK;
 }
 
@@ -47,8 +49,10 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid viewport or input");
     if (count > l.maximum_draws || count > SIZE_MAX / sizeof(rmr_draw))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "draw count limit");
+
     size_t elements = 0, mask_bytes = 0, eraser_count = 0;
     uint64_t caps = 0;
+
     for (size_t i = 0; i < count; i++) {
         const rmr_draw *d = &draws[i];
         bool stroked = d->mode == RMR_STROKE || d->mode == RMR_FILL_STROKE;
@@ -63,18 +67,22 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         if (d->path.count > l.maximum_elements - elements)
             return rmr_fail(e, RMR_ERR_LIMIT, i, "path element limit");
         elements += d->path.count;
+
         caps |= d->mode == RMR_PDF     ? RMR_CAP_PDF
                 : d->mode == RMR_TEXT  ? RMR_CAP_TEXT
                 : d->mode == RMR_IMAGE ? RMR_CAP_IMAGE
                 : d->mode == RMR_FILL  ? RMR_CAP_FILL
                                        : RMR_CAP_STROKE;
+
         if (d->mode == RMR_FILL_STROKE) {
             if (!rmr_color_valid(d->stroke_color) || d->mask.bytes || d->eraser_count || d->group)
                 return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "invalid combined fill/stroke");
             caps |= RMR_CAP_FILL | RMR_CAP_STROKE | RMR_CAP_FILL_STROKE;
         }
+
         if (stroked && d->join == RMR_JOIN_MITER)
             caps |= RMR_CAP_MITER;
+
         if (d->mode == RMR_TEXT) {
             const rmr_text_view *t = &d->text;
             if ((!t->utf8 && t->size) || d->path.count || d->mask.bytes || d->eraser_count ||
@@ -96,6 +104,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         } else if (d->text.utf8 || d->text.size) {
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "text bytes on non-text command");
         }
+
         if (d->mode == RMR_IMAGE || d->mode == RMR_PDF) {
             const rmr_image_view *im = &d->image;
             rmr_transform t = im->transform;
@@ -114,10 +123,12 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         } else if (d->image.bytes || d->image.size) {
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "image bytes on geometry command");
         }
+
         if (d->blend == RMR_BLEND_DARKEN)
             caps |= RMR_CAP_DARKEN;
         if (d->blend == RMR_BLEND_MULTIPLY)
             caps |= RMR_CAP_MULTIPLY;
+
         if (d->mask.bytes) {
             const rmr_mask_view *m = &d->mask;
             if (d->mode != RMR_FILL || !m->width || !m->height || m->width > SIZE_MAX - 7 ||
@@ -137,9 +148,11 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         } else if (d->mask.width || d->mask.height || d->mask.stride) {
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "missing mask bytes");
         }
+
         rmr_status status = validate_path(d->path, l, i, e);
         if (status != RMR_OK)
             return status;
+
         if (d->eraser_count && !d->erasers)
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "missing eraser paths");
         if (d->eraser_count > l.maximum_elements - eraser_count)
@@ -147,6 +160,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         eraser_count += d->eraser_count;
         if (d->eraser_count)
             caps |= RMR_CAP_ERASE;
+
         for (size_t k = 0; k < d->eraser_count; k++) {
             rmr_path_view path = d->erasers[k];
             if (path.count > l.maximum_elements - elements)
@@ -156,6 +170,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
             if (status != RMR_OK)
                 return status;
         }
+
         if (d->group) {
             if (!isfinite(d->group_alpha) || d->group_alpha < 0 || d->group_alpha > 1 ||
                 d->group_blend > RMR_BLEND_MULTIPLY || d->color.alpha != 1 ||
@@ -172,6 +187,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
                 caps |= RMR_CAP_MULTIPLY;
         }
     }
+
     size_t bytes = sizeof(rmr_plan);
     if (bytes > l.maximum_plan_bytes || count > (l.maximum_plan_bytes - bytes) / sizeof(rmr_draw))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "plan memory limit");
@@ -184,9 +200,11 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
     bytes += elements * sizeof(rmr_element);
     if (mask_bytes > l.maximum_plan_bytes - bytes)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "plan payload memory limit");
+
     rmr_plan *p = rmr_calloc(1, sizeof *p);
     if (!p)
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
+
     p->draws = count ? rmr_calloc(count, sizeof *p->draws) : nullptr;
     p->elements = elements ? rmr_calloc(elements, sizeof *p->elements) : nullptr;
     p->masks = mask_bytes ? rmr_alloc(mask_bytes) : nullptr;
@@ -196,20 +214,24 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
         rmr_plan_free(p);
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
     }
+
     p->bytes = bytes + mask_bytes;
     p->viewport = viewport;
     p->count = count;
     p->caps = caps;
+
     size_t at = 0, mask_at = 0, eraser_at = 0;
     double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
     for (size_t i = 0; i < count; i++) {
         const rmr_draw *d = &draws[i];
         p->draws[i] = *d;
+
         if (d->mode == RMR_IMAGE || d->mode == RMR_PDF) {
             memcpy(p->masks + mask_at, d->image.bytes, d->image.size);
             p->draws[i].image.bytes = p->masks + mask_at;
             mask_at += d->image.size;
         }
+
         if (d->mode == RMR_TEXT) {
             p->draws[i].text.utf8 = d->text.size ? (const char *)(p->masks + mask_at) : nullptr;
             if (d->text.size)
@@ -224,16 +246,19 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
                         &x0, &y0, &x1, &y1);
             }
         }
+
         if (d->mask.bytes) {
             size_t size = d->mask.stride * d->mask.height;
             memcpy(p->masks + mask_at, d->mask.bytes, size);
             p->draws[i].mask.bytes = p->masks + mask_at;
             mask_at += size;
         }
+
         p->draws[i].path.elements = d->path.count ? p->elements + at : nullptr;
         if (d->path.count)
             memcpy(p->elements + at, d->path.elements, d->path.count * sizeof *p->elements);
         at += d->path.count;
+
         p->draws[i].erasers = d->eraser_count ? p->erasers + eraser_at : nullptr;
         for (size_t k = 0; k < d->eraser_count; k++) {
             rmr_path_view path = d->erasers[k];
@@ -243,6 +268,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
                 memcpy(p->elements + at, path.elements, path.count * sizeof *p->elements);
             at += path.count;
         }
+
         double lx0 = INFINITY, ly0 = INFINITY, lx1 = -INFINITY, ly1 = -INFINITY;
         for (size_t j = 0; j < d->path.count; j++) {
             const rmr_element *item = &d->path.elements[j];
@@ -253,6 +279,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
                 include(item->control2, &lx0, &ly0, &lx1, &ly1);
             }
         }
+
         if (isfinite(lx0)) {
             /* Square caps can project sqrt(2)*half-width on a coordinate axis. */
             double pad = (d->mode == RMR_STROKE || d->mode == RMR_FILL_STROKE)
@@ -268,6 +295,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
     }
     if (isfinite(x0))
         p->bounds = (rmr_rect){x0, y0, x1 - x0, y1 - y0};
+
     *out = p;
     return RMR_OK;
 }
@@ -303,6 +331,7 @@ rmr_status rmr_plan_execute(const rmr_plan *p, const rmr_backend *b, rmr_cancel_
         return rmr_fail(e, RMR_ERR_UNSUPPORTED, 0, "backend lacks required capabilities");
     if (cancel && cancel(context))
         return rmr_fail(e, RMR_ERR_CANCELLED, 0, nullptr);
+
     rmr_status s = b->begin(b->context, p->viewport);
     size_t index = 0;
     if (s == RMR_OK)
@@ -315,16 +344,19 @@ rmr_status rmr_plan_execute(const rmr_plan *p, const rmr_backend *b, rmr_cancel_
             if (s != RMR_OK)
                 break;
         }
+
     if (s == RMR_OK) {
         if (cancel && cancel(context))
             s = RMR_ERR_CANCELLED;
         else
             s = b->end(b->context);
     }
+
     if (s != RMR_OK) {
         b->abort(b->context);
         return rmr_fail(e, s, index, "backend execution failed or cancelled");
     }
+
     return RMR_OK;
 }
 
@@ -332,9 +364,11 @@ rmr_status rmr_plan_concat(const rmr_plan *const *plans, size_t count, rmr_rect 
                            const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!out || (!plans && count))
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "missing plans");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (count > l.maximum_elements)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "plan count limit");
+
     size_t draws = 0;
     for (size_t i = 0; i < count; i++) {
         if (!plans[i])
@@ -343,11 +377,14 @@ rmr_status rmr_plan_concat(const rmr_plan *const *plans, size_t count, rmr_rect 
             return rmr_fail(e, RMR_ERR_LIMIT, i, "combined draw limit");
         draws += plans[i]->count;
     }
+
     if (draws > l.maximum_plan_bytes / sizeof(rmr_draw))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "composition scratch limit");
+
     rmr_draw *commands = draws ? rmr_alloc(draws * sizeof *commands) : nullptr;
     if (draws && !commands)
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
+
     size_t at = 0;
     uint64_t token = 0;
     for (size_t i = 0; i < count; i++) {
@@ -363,6 +400,7 @@ rmr_status rmr_plan_concat(const rmr_plan *const *plans, size_t count, rmr_rect 
             commands[at++] = d;
         }
     }
+
     l.maximum_plan_bytes -= draws * sizeof *commands;
     rmr_status status = rmr_plan_create(commands, draws, viewport, &l, out, e);
     free(commands);

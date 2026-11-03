@@ -23,6 +23,7 @@ static void save(const char *path, const void *bytes, size_t size) {
         perror(path);
         exit(1);
     }
+
     if (fwrite(bytes, 1, size, file) != size || fclose(file) != 0) {
         perror(path);
         exit(1);
@@ -35,6 +36,7 @@ int main(int argc, char **argv) {
                 argv[0]);
         return 2;
     }
+
     rmr_grain grain = RMR_GRAIN_STREAK;
     if (argc == 4) {
         if (strcmp(argv[3], "scratch") == 0)
@@ -50,10 +52,12 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+
     rmr_unit_raster raster = rmr_apple_unit_raster();
     rmr_draw draws[3] = {0};
     rmr_path paths[3] = {0};
     rmr_mask masks[3] = {0};
+
     for (size_t row = 0; row < 3; row++) {
         rmr_sample shape[32];
         rmr_grain_point points[32];
@@ -72,12 +76,15 @@ int main(int argc, char **argv) {
                                 .color = {0, 0, 0, 1},
                                 .mask = {m.bytes, m.width, m.height, m.stride, m.box}};
     }
+
     rmr_plan *plan = nullptr;
     check(rmr_plan_create(draws, 3, (rmr_rect){-24, -32, 300, 190}, nullptr, &plan, nullptr));
+
     for (size_t i = 0; i < 3; i++) {
         rmr_path_free(&paths[i]);
         rmr_mask_free(&masks[i]);
     }
+
     rmr_bitmap bitmap = {0};
     check(rmr_apple_bitmap(plan, 3, (rmr_color){1, 1, 1, 1}, nullptr, nullptr, nullptr, &bitmap,
                            nullptr));
@@ -89,6 +96,7 @@ int main(int argc, char **argv) {
     uint8_t *ppm = malloc((size_t)length + count);
     if (!ppm)
         return 1;
+
     for (int i = 0; i < length; i++)
         ppm[i] = (uint8_t)header[i];
     for (size_t y = 0; y < bitmap.height; y++)
@@ -96,14 +104,17 @@ int main(int argc, char **argv) {
             for (size_t c = 0; c < 3; c++)
                 ppm[(size_t)length + (y * bitmap.width + x) * 3 + c] =
                     bitmap.pixels[y * bitmap.stride + x * 4 + c];
+
     save(argv[1], ppm, (size_t)length + count);
     free(ppm);
     rmr_bitmap_free(&bitmap);
+
     const rmr_plan *pages[] = {plan};
     rmr_buffer pdf = {0};
     check(rmr_apple_pdf(pages, 1, RMR_POINTS_PER_UNIT, nullptr, nullptr, nullptr, &pdf, nullptr));
     save(argv[2], pdf.bytes, pdf.size);
     rmr_buffer_free(&pdf);
+
     rmr_plan_free(plan);
     return 0;
 }

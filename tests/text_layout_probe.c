@@ -62,8 +62,10 @@ int main(int argc, char **argv) {
 #else
     CHECK(sizeof apple_layouts / sizeof *apple_layouts == 44);
 #endif
+
     F *fonts = nullptr;
     OK(create(argv[1], nullptr, &fonts, nullptr));
+
     for (size_t sample = 0; sample < 11; sample++)
         for (size_t column = 0; column < 4; column++) {
             rm_paragraph p = {.text = {samples[sample], strlen(samples[sample])}};
@@ -75,6 +77,7 @@ int main(int argc, char **argv) {
             OK(layout_create(&block, columns[column], fonts, nullptr, &layout, nullptr));
             const rmr_anchor_layout *a = anchors(layout);
             size_t count = a->paragraphs[0].line_count;
+
             CHECK(count <= 32);
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
             const layout_reference *expected = &apple_layouts[sample * 4 + column];
@@ -82,6 +85,7 @@ int main(int argc, char **argv) {
 #endif
             if (dump)
                 printf("{%zu, {\n", count);
+
             for (size_t i = 0; i < count; i++) {
                 rmr_text_line line;
                 OK(line_get(layout, 0, i, &line, nullptr));
@@ -110,10 +114,12 @@ int main(int argc, char **argv) {
                            line.to, line.start, line.end, line.baseline, begin.at_index,
                            begin.at_start, finish.at_index, finish.at_start);
             }
+
             if (dump)
                 printf("}},\n");
             layout_free(layout);
         }
+
     release(fonts);
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     FcFini();

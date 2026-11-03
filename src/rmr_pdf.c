@@ -35,6 +35,7 @@ static void stop(job *j, rmr_status s, const char *why) {
 static bool tick(job *j) {
     if (j->status != RMR_OK)
         return false;
+
     if (j->cancel && j->cancel(j->context))
         stop(j, RMR_ERR_CANCELLED, "PDF update cancelled");
     if (j->work >= j->limits.maximum_elements)
@@ -52,6 +53,7 @@ static void *take(job *j, size_t n) {
         stop(j, RMR_ERR_LIMIT, "PDF scratch limit");
         return nullptr;
     }
+
     mem *m = rmr_calloc(1, sizeof *m + n);
     if (!m) {
         stop(j, RMR_ERR_OUT_OF_MEMORY, "PDF allocation failed");
@@ -112,12 +114,14 @@ static bool integer(scan *s, uint64_t *v) {
     ws(s);
     size_t p = s->pos;
     uint64_t n = 0;
+
     while (p < s->size && s->data[p] >= '0' && s->data[p] <= '9') {
         unsigned d = (unsigned)(s->data[p++] - '0');
         if (n > (UINT64_MAX - d) / 10)
             return false;
         n = n * 10 + d;
     }
+
     if (p == s->pos || (p < s->size && !delim(s->data[p])))
         return false;
     s->pos = p;
@@ -139,6 +143,7 @@ static bool named(const node *n, const char *name) {
     if (!n || n->type != NAME)
         return false;
     size_t k = 0;
+
     for (size_t i = 1; i < n->length; i++) {
         uint8_t c = n->raw[i];
         if (c == '#') {
@@ -152,11 +157,13 @@ static bool named(const node *n, const char *name) {
         if (!name[k] || c != (uint8_t)name[k++])
             return false;
     }
+
     return name[k] == 0;
 }
 
 static bool same_name(const node *a, const node *b) {
     size_t i = 1, k = 1;
+
     while (i < a->length && k < b->length) {
         unsigned x = a->raw[i++], y = b->raw[k++];
         if (x == '#') {
@@ -170,6 +177,7 @@ static bool same_name(const node *a, const node *b) {
         if (x != y)
             return false;
     }
+
     return i == a->length && k == b->length;
 }
 
@@ -192,18 +200,21 @@ static node *parse(scan *s, unsigned depth) {
     ws(s);
     if (s->pos >= s->size)
         goto bad;
+
     node *n = take(s->j, sizeof *n);
     if (!n)
         return nullptr;
     size_t start = s->pos;
     uint8_t c = s->data[s->pos++];
     n->raw = s->data + start;
+
     if (c == '[' || (c == '<' && s->pos < s->size && s->data[s->pos] == '<')) {
         n->type = c == '[' ? ARRAY : DICT;
         if (n->type == DICT)
             s->pos++;
         node **tail = &n->child;
         size_t count = 0;
+
         while (s->j->status == RMR_OK) {
             ws(s);
             if (s->pos >= s->size)
@@ -219,9 +230,11 @@ static node *parse(scan *s, unsigned depth) {
                 s->pos += 2;
                 break;
             }
+
             node *v = parse(s, depth + 1);
             if (!v)
                 return nullptr;
+
             if (n->type == DICT && count % 2 == 0) {
                 if (v->type != NAME)
                     goto bad;
@@ -232,12 +245,14 @@ static node *parse(scan *s, unsigned depth) {
                         goto bad;
                 }
             }
+
             *tail = v;
             tail = &v->next;
             count++;
         }
     } else if (c == '(') {
         unsigned nesting = 1;
+
         while (s->pos < s->size && nesting) {
             c = s->data[s->pos++];
             if (c == '\\') {
@@ -251,6 +266,7 @@ static node *parse(scan *s, unsigned depth) {
             } else if (c == ')')
                 nesting--;
         }
+
         if (nesting)
             goto bad;
     } else if (c == '<') {
@@ -267,8 +283,10 @@ static node *parse(scan *s, unsigned depth) {
             n->type = NAME;
         else if (delim(c))
             goto bad;
+
         while (s->pos < s->size && !delim(s->data[s->pos]))
             s->pos++;
+
         if (n->type == NAME) {
             for (size_t i = start + 1; i < s->pos; i++)
                 if (s->data[i] == '#') {
@@ -296,6 +314,7 @@ static node *parse(scan *s, unsigned depth) {
                 bool digits = false, dot = false;
                 if (s->data[i] == '+' || s->data[i] == '-')
                     i++;
+
                 for (; i < end; i++) {
                     uint8_t b0 = s->data[i];
                     if (b0 >= '0' && b0 <= '9')
@@ -312,8 +331,10 @@ static node *parse(scan *s, unsigned depth) {
             }
         }
     }
+
     n->length = s->pos - start;
     return n;
+
 bad:
     stop(s->j, RMR_ERR_INVALID_ARGUMENT, "malformed PDF object");
     return nullptr;
@@ -407,6 +428,7 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
         stop(j, RMR_ERR_LIMIT, "encoded PDF stream limit");
         return false;
     }
+
     z_stream codec = {.zalloc = pdf_zalloc,
                       .zfree = pdf_zfree,
                       .opaque = j,
@@ -416,9 +438,11 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
         stop(j, RMR_ERR_OUT_OF_MEMORY, "zlib initialisation failed");
         return false;
     }
+
     mem *block = nullptr;
     size_t held = 0, capacity = 0;
     int status = Z_OK;
+
     while (tick(j)) {
         if (!codec.avail_out) {
             size_t next = capacity ? capacity * 2 : length < 1024 ? 1024 : length;
@@ -438,10 +462,12 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
             codec.avail_out = (uInt)(next - capacity);
             capacity = next;
         }
+
         status = inflate(&codec, Z_NO_FLUSH);
         if (status != Z_OK && !(status == Z_BUF_ERROR && !codec.avail_out))
             break;
     }
+
     inflateEnd(&codec);
     if (j->status == RMR_OK && status != Z_STREAM_END)
         stop(j, status == Z_MEM_ERROR ? RMR_ERR_OUT_OF_MEMORY : RMR_ERR_INVALID_ARGUMENT,
@@ -451,12 +477,14 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
         j->allocated -= held;
         return false;
     }
+
     block->next = j->memory;
     j->memory = block;
     *size = (size_t)codec.total_out;
     *budget -= *size;
     uint8_t *decoded = (uint8_t *)(block + 1);
     *out = decoded;
+
     node *params = get(dict, "DecodeParms");
     if (params && params->type == ARRAY && params->child && !params->child->next)
         params = params->child;
@@ -465,6 +493,7 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
         return true;
     if (params->type != DICT)
         goto bad;
+
     uint64_t predictor = 1, columns = 1, colors = 1, bits = 8;
     if ((get(params, "Predictor") && !uint_value(get(params, "Predictor"), &predictor)) ||
         (get(params, "Columns") && !uint_value(get(params, "Columns"), &columns)) ||
@@ -478,6 +507,7 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
     size_t width = (size_t)(columns * colors);
     if (!width || width >= 64u * 1024u * 1024u)
         goto bad;
+
     if (predictor == 2) {
         if (*size % width)
             goto bad;
@@ -489,6 +519,7 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
         }
         return true;
     }
+
     if (predictor < 10 || predictor > 15 || *size % (width + 1))
         goto bad;
     size_t rows = *size / (width + 1);
@@ -518,8 +549,10 @@ static bool decode_stream(job *j, size_t *budget, node *dict, const uint8_t *raw
             decoded[row * width + x] = (uint8_t)(raw_value + (unsigned)prediction);
         }
     }
+
     *size = rows * width;
     return true;
+
 bad:
     stop(j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF predictor");
     return false;
@@ -585,6 +618,7 @@ static entry *lookup(file *f, uint32_t id) {
         else
             hi = m;
     }
+
     return lo < f->count && f->entries[lo].number == id ? &f->entries[lo] : nullptr;
 }
 
@@ -599,18 +633,22 @@ static packed *unpack(file *f, entry *container, unsigned depth) {
         !named(get(d, "Type"), "ObjStm") || !uint_value(get(d, "N"), &count) ||
         !uint_value(get(d, "First"), &first) || !count || count > f->j->limits.maximum_elements)
         goto bad;
+
     packed *p = take(f->j, sizeof *p);
     if (!p || !decode_stream(f->j, &f->decoded_budget, d, container->stream, container->stream_size,
                              &p->data, &p->size))
         return nullptr;
+
     /* Every header pair needs at least four bytes ("1 0 "), bounding the table. */
     if (first > p->size || count > (first + 1) / 4)
         goto bad;
     p->first = (size_t)first;
     p->count = (size_t)count;
+
     p->slots = take(f->j, p->count * 2 * sizeof *p->slots);
     if (!p->slots)
         return nullptr;
+
     scan header = {f->j, p->data, p->first, 0};
     for (size_t i = 0; i < p->count; i++) {
         if (!tick(f->j))
@@ -622,8 +660,10 @@ static packed *unpack(file *f, entry *container, unsigned depth) {
         p->slots[2 * i] = id;
         p->slots[2 * i + 1] = offset;
     }
+
     container->packed = p;
     return p;
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF object stream");
     return nullptr;
@@ -640,6 +680,7 @@ static node *object(file *f, entry *e, unsigned depth) {
         stop(f->j, RMR_ERR_INVALID_ARGUMENT, "cyclic PDF object");
         return nullptr;
     }
+
     e->reading = true;
     if (e->container) {
         entry *container = lookup(f, e->container);
@@ -652,22 +693,27 @@ static node *object(file *f, entry *e, unsigned depth) {
         uint64_t end = (size_t)e->index + 1 < p->count ? p->slots[2 * (size_t)e->index + 3]
                                                        : p->size - p->first;
         scan body = {f->j, p->data + p->first + selected, (size_t)(end - selected), 0};
+
         node *n = parse(&body, 0);
         ws(&body);
         if (!n || body.pos != body.size)
             goto bad;
+
         e->object = n;
         e->reading = false;
         return n;
     }
+
     scan s = {f->j, f->bytes, f->size, e->offset};
     uint64_t id, gen;
     if (!integer(&s, &id) || !integer(&s, &gen) || id != e->number || gen != e->generation ||
         !word(&s, "obj"))
         goto bad;
+
     node *n = parse(&s, 0);
     if (!n)
         return nullptr;
+
     if (n->type == DICT && word(&s, "stream")) {
         if (s.pos < f->size && s.data[s.pos] == '\r')
             s.pos++;
@@ -685,11 +731,14 @@ static node *object(file *f, entry *e, unsigned depth) {
         if (!word(&s, "endstream"))
             goto bad;
     }
+
     if (!word(&s, "endobj"))
         goto bad;
+
     e->object = n;
     e->reading = false;
     return n;
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF object or stream length");
     return nullptr;
@@ -707,6 +756,7 @@ static node *resolve(file *f, node *n, unsigned depth) {
         stop(f->j, RMR_ERR_INVALID_ARGUMENT, "PDF reference generation mismatch");
         return nullptr;
     }
+
     node *v = object(f, e, depth);
     return v ? resolve(f, v, depth + 1) : nullptr;
 }
@@ -720,6 +770,7 @@ static bool decimal(node *n, double *out) {
     if (n->raw[i] == '+' || n->raw[i] == '-')
         negative = n->raw[i++] == '-';
     double value = 0, fraction = .1;
+
     for (; i < n->length; i++) {
         unsigned c = n->raw[i];
         if (c == '.' && !dot) {
@@ -735,6 +786,7 @@ static bool decimal(node *n, double *out) {
         } else
             value = value * 10 + (double)(c - '0');
     }
+
     *out = negative ? -value : value;
     return digit && isfinite(value);
 }
@@ -746,6 +798,7 @@ static bool equal_boxes(file *f, node *a, node *b) {
         return false;
     a = a->child;
     b = b->child;
+
     for (size_t i = 0; i < 4; i++) {
         double x, y;
         if (!a || !b || !decimal(resolve(f, a, 0), &x) || !decimal(resolve(f, b, 0), &y) || x != y)
@@ -753,6 +806,7 @@ static bool equal_boxes(file *f, node *a, node *b) {
         a = a->next;
         b = b->next;
     }
+
     return !a && !b;
 }
 
@@ -773,11 +827,13 @@ static xref_stream *load_xref_stream(file *f, size_t offset) {
             return &f->streams[i];
     if (!f->streams && !(f->streams = take(f->j, MAXIMUM_XREF_STREAMS * sizeof *f->streams)))
         return nullptr;
+
     scan s = {f->j, f->bytes, f->size, offset};
     uint64_t number, gen, length, size;
     if (f->stream_count == MAXIMUM_XREF_STREAMS || !integer(&s, &number) || !number ||
         number > UINT32_MAX || !integer(&s, &gen) || gen > 65535 || !word(&s, "obj"))
         goto bad;
+
     node *d = parse(&s, 0);
     if (!d || d->type != DICT || !named(get(d, "Type"), "XRef") ||
         !uint_value(get(d, "Length"), &length) || !uint_value(get(d, "Size"), &size) || !size ||
@@ -791,15 +847,18 @@ static xref_stream *load_xref_stream(file *f, size_t offset) {
         s.pos++;
     if (length > s.size - s.pos)
         goto bad;
+
     xref_stream x = {.offset = offset, .dict = d};
     if (!decode_stream(f->j, &f->decoded_budget, d, s.data + s.pos, (size_t)length, &x.data,
                        &x.size))
         return nullptr;
+
     s.pos += (size_t)length;
     if (!word(&s, "endstream") || !word(&s, "endobj"))
         goto bad;
     f->streams[f->stream_count] = x;
     return &f->streams[f->stream_count++];
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF cross-reference stream");
     return nullptr;
@@ -812,9 +871,11 @@ static node *stream_section(file *f, size_t offset, bool fill, size_t *used, siz
     node *d = x->dict;
     const uint8_t *data = x->data;
     size_t count = x->size;
+
     uint64_t size;
     if (!uint_value(get(d, "Size"), &size))
         goto bad;
+
     node *w = get(d, "W");
     if (!w || w->type != ARRAY)
         goto bad;
@@ -828,11 +889,13 @@ static node *stream_section(file *f, size_t offset, bool fill, size_t *used, siz
     size_t stride = (size_t)(widths[0] + widths[1] + widths[2]);
     if (v || !stride)
         goto bad;
+
     node *index = get(d, "Index");
     if (index && (index->type != ARRAY || !index->child))
         goto bad;
     node *range = index ? index->child : nullptr;
     size_t cursor = 0;
+
     do {
         uint64_t first = 0, n = size;
         if (range) {
@@ -842,6 +905,7 @@ static node *stream_section(file *f, size_t offset, bool fill, size_t *used, siz
         }
         if (first > size || n > size - first || n > (count - cursor) / stride)
             goto bad;
+
         for (uint64_t i = 0; i < n; i++) {
             if (!tick(f->j))
                 return nullptr;
@@ -879,9 +943,11 @@ static node *stream_section(file *f, size_t offset, bool fill, size_t *used, siz
             (*used)++;
         }
     } while (range);
+
     if (cursor != count)
         goto bad;
     return d;
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF cross-reference stream");
     return nullptr;
@@ -891,6 +957,7 @@ bad:
 static bool sections(file *f, bool fill) {
     size_t offset = f->last, used = 0, iterations = 0;
     size_t visited[MAXIMUM_REVISIONS];
+
     while (f->j->status == RMR_OK) {
         if (++iterations > MAXIMUM_REVISIONS) {
             stop(f->j, RMR_ERR_LIMIT, "PDF revision limit");
@@ -900,6 +967,7 @@ static bool sections(file *f, bool fill) {
             if (visited[i] == offset)
                 goto bad;
         visited[iterations - 1] = offset;
+
         scan s = {f->j, f->bytes, f->size, offset};
         node *d = nullptr;
         bool classic = word(&s, "xref");
@@ -909,6 +977,7 @@ static bool sections(file *f, bool fill) {
             if (!d)
                 return false;
         }
+
         while (classic && !word(&s, "trailer")) {
             if (!tick(f->j))
                 return false;
@@ -920,6 +989,7 @@ static bool sections(file *f, bool fill) {
                 stop(f->j, RMR_ERR_LIMIT, "PDF xref entry limit");
                 return false;
             }
+
             for (uint64_t i = 0; i < count; i++) {
                 uint64_t at, gen;
                 if (!tick(f->j))
@@ -947,14 +1017,17 @@ static bool sections(file *f, bool fill) {
                 used++;
             }
         }
+
         if (classic)
             d = parse(&s, 0);
         if (!d || d->type != DICT)
             goto bad;
+
         if (get(d, "Encrypt")) {
             stop(f->j, RMR_ERR_UNSUPPORTED, "encrypted PDF");
             return false;
         }
+
         if (classic && get(d, "XRefStm")) {
             f->xref_streams = true;
             uint64_t hybrid;
@@ -970,6 +1043,7 @@ static bool sections(file *f, bool fill) {
                 return false;
             }
         }
+
         if (fill) {
             if (!f->trailer)
                 f->trailer = d;
@@ -989,6 +1063,7 @@ static bool sections(file *f, bool fill) {
                     }
             }
         }
+
         uint64_t prev;
         node *p = get(d, "Prev");
         if (!p)
@@ -997,9 +1072,11 @@ static bool sections(file *f, bool fill) {
             goto bad;
         offset = (size_t)prev;
     }
+
     if (!fill)
         f->count = used;
     return f->j->status == RMR_OK;
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF cross-reference table");
     return false;
@@ -1018,6 +1095,7 @@ static bool tree(file *f, node *ref, node *resources, node *media, node *crop, n
     node *d = object(f, e, 0);
     if (!d || d->type != DICT)
         goto bad;
+
     node *v;
     if ((v = get(d, "Resources")))
         resources = v;
@@ -1027,6 +1105,7 @@ static bool tree(file *f, node *ref, node *resources, node *media, node *crop, n
         crop = v;
     if ((v = get(d, "Rotate")))
         rotate = v;
+
     if (get(d, "UserUnit")) {
         double unit;
         if (!decimal(resolve(f, get(d, "UserUnit"), 0), &unit) || unit != 1) {
@@ -1034,6 +1113,7 @@ static bool tree(file *f, node *ref, node *resources, node *media, node *crop, n
             return false;
         }
     }
+
     if (named(get(d, "Type"), "Pages")) {
         node *kids = resolve(f, get(d, "Kids"), 0);
         if (!kids || kids->type != ARRAY)
@@ -1058,7 +1138,9 @@ static bool tree(file *f, node *ref, node *resources, node *media, node *crop, n
         f->page_count++;
     } else
         goto bad;
+
     return true;
+
 bad:
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid or cyclic PDF page tree");
     return false;
@@ -1070,12 +1152,15 @@ static bool open_file(file *f, job *j, const uint8_t *bytes, size_t size, bool o
                 .size = size,
                 .overlay = overlay,
                 .decoded_budget = decoded_file_budget};
+
     if (size > j->limits.maximum_pdf_bytes) {
         stop(j, RMR_ERR_LIMIT, "PDF input size limit");
         return false;
     }
+
     if (!bytes || size < 9 || memcmp(bytes, "%PDF-", 5))
         goto bad;
+
     size_t at = size - 9;
     bool found = false;
     for (;;) {
@@ -1089,22 +1174,28 @@ static bool open_file(file *f, job *j, const uint8_t *bytes, size_t size, bool o
     }
     if (!found)
         goto bad;
+
     scan s = {j, bytes, size, at + 9};
     uint64_t offset;
     if (!integer(&s, &offset) || offset == 0 || offset >= size)
         goto bad;
     f->last = (size_t)offset;
+
     if (!sections(f, false))
         return false;
     if (f->count > SIZE_MAX / sizeof(entry) || f->count > UINT32_MAX)
         goto bad;
+
     f->entries = take(j, f->count * sizeof(entry));
     if (!f->entries)
         return false;
+
     if (!sections(f, true))
         return false;
+
     for (size_t i = 0; i < f->count; i++)
         f->entries[i].mapped = (uint32_t)i;
+
     /* Rows sort by object, then newest revision, then classic table before
      * stream rows; a row repeated within one section is adjacent. */
     qsort(f->entries, f->count, sizeof(entry), entry_order);
@@ -1129,6 +1220,7 @@ static bool open_file(file *f, job *j, const uint8_t *bytes, size_t size, bool o
         f->entries[unique++].mapped = 0;
         i = end;
     }
+
     f->count = unique;
     uint64_t declared;
     if (!uint_value(get(f->trailer, "Size"), &declared) || declared > UINT32_MAX || !declared)
@@ -1136,16 +1228,20 @@ static bool open_file(file *f, job *j, const uint8_t *bytes, size_t size, bool o
     f->next_number = (size_t)declared;
     if (unique && f->entries[unique - 1].number >= f->next_number)
         f->next_number = (size_t)f->entries[unique - 1].number + 1;
+
     node *root = get(f->trailer, "Root");
     f->root = root && root->type == REF ? resolve(f, root, 0) : nullptr;
     if (!f->root || f->root->type != DICT)
         goto bad;
+
     if (get(f->root, "Perms")) {
         stop(j, RMR_ERR_UNSUPPORTED,
              "certified/rights-managed PDF requires signature permission handling");
         return false;
     }
+
     return tree(f, get(f->root, "Pages"), nullptr, nullptr, nullptr, nullptr, 0);
+
 bad:
     stop(j, RMR_ERR_INVALID_ARGUMENT, "invalid PDF file");
     return false;
@@ -1172,6 +1268,7 @@ static void put(writer *w, const void *bytes, size_t n) {
         stop(w->j, RMR_ERR_LIMIT, "PDF output size limit");
         return;
     }
+
     size_t needed = w->data.size + n;
     if (needed > w->capacity) {
         size_t cap = w->capacity ? w->capacity : 4096;
@@ -1192,6 +1289,7 @@ static void put(writer *w, const void *bytes, size_t n) {
         w->data.bytes = p;
         w->capacity = cap;
     }
+
     memcpy(w->data.bytes + w->data.size, bytes, n);
     w->data.size += n;
 }
@@ -1204,6 +1302,7 @@ static void format(writer *w, const char *fmt, ...) {
     va_start(a, fmt);
     int n = vsnprintf(b, sizeof b, fmt, a);
     va_end(a);
+
     if (n < 0 || (size_t)n >= sizeof b) {
         stop(w->j, RMR_ERR_LIMIT, "PDF number formatting");
         return;
@@ -1217,17 +1316,20 @@ static void real(writer *w, double v) {
         stop(w->j, RMR_ERR_LIMIT, "PDF coordinate limit");
         return;
     }
+
     char scientific[64], digits[24], fixed[400];
     int n = snprintf(scientific, sizeof scientific, "%.17e", fabs(v));
     if (n < 0 || (size_t)n >= sizeof scientific) {
         stop(w->j, RMR_ERR_LIMIT, "PDF number formatting");
         return;
     }
+
     char *exponent = strchr(scientific, 'e');
     if (!exponent) {
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "PDF numeric locale");
         return;
     }
+
     size_t nd = 0;
     for (char *p = scientific; p < exponent; p++)
         if (*p >= '0' && *p <= '9') {
@@ -1237,10 +1339,12 @@ static void real(writer *w, double v) {
             }
             digits[nd++] = *p;
         }
+
     int point = 1 + (int)strtol(exponent + 1, nullptr, 10);
     size_t used = 0;
     if (v < 0)
         fixed[used++] = '-';
+
     if (point <= 0) {
         fixed[used++] = '0';
         fixed[used++] = '.';
@@ -1257,6 +1361,7 @@ static void real(writer *w, double v) {
             used += nd - (size_t)point;
         }
     }
+
     fixed[used] = 0;
     if (strchr(fixed, '.')) {
         while (used && fixed[used - 1] == '0')
@@ -1264,6 +1369,7 @@ static void real(writer *w, double v) {
         if (used && fixed[used - 1] == '.')
             fixed[--used] = 0;
     }
+
     text(w, fixed);
 }
 
@@ -1285,6 +1391,7 @@ static void begin(writer *w, uint32_t id, uint32_t gen) {
     update *u = take(w->j, sizeof *u);
     if (!u)
         return;
+
     *u = (update){id, gen, w->data.size, w->updates};
     w->updates = u;
     w->count++;
@@ -1304,6 +1411,7 @@ static void value(writer *w, file *import, node *n, unsigned depth) {
         stop(w->j, RMR_ERR_LIMIT, "PDF write nesting");
         return;
     }
+
     if (n->type == REF && import) {
         entry *e = lookup(import, n->number);
         if (!e || !e->live || !e->mapped || e->generation != n->generation) {
@@ -1329,6 +1437,7 @@ static void fields(writer *w, file *import, node *d, const char *const *skip, si
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "expected PDF dictionary");
         return;
     }
+
     for (node *k = d->child; k; k = k->next->next) {
         bool omit = false;
         for (size_t i = 0; i < count; i++)
@@ -1370,6 +1479,7 @@ static bool import_objects(writer *w, file *f) {
         if (!e->stream || !(named(type, "ObjStm") || named(type, "XRef")))
             e->mapped = reserve(w);
     }
+
     for (size_t i = 0; i < f->count && w->j->status == RMR_OK; i++) {
         entry *e = &f->entries[i];
         if (!e->mapped)
@@ -1383,12 +1493,14 @@ static bool import_objects(writer *w, file *f) {
         }
         end(w);
     }
+
     return w->j->status == RMR_OK;
 }
 
 static entry *single_stream(file *f, node *contents) {
     if (!contents)
         return nullptr;
+
     node *v = resolve(f, contents, 0);
     if (v && v->type == ARRAY) {
         if (!v->child || v->child->next) {
@@ -1397,15 +1509,18 @@ static entry *single_stream(file *f, node *contents) {
         }
         contents = v->child;
     }
+
     if (contents->type != REF) {
         stop(f->j, RMR_ERR_INVALID_ARGUMENT, "content stream must be indirect");
         return nullptr;
     }
+
     entry *e = lookup(f, contents->number);
     if (!e || e->generation != contents->generation || !object(f, e, 0) || !e->stream) {
         stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid content stream");
         return nullptr;
     }
+
     return e;
 }
 
@@ -1426,8 +1541,10 @@ static uint32_t form(writer *w, file *f) {
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "overlay has no media box");
         return 0;
     }
+
     if (!import_objects(w, f))
         return 0;
+
     uint32_t id = reserve(w);
     begin(w, id, 0);
     text(w, "<< /Type /XObject /Subtype /Form /FormType 1\n/BBox ");
@@ -1438,12 +1555,14 @@ static uint32_t form(writer *w, file *f) {
                           "Resources", "Matrix",  "Group",    "Length"};
     text(w, "\n");
     fields(w, f, e->object, skip, sizeof skip / sizeof *skip);
+
     node *group = get(p->object->object, "Group");
     if (group) {
         text(w, "/Group ");
         value(w, f, group, 0);
         text(w, "\n");
     }
+
     format(w, "/Length %zu >>\nstream\n", e->stream_size);
     put(w, e->stream, e->stream_size);
     text(w, "\nendstream");
@@ -1457,6 +1576,7 @@ static void contents(writer *w, file *f, node *n) {
     node *v = resolve(f, n, 0);
     if (!v || (v->type == SCALAR && v->length == 4 && !memcmp(v->raw, "null", 4)))
         return;
+
     if (v->type == ARRAY) {
         for (node *c = v->child; c; c = c->next) {
             if (!single_stream(f, c))
@@ -1495,6 +1615,7 @@ static void overlay(writer *w, file *source, const rmr_pdf_overlay *o) {
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "overlay page outside source");
         return;
     }
+
     file imported;
     if (!open_file(&imported, w->j, o->pdf, o->size, true))
         return;
@@ -1505,12 +1626,14 @@ static void overlay(writer *w, file *source, const rmr_pdf_overlay *o) {
     uint32_t form_id = form(w, &imported);
     if (w->j->status != RMR_OK)
         return;
+
     node *resources = resolve(source, p->resources, 0),
          *objects = resolve(source, get(resources, "XObject"), 0);
     if ((resources && resources->type != DICT) || (objects && objects->type != DICT)) {
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "invalid page resources");
         return;
     }
+
     char name[80];
     unsigned suffix = 0;
     do {
@@ -1518,6 +1641,7 @@ static void overlay(writer *w, file *source, const rmr_pdf_overlay *o) {
             return;
         snprintf(name, sizeof name, "RMR%u_%u", form_id, suffix++);
     } while (get(objects, name));
+
     /* The overlay lives in its own Form resource scope, so its gs/image/font
      * names can never replace names used by the original page. */
     uint32_t invoke = reserve(w);
@@ -1536,11 +1660,13 @@ static void overlay(writer *w, file *source, const rmr_pdf_overlay *o) {
     text(w, "\nendstream");
     end(w);
     free(content.data.bytes);
+
     uint32_t open = stream_text(w, "q\n"), close = stream_text(w, "Q\n");
     begin(w, p->object->number, p->object->generation);
     text(w, "<<\n");
     const char *skip[] = {"Contents", "Resources", "MediaBox", "CropBox", "ArtBox"};
     fields(w, nullptr, p->object->object, skip, o->replace_box ? 5 : 2);
+
     if (o->replace_box) {
         text(w, "/MediaBox ");
         rectangle(w, o->box);
@@ -1555,6 +1681,7 @@ static void overlay(writer *w, file *source, const rmr_pdf_overlay *o) {
         }
         text(w, "\n");
     }
+
     format(w, "/Contents [%u 0 R ", open);
     contents(w, source, get(p->object->object, "Contents"));
     format(w, "%u 0 R %u 0 R]\n/Resources <<\n", close, invoke);
@@ -1591,10 +1718,12 @@ static void finish(writer *w, file *f) {
     size_t hybrid_offset = offset;
     if (f->xref_streams)
         begin(w, reserve(w), 0);
+
     if (w->count > SIZE_MAX / sizeof(update)) {
         stop(w->j, RMR_ERR_LIMIT, "xref allocation limit");
         return;
     }
+
     update *list = take(w->j, w->count * sizeof *list);
     if (!list)
         return;
@@ -1602,11 +1731,13 @@ static void finish(writer *w, file *f) {
     for (update *u = w->updates; u; u = u->next)
         list[i++] = *u;
     qsort(list, w->count, sizeof *list, update_order);
+
     if (!f->last) {
         /* A fresh file has no preceding xref to supply missing rows. Include
          * free entries for holes left by packed/xref objects or source gaps. */
         format(w, "xref\n0 %zu\n0000000000 65535 f \n", w->next_number);
         i = 0;
+
         for (size_t id = 1; id < w->next_number && tick(w->j); id++) {
             if (i < w->count && list[i].id == id) {
                 if (list[i].offset > 9999999999ULL) {
@@ -1618,16 +1749,19 @@ static void finish(writer *w, file *f) {
             } else
                 text(w, "0000000000 65535 f \n");
         }
+
         format(w, "trailer\n<< /Size %zu\n", w->next_number);
         trailer_fields(w, f->trailer);
         format(w, ">>\nstartxref\n%zu\n%%%%EOF\n", offset);
         return;
     }
+
     if (f->xref_streams) {
         if (w->count > SIZE_MAX / 11) {
             stop(w->j, RMR_ERR_LIMIT, "xref stream length");
             return;
         }
+
         format(w, "<< /Type /XRef /Size %zu ", w->next_number);
         if (!hybrid)
             format(w, "/Prev %zu ", f->last);
@@ -1636,6 +1770,7 @@ static void finish(writer *w, file *f) {
             format(w, "%u 1 ", list[i].id);
         format(w, "] /Length %zu\n", w->count * 11);
         trailer_fields(w, f->trailer);
+
         text(w, ">>\nstream\n");
         for (i = 0; i < w->count; i++) {
             uint8_t row[11] = {1};
@@ -1648,12 +1783,14 @@ static void finish(writer *w, file *f) {
         }
         text(w, "\nendstream");
         end(w);
+
         if (!hybrid) {
             format(w, "startxref\n%zu\n%%%%EOF\n", offset);
             return;
         }
         offset = w->data.size;
     }
+
     text(w, "xref\n");
     for (i = 0; i < w->count; i++) {
         if (list[i].offset > 9999999999ULL) {
@@ -1662,6 +1799,7 @@ static void finish(writer *w, file *f) {
         }
         format(w, "%u 1\n%010zu %05u n \n", list[i].id, list[i].offset, list[i].gen);
     }
+
     format(w, "trailer\n<< /Size %zu /Prev %zu\n", w->next_number, f->last);
     if (hybrid)
         format(w, "/XRefStm %zu\n", hybrid_offset);
@@ -1683,11 +1821,13 @@ rmr_status rmr_pdf_incremental(const uint8_t *source, size_t size, const rmr_pdf
                                rmr_error *error) {
     if (!source || !size || !out || (count && !overlays))
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF update input");
+
     job j = {.limits = given ? *given : rmr_limits_default(), .cancel = cancel, .context = context};
     writer w = {.j = &j};
     file f;
     if (count > j.limits.maximum_draws)
         stop(&j, RMR_ERR_LIMIT, "overlay count limit");
+
     if (tick(&j) && open_file(&f, &j, source, size, false)) {
         w.next_number = f.next_number;
         put(&w, source, size);
@@ -1713,12 +1853,14 @@ rmr_status rmr_pdf_incremental(const uint8_t *source, size_t size, const rmr_pdf
         if (count && j.status == RMR_OK)
             finish(&w, &f);
     }
+
     if (j.status == RMR_OK) {
         *out = w.data;
         if (report)
             *report = (rmr_pdf_incremental_report){count, size, true};
     } else
         free(w.data.bytes);
+
     release(&j);
     return j.status == RMR_OK
                ? RMR_OK
@@ -1727,6 +1869,7 @@ rmr_status rmr_pdf_incremental(const uint8_t *source, size_t size, const rmr_pdf
 
 static bool geometry(file *f, const page *p, rmr_pdf_page_geometry *out) {
     *out = (rmr_pdf_page_geometry){0};
+
     if (p->media) {
         node *box = resolve(f, p->media, 0), *c = box && box->type == ARRAY ? box->child : nullptr;
         double v[4];
@@ -1739,6 +1882,7 @@ static bool geometry(file *f, const page *p, rmr_pdf_page_geometry *out) {
         out->media =
             (rmr_rect){fmin(v[0], v[2]), fmin(v[1], v[3]), fabs(v[2] - v[0]), fabs(v[3] - v[1])};
     }
+
     if (p->rotate) {
         double r;
         if (!decimal(resolve(f, p->rotate, 0), &r) || fabs(r) > 1e9 || fmod(r, 90) != 0)
@@ -1746,6 +1890,7 @@ static bool geometry(file *f, const page *p, rmr_pdf_page_geometry *out) {
         long quarter = (long)r % 360;
         out->rotate = (int32_t)(quarter < 0 ? quarter + 360 : quarter);
     }
+
     return true;
 }
 
@@ -1754,8 +1899,10 @@ rmr_status rmr_pdf_pages(const uint8_t *source, size_t size, const rmr_limits *g
                          rmr_error *error) {
     if (!source || !size || !count || (capacity && !pages))
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF page input");
+
     job j = {.limits = given ? *given : rmr_limits_default()};
     file f;
+
     if (tick(&j) && open_file(&f, &j, source, size, false)) {
         size_t i = 0;
         for (page *p = f.pages; p && tick(&j); p = p->next, i++) {
@@ -1768,6 +1915,7 @@ rmr_status rmr_pdf_pages(const uint8_t *source, size_t size, const rmr_limits *g
         if (j.status == RMR_OK)
             *count = f.page_count;
     }
+
     release(&j);
     return j.status == RMR_OK
                ? RMR_OK
@@ -1789,11 +1937,13 @@ rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
     if (!pdf || !size || !out || (path.count && !path.elements) || !isfinite(determinant) ||
         determinant == 0 || !isfinite(transform.tx) || !isfinite(transform.ty))
         return RMR_ERR_INVALID_ARGUMENT;
+
     job j = {.limits = limits ? *limits : rmr_limits_default()};
     writer w = {.j = &j}, c = {.j = &j};
     file f;
     if (path.count > j.limits.maximum_elements)
         stop(&j, RMR_ERR_LIMIT, "clip path limit");
+
     if (tick(&j) && open_file(&f, &j, pdf, size, false)) {
         if (f.page_count != 1)
             stop(&j, RMR_ERR_INVALID_ARGUMENT, "clip requires one page");
@@ -1801,6 +1951,7 @@ rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
         put(&w, pdf, size);
         text(&w, "\n");
         text(&c, "q\n");
+
         for (size_t i = 0; i < path.count && tick(&j); i++) {
             const rmr_element *v = &path.elements[i];
             switch (v->kind) {
@@ -1822,6 +1973,7 @@ rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
                 stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid clip operation");
             }
         }
+
         text(&c, "W n\n");
         uint32_t start = reserve(&w);
         begin(&w, start, 0);
@@ -1830,6 +1982,7 @@ rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
         text(&w, "\nendstream");
         end(&w);
         uint32_t close = stream_text(&w, "Q\n");
+
         page *p = f.pages;
         if (p && j.status == RMR_OK) {
             begin(&w, p->object->number, p->object->generation);
@@ -1843,6 +1996,7 @@ rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
             finish(&w, &f);
         }
     }
+
     free(c.data.bytes);
     if (j.status == RMR_OK)
         *out = w.data;
@@ -1857,6 +2011,7 @@ static void destination(writer *w, page **pages, size_t count, rmr_pdf_destinati
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "navigation target outside document");
         return;
     }
+
     entry *e = pages[d.page]->object;
     format(w, "/Dest [%u %u R /XYZ ", e->number, e->generation);
     real(w, d.point.x);
@@ -1876,6 +2031,7 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                               void *context, rmr_buffer *out) {
     if (!pdf || !size || !out || (link_count && !links) || (outline_count && !outline))
         return RMR_ERR_INVALID_ARGUMENT;
+
     job j = {
         .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
     writer w = {.j = &j};
@@ -1884,19 +2040,23 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
         outline_count >= SIZE_MAX / sizeof(outline_entry) ||
         link_count > j.limits.maximum_elements || outline_count >= j.limits.maximum_elements)
         stop(&j, RMR_ERR_LIMIT, "navigation limit");
+
     if (tick(&j) && open_file(&f, &j, pdf, size, false)) {
         w.next_number = f.next_number;
         put(&w, pdf, size);
         text(&w, "\n");
         if (f.page_count > SIZE_MAX / sizeof(page *))
             stop(&j, RMR_ERR_LIMIT, "navigation page limit");
+
         page **pages = take(&j, f.page_count * sizeof *pages);
         uint32_t *ids = take(&j, link_count * sizeof *ids);
         outline_entry *tree = take(&j, (outline_count + 1) * sizeof *tree);
+
         if (j.status == RMR_OK) {
             size_t at = 0;
             for (page *p = f.pages; p; p = p->next)
                 pages[at++] = p;
+
             for (size_t i = 0; i < link_count && tick(&j); i++) {
                 if (links[i].page >= f.page_count) {
                     stop(&j, RMR_ERR_INVALID_ARGUMENT, "link outside document");
@@ -1911,6 +2071,7 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                 text(&w, ">>");
                 end(&w);
             }
+
             for (size_t pi = 0; pi < f.page_count && tick(&j); pi++) {
                 bool found = false;
                 for (size_t i = 0; i < link_count && tick(&j); i++)
@@ -1936,8 +2097,10 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                 text(&w, "] >>");
                 end(&w);
             }
+
             for (size_t i = 0; i <= outline_count && tick(&j); i++)
                 tree[i] = (outline_entry){reserve(&w), SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, 0};
+
             for (size_t i = 0; i < outline_count && tick(&j); i++) {
                 size_t parent = outline[i].parent;
                 if (parent != SIZE_MAX && parent >= i) {
@@ -1954,11 +2117,13 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                     tree[parent].first = i;
                 tree[parent].last = i;
             }
+
             for (size_t i = outline_count; i > 0 && tick(&j);) {
                 --i;
                 size_t parent = outline[i].parent == SIZE_MAX ? outline_count : outline[i].parent;
                 tree[parent].visible += 1 + (outline[i].open ? tree[i].visible : 0);
             }
+
             for (size_t i = 0; i < outline_count && tick(&j); i++) {
                 const rmr_pdf_outline *o = &outline[i];
                 if ((o->title_size && !o->title) || o->title_size % 2) {
@@ -1983,6 +2148,7 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                 text(&w, ">>");
                 end(&w);
             }
+
             if (outline_count && j.status == RMR_OK) {
                 outline_entry *root = &tree[outline_count];
                 begin(&w, root->id, 0);
@@ -1997,10 +2163,12 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
                 format(&w, "/Outlines %u 0 R >>", root->id);
                 end(&w);
             }
+
             if (j.status == RMR_OK)
                 finish(&w, &f);
         }
     }
+
     if (j.status == RMR_OK)
         *out = w.data;
     else
@@ -2021,6 +2189,7 @@ static void header(writer *w, const uint8_t *source, size_t size) {
     if (end < size && source[end] == '.')
         for (end++; end < size && end < 16 && source[end] >= '0' && source[end] <= '9'; end++)
             minor++;
+
     bool valid = major && minor && end < size && (source[end] == '\r' || source[end] == '\n');
     if (valid)
         put(w, source, end);
@@ -2033,13 +2202,16 @@ rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size, const rmr_limits 
                            rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_error *error) {
     if (!source || !size || !out)
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF rewrite input");
+
     job j = {
         .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
     writer w = {.j = &j};
     file f;
+
     if (tick(&j) && open_file(&f, &j, source, size, false)) {
         w.next_number = f.next_number;
         header(&w, source, size);
+
         for (size_t i = 0; i < f.count && tick(&j); i++) {
             entry *e = &f.entries[i];
             if (!e->live)
@@ -2059,12 +2231,14 @@ rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size, const rmr_limits 
             }
             end(&w);
         }
+
         if (j.status == RMR_OK) {
             f.last = 0;
             f.xref_streams = false;
             finish(&w, &f);
         }
     }
+
     if (j.status == RMR_OK)
         *out = w.data;
     else
@@ -2097,6 +2271,7 @@ static node *select_token(job *j, kind type, const char *text_value) {
     uint8_t *raw = take(j, size);
     if (!n || !raw)
         return nullptr;
+
     memcpy(raw, text_value, size);
     *n = (node){.type = type, .raw = raw, .length = size};
     return n;
@@ -2123,26 +2298,31 @@ static node *select_clone(job *j, const node *n, unsigned depth) {
     node *copy = take(j, sizeof *copy);
     if (!copy)
         return nullptr;
+
     *copy = *n;
     copy->child = copy->next = nullptr;
     node **tail = &copy->child;
+
     for (const node *c = n->child; c && j->status == RMR_OK; c = c->next) {
         *tail = select_clone(j, c, depth + 1);
         if (*tail)
             tail = &(*tail)->next;
     }
+
     return copy;
 }
 
 static void select_set(job *j, node *dict, const char *key, node *v) {
     if (!dict || !v || j->status != RMR_OK)
         return;
+
     for (node *k = dict->child; k; k = k->next->next)
         if (named(k, key)) {
             v->next = k->next->next;
             k->next = v;
             return;
         }
+
     char raw[64];
     snprintf(raw, sizeof raw, "/%s", key);
     node *k = select_token(j, NAME, raw);
@@ -2200,6 +2380,7 @@ static void select_refs(file *f, node *n, const selected_page *local, unsigned d
         stop(f->j, RMR_ERR_LIMIT, "page reference nesting");
         return;
     }
+
     if (n->type == REF) {
         entry *e = lookup(f, n->number);
         if (!e || !e->live || e->generation != n->generation)
@@ -2213,6 +2394,7 @@ static void select_refs(file *f, node *n, const selected_page *local, unsigned d
                     id = local->annots[i].id;
         }
         bool is_page = e->object && named(get(e->object, "Type"), "Page");
+
         if (id || is_page) {
             node *replacement = id ? select_ref(f->j, id, 0) : select_token(f->j, SCALAR, "null");
             if (replacement) {
@@ -2238,6 +2420,7 @@ static node *select_fields(file *f, node *array, node **widgets, uint8_t *seen,
         return nullptr;
     }
     node *result = select_array(f->j);
+
     for (node *ref = array->child; ref && tick(f->j); ref = ref->next) {
         entry *e = ref->type == REF ? lookup(f, ref->number) : nullptr;
         node *dict = resolve(f, ref, 0);
@@ -2247,6 +2430,7 @@ static node *select_fields(file *f, node *array, node **widgets, uint8_t *seen,
         }
         size_t index = (size_t)(e - f->entries);
         seen[index] = 1;
+
         if (named(get(dict, "Subtype"), "Widget")) {
             node *copies = widgets[index];
             if (!copies || !copies->child) {
@@ -2278,9 +2462,11 @@ static node *select_fields(file *f, node *array, node **widgets, uint8_t *seen,
                 continue;
             select_set(f->j, dict, "Kids", kids);
         }
+
         seen[index] = 2;
         select_append(result, select_clone(f->j, ref, 0));
     }
+
     return result;
 }
 
@@ -2306,6 +2492,7 @@ static void select_label_ranges(file *f, node *tree, label_range **out, unsigned
         stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid page labels");
         return;
     }
+
     for (node *k = nums ? nums->child : nullptr; k && tick(f->j); k = k->next->next) {
         uint64_t key;
         node *d = k->next ? resolve(f, k->next, 0) : nullptr;
@@ -2320,6 +2507,7 @@ static void select_label_ranges(file *f, node *tree, label_range **out, unsigned
         *out = r;
     }
     for (node *k = kids ? kids->child : nullptr; k && f->j->status == RMR_OK; k = k->next)
+
         select_label_ranges(f, k, out, depth + 1);
 }
 
@@ -2329,6 +2517,7 @@ static node *select_labels(file *f, const size_t *indices, size_t count) {
     select_label_ranges(f, get(f->root, "PageLabels"), &ranges, 0);
     node *nums = select_array(j), *labels = take(j, sizeof *labels);
     const label_range *previous = nullptr;
+
     for (size_t i = 0; i < count && j->status == RMR_OK && tick(j); i++) {
         const label_range *best = nullptr;
         for (const label_range *r = ranges; r && tick(j); r = r->next)
@@ -2344,6 +2533,7 @@ static node *select_labels(file *f, const size_t *indices, size_t count) {
             select_append(nums, select_token(j, DICT, ""));
             continue;
         }
+
         uint64_t start = 1;
         node *st = resolve(f, get(best->dict, "St"), 0);
         if (st && (!uint_value(st, &start) || !start || start > INT32_MAX)) {
@@ -2355,11 +2545,13 @@ static node *select_labels(file *f, const size_t *indices, size_t count) {
             break;
         }
         start += indices[i] - best->key;
+
         node *d = select_clone(j, best->dict, 0);
         snprintf(raw, sizeof raw, "%llu", (unsigned long long)start);
         select_set(j, d, "St", select_token(j, SCALAR, raw));
         select_append(nums, d);
     }
+
     if (!labels || j->status != RMR_OK)
         return nullptr;
     *labels = (node){.type = DICT};
@@ -2372,16 +2564,19 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                                 void *context, rmr_buffer *out, rmr_error *error) {
     if (!source || !size || !indices || !count || !out)
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF selection input");
+
     job j = {
         .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
     writer w = {.j = &j};
     file f;
     if (count > j.limits.maximum_draws || count > SIZE_MAX / sizeof(selected_page))
         stop(&j, RMR_ERR_LIMIT, "PDF selection page limit");
+
     if (tick(&j) && open_file(&f, &j, source, size, false)) {
         w.next_number = f.next_number;
         if (f.page_count > SIZE_MAX / sizeof(page *) || f.count > SIZE_MAX / sizeof(node *))
             stop(&j, RMR_ERR_LIMIT, "PDF selection object limit");
+
         selected_page *copies = take(&j, count * sizeof *copies);
         page **pages = take(&j, f.page_count * sizeof *pages);
         node **widgets = take(&j, f.count * sizeof *widgets);
@@ -2389,11 +2584,13 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
         uint8_t *attached = take(&j, f.count);
         uint32_t tree_id = reserve(&w);
         node *kids = select_array(&j);
+
         /* Load objects before installing new references: every imported
          * object remains bounded by the same parser and work limits. */
         for (size_t i = 0; i < f.count && tick(&j); i++)
             if (f.entries[i].live)
                 object(&f, &f.entries[i], 0);
+
         if (j.status == RMR_OK) {
             size_t pi = 0;
             for (page *p = f.pages; p && tick(&j); p = p->next) {
@@ -2409,6 +2606,7 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                         attached[e - f.entries] = 1;
                 }
             }
+
             for (size_t i = 0; i < count && tick(&j); i++) {
                 if (indices[i] >= f.page_count) {
                     stop(&j, RMR_ERR_INVALID_ARGUMENT, "selected page out of range");
@@ -2425,12 +2623,14 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                     stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid annotations");
                     break;
                 }
+
                 for (node *n = annots ? annots->child : nullptr; n && tick(&j); n = n->next)
                     p->count++;
                 if (p->count > SIZE_MAX / sizeof *p->annots) {
                     stop(&j, RMR_ERR_LIMIT, "annotation count limit");
                     break;
                 }
+
                 p->annots = take(&j, p->count * sizeof *p->annots);
                 size_t k = 0;
                 for (node *n = annots ? annots->child : nullptr; n && tick(&j); n = n->next, k++) {
@@ -2457,9 +2657,11 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                 }
             }
         }
+
         node *form = j.status == RMR_OK ? resolve(&f, get(f.root, "AcroForm"), 0) : nullptr;
         if (form && (form->type != DICT || get(form, "XFA")))
             stop(&j, RMR_ERR_UNSUPPORTED, "page selection requires an AcroForm without XFA");
+
         /* Clone pages before modifying merged field dictionaries. */
         for (size_t i = 0; i < count && tick(&j); i++) {
             selected_page *p = &copies[i];
@@ -2471,6 +2673,7 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
             for (size_t k = 0; k < 4; k++)
                 if (inherited[k])
                     select_set(&j, p->dict, names[k], select_clone(&j, inherited[k], 0));
+
             node *annots = select_array(&j);
             for (size_t k = 0; k < p->count && tick(&j); k++) {
                 selected_annot *a = &p->annots[k];
@@ -2485,13 +2688,16 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                 }
                 select_append(annots, select_ref(&j, a->id, 0));
             }
+
             select_set(&j, p->dict, "Annots", annots);
             select_refs(&f, p->dict, p, 0);
         }
+
         if (form && j.status == RMR_OK) {
             node *fields = select_fields(&f, get(form, "Fields"), widgets, seen, attached, 0);
             select_set(&j, form, "Fields", fields);
             node *order = resolve(&f, get(form, "CO"), 0);
+
             if (order) {
                 node *retained = select_array(&j);
                 if (order->type != ARRAY)
@@ -2504,12 +2710,15 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                 select_set(&j, form, "CO", retained);
             }
         }
+
         for (size_t i = 0; i < f.count && tick(&j); i++)
             if (widgets[i] && !seen[i])
                 stop(&j, RMR_ERR_INVALID_ARGUMENT, "widget missing from form field tree");
+
         if (get(f.root, "PageLabels"))
             select_set(&j, f.root, "PageLabels", select_labels(&f, indices, count));
         select_set(&j, f.root, "Pages", select_ref(&j, tree_id, 0));
+
         if (j.status == RMR_OK) {
             header(&w, source, size);
             begin(&w, tree_id, 0);
@@ -2518,6 +2727,7 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
             text(&w, " >>");
             end(&w);
         }
+
         for (size_t i = 0; i < count && tick(&j); i++) {
             selected_page *p = &copies[i];
             begin(&w, p->id, 0);
@@ -2529,6 +2739,7 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
                 end(&w);
             }
         }
+
         for (size_t i = 0; i < f.count && tick(&j); i++) {
             entry *e = &f.entries[i];
             if (!e->live)
@@ -2546,12 +2757,14 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
             }
             end(&w);
         }
+
         if (j.status == RMR_OK) {
             f.last = 0;
             f.xref_streams = false;
             finish(&w, &f);
         }
     }
+
     if (j.status == RMR_OK)
         *out = w.data;
     else

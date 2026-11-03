@@ -12,10 +12,12 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
     if (!source)
         return RMR_PDF_NATIVE(pdf_overlay)(nullptr, pages, count, given, cancel, context, out,
                                            nullptr, error);
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     if (count > limits.maximum_draws ||
         count > limits.maximum_plan_bytes / (sizeof(size_t) + sizeof(rmr_pdf_page)))
         return RMR_PDF_FAIL(error, RMR_ERR_LIMIT, "PDF recomposition allocation limit");
+
     size_t *indices = calloc(count, sizeof *indices);
     rmr_pdf_page *selected_pages = calloc(count, sizeof *selected_pages);
     if (!indices || !selected_pages) {
@@ -24,6 +26,7 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
         return RMR_PDF_FAIL(error, RMR_ERR_OUT_OF_MEMORY, "PDF recomposition allocation failed");
     }
     limits.maximum_plan_bytes -= count * (sizeof *indices + sizeof *selected_pages);
+
     rmr_status status = RMR_OK;
     for (size_t i = 0; i < count; i++) {
         if (cancel && cancel(context)) {
@@ -46,6 +49,7 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
                                 ? "PDF recomposition cancelled"
                                 : "PDF recomposition needs a visible source page on every page");
     }
+
     rmr_buffer selected = {0}, painted = {0};
     RMR_PDF_NATIVE(pdf_source) *copy = nullptr;
     status = rmr_pdf_select_pages(RMR_PDF_BYTES(source), RMR_PDF_SIZE(source), indices, count,
@@ -54,13 +58,16 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
         status =
             RMR_PDF_NATIVE(pdf_source_create)(selected.bytes, selected.size, &limits, &copy, error);
     rmr_buffer_free(&selected);
+
     if (status == RMR_OK)
         status = RMR_PDF_NATIVE(pdf_incremental)(copy, selected_pages, count, &limits, cancel,
                                                  context, &painted, nullptr, error);
     RMR_PDF_NATIVE(pdf_source_free)(copy);
+
     if (status == RMR_OK)
         status = rmr_pdf_rewrite(painted.bytes, painted.size, &limits, cancel, context, out, error);
     rmr_buffer_free(&painted);
+
     free(indices);
     free(selected_pages);
     /* Each step has already reported its own failure. */

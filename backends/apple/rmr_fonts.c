@@ -37,12 +37,14 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
                                   const rmr_limits *given, rmr_apple_fonts **out, rmr_error *e) {
     if (!resolve || !out)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing font resolver/output");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     rmr_apple_fonts *f = calloc(1, sizeof *f);
     if (!f)
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "font allocation failed");
     size_t total = 0;
     rmr_status s = RMR_OK;
+
     for (size_t i = 0; i < 13; i++) {
         rmr_asset_view view = {0};
         s = resolve(context, names[i], &view);
@@ -57,11 +59,13 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
             break;
         }
         total += view.size;
+
         CFDataRef data = CFDataCreate(kCFAllocatorDefault, view.bytes, (CFIndex)view.size);
         if (!data) {
             s = RMR_ERR_OUT_OF_MEMORY;
             break;
         }
+
         CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromData(data);
         CFRelease(data);
         if (!descriptors || CFArrayGetCount(descriptors) == 0) {
@@ -73,10 +77,12 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
         f->descriptors[i] = (CTFontDescriptorRef)CFRetain(CFArrayGetValueAtIndex(descriptors, 0));
         CFRelease(descriptors);
     }
+
     if (s != RMR_OK) {
         rmr_apple_fonts_free(f);
         return text_error(e, s, "font resources could not be loaded");
     }
+
     *out = f;
     return RMR_OK;
 }
@@ -98,6 +104,7 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face f
     char composed[96];
     bool nonlatin = script >= 0;
     double weight = 0, slant = 0;
+
     if (nonlatin) {
         bool light = italic && size >= 64;
         file = bold ? 1 : face == RMR_FACE_MEDIUM ? 3 : face == RMR_FACE_SERIF && light ? 4 : 0;
@@ -126,6 +133,7 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face f
                                         : "reMarkableSans-Regular";
         slant = bold && italic ? .3 : 0;
     }
+
     double width = 1, nearest = INFINITY;
     for (size_t i = 0; i < sizeof stretches / sizeof *stretches; i++) {
         if (strcmp(key, stretches[i].key) != 0)
@@ -136,23 +144,28 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face f
             width = stretches[i].width;
         }
     }
+
     CTFontDescriptorRef descriptor = weight != 0
                                          ? weighted(fonts->descriptors[file], weight)
                                          : (CTFontDescriptorRef)CFRetain(fonts->descriptors[file]);
+
     if (!descriptor)
         return nullptr;
+
     if (nonlatin) {
         bool light = (italic && size >= 64) || (script == 2 && size >= 64 && !bold);
         bool weighted_light = light && (script == 1 || script == 2 || script == 3 || script == 6);
         double cw = bold ? 700 : face == RMR_FACE_MEDIUM ? 500 : weighted_light ? 300 : 400;
         /* Fixed cascade order, independent of resource-array order. */
         const unsigned order[] = {8, 7, 9, 10, 11, 12};
+
         CFMutableArrayRef cascade =
             CFArrayCreateMutable(kCFAllocatorDefault, 6, &kCFTypeArrayCallBacks);
         if (!cascade) {
             CFRelease(descriptor);
             return nullptr;
         }
+
         for (unsigned i = 0; i < 6; i++) {
             CTFontDescriptorRef d = weighted(fonts->descriptors[order[i]], cw);
             if (!d) {
@@ -163,20 +176,24 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face f
             CFArrayAppendValue(cascade, d);
             CFRelease(d);
         }
+
         const void *keys[] = {kCTFontCascadeListAttribute}, *values[] = {cascade};
         CFDictionaryRef attrs =
             CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks,
                                &kCFTypeDictionaryValueCallBacks);
         CTFontDescriptorRef next =
             attrs ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attrs) : nullptr;
+
         if (attrs)
             CFRelease(attrs);
         CFRelease(cascade);
         CFRelease(descriptor);
         descriptor = next;
+
         if (!descriptor)
             return nullptr;
     }
+
     CGAffineTransform matrix = CGAffineTransformMake(width, 0, slant, 1, 0, 0);
     CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, size, &matrix);
     CFRelease(descriptor);

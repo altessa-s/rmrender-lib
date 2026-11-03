@@ -35,12 +35,15 @@ static rmr_status begin(void *context, rmr_rect viewport) {
     apple_context *a = context;
     rmr_transform t;
     rmr_status s = RMR_OK;
+
     if (a->sheet)
         t = a->sheet->transform;
     else
         s = rmr_page_to_pdf(viewport, a->scale, &t, nullptr);
+
     if (s != RMR_OK)
         return s;
+
     CGContextSaveGState(a->cg);
     a->saved = true;
     if (a->sheet && !a->unclipped)
@@ -49,6 +52,7 @@ static rmr_status begin(void *context, rmr_rect viewport) {
     if (!a->sheet)
         CGContextClipToRect(a->cg,
                             CGRectMake(viewport.x, viewport.y, viewport.width, viewport.height));
+
     return RMR_OK;
 }
 
@@ -96,6 +100,7 @@ static CGPathRef make_path(rmr_path_view view) {
     CGMutablePathRef path = CGPathCreateMutable();
     if (!path)
         return nullptr;
+
     for (size_t i = 0; i < view.count; i++) {
         const rmr_element *v = &view.elements[i];
         switch (v->kind) {
@@ -114,6 +119,7 @@ static CGPathRef make_path(rmr_path_view view) {
             break;
         }
     }
+
     return path;
 }
 
@@ -135,6 +141,7 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
     CGDataProviderRef provider = owned_provider(im->bytes, im->size);
     if (!provider)
         return RMR_ERR_OUT_OF_MEMORY;
+
     CGImageRef image = nullptr;
     if (im->size >= 4 && memcmp(im->bytes, "\x89PNG", 4) == 0)
         image =
@@ -143,8 +150,10 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
         image =
             CGImageCreateWithJPEGDataProvider(provider, nullptr, true, kCGRenderingIntentDefault);
     CGDataProviderRelease(provider);
+
     if (!image)
         return RMR_ERR_BACKEND;
+
     size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
     if (!width || !height || width > a->limits.maximum_bitmap_side ||
         height > a->limits.maximum_bitmap_side || width > 64000000 / height ||
@@ -152,11 +161,13 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
         CGImageRelease(image);
         return RMR_ERR_LIMIT;
     }
+
     CGPathRef path = make_path(d->path);
     if (!path) {
         CGImageRelease(image);
         return RMR_ERR_OUT_OF_MEMORY;
     }
+
     CGContextSaveGState(a->cg);
     CGContextSetBlendMode(a->cg, blend(d->blend));
     CGContextSetAlpha(a->cg, d->color.alpha);
@@ -167,6 +178,7 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
     CGContextConcatCTM(a->cg, CGAffineTransformMake(t.a, t.b, t.c, t.d, t.tx, t.ty));
     CGContextTranslateCTM(a->cg, 0, 1);
     CGContextScaleCTM(a->cg, 1, -1);
+
     CGContextDrawImage(a->cg, CGRectMake(0, 0, 1, 1), image);
     CGContextRestoreGState(a->cg);
     CGImageRelease(image);
@@ -176,6 +188,7 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
 static rmr_status draw_pdf(apple_context *a, const rmr_draw *d) {
     if (d->image.size > a->limits.maximum_pdf_bytes || d->pdf_page == SIZE_MAX)
         return RMR_ERR_LIMIT;
+
     CGDataProviderRef provider = owned_provider(d->image.bytes, d->image.size);
     if (!provider)
         return RMR_ERR_OUT_OF_MEMORY;
@@ -183,32 +196,38 @@ static rmr_status draw_pdf(apple_context *a, const rmr_draw *d) {
     CGDataProviderRelease(provider);
     if (!document)
         return RMR_ERR_BACKEND;
+
     if (CGPDFDocumentIsEncrypted(document) && !CGPDFDocumentIsUnlocked(document)) {
         CGPDFDocumentRelease(document);
         return RMR_ERR_UNSUPPORTED;
     }
+
     CGPDFPageRef page = CGPDFDocumentGetPage(document, d->pdf_page + 1);
     if (!page) {
         CGPDFDocumentRelease(document);
         return RMR_ERR_INVALID_ARGUMENT;
     }
+
     CGRect box = CGPDFPageGetBoxRect(page, kCGPDFMediaBox);
     if (!isfinite(box.origin.x) || !isfinite(box.origin.y) || !isfinite(box.size.width) ||
         !isfinite(box.size.height) || box.size.width <= 0 || box.size.height <= 0) {
         CGPDFDocumentRelease(document);
         return RMR_ERR_BACKEND;
     }
+
     CGPathRef path = make_path(d->path);
     if (!path) {
         CGPDFDocumentRelease(document);
         return RMR_ERR_OUT_OF_MEMORY;
     }
+
     CGContextSaveGState(a->cg);
     CGContextSetBlendMode(a->cg, blend(d->blend));
     CGContextSetAlpha(a->cg, d->color.alpha);
     CGContextAddPath(a->cg, path);
     CGContextClip(a->cg);
     CGPathRelease(path);
+
     rmr_transform t = d->image.transform;
     CGContextConcatCTM(a->cg, CGAffineTransformMake(t.a, t.b, t.c, t.d, t.tx, t.ty));
     CGContextTranslateCTM(a->cg, 0, 1);
@@ -216,6 +235,7 @@ static rmr_status draw_pdf(apple_context *a, const rmr_draw *d) {
     CGContextConcatCTM(a->cg, CGPDFPageGetDrawingTransform(page, kCGPDFMediaBox,
                                                            CGRectMake(0, 0, 1, 1), 0, false));
     CGContextDrawPDFPage(a->cg, page);
+
     CGContextRestoreGState(a->cg);
     CGPDFDocumentRelease(document);
     return RMR_OK;
@@ -227,11 +247,13 @@ static rmr_status text_line(const char *utf8, size_t size, double font_size, rmr
         return RMR_ERR_INVALID_ARGUMENT;
     if (size > 65536)
         return RMR_ERR_LIMIT;
+
     CFStringRef string =
         CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8 *)(utf8 ? utf8 : ""),
                                 (CFIndex)size, kCFStringEncodingUTF8, false);
     if (!string)
         return RMR_ERR_INVALID_ARGUMENT;
+
     CTFontRef font = CTFontCreateWithName(CFSTR("Helvetica"), font_size, nullptr);
     CGColorRef paint = CGColorCreateSRGB(color.red, color.green, color.blue, color.alpha);
     const void *keys[] = {kCTFontAttributeName, kCTForegroundColorAttributeName};
@@ -244,6 +266,7 @@ static rmr_status text_line(const char *utf8, size_t size, double font_size, rmr
     CFAttributedStringRef attributed =
         attributes ? CFAttributedStringCreate(kCFAllocatorDefault, string, attributes) : nullptr;
     CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : nullptr;
+
     if (attributed)
         CFRelease(attributed);
     if (attributes)
@@ -253,6 +276,7 @@ static rmr_status text_line(const char *utf8, size_t size, double font_size, rmr
     if (font)
         CFRelease(font);
     CFRelease(string);
+
     if (!line)
         return RMR_ERR_OUT_OF_MEMORY;
     *out = line;
@@ -264,19 +288,23 @@ static rmr_status measure_text(void *context, const char *utf8, size_t size, dou
     (void)context;
     if (!out)
         return RMR_ERR_INVALID_ARGUMENT;
+
     CTLineRef line = nullptr;
     rmr_status s = text_line(utf8, size, font_size, (rmr_color){0, 0, 0, 1}, &line);
     if (s != RMR_OK)
         return s;
+
     CGFloat ascent = 0, descent = 0, leading = 0;
     double width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
     CGRect ink = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
     CGRect box = CGRectUnion(CGRectMake(0, -descent, width, ascent + descent), ink);
     rmr_text_metrics metrics = {
         width, {box.origin.x, -CGRectGetMaxY(box), box.size.width, box.size.height}};
+
     CFRelease(line);
     if (!size)
         metrics = (rmr_text_metrics){0};
+
     *out = metrics;
     return RMR_OK;
 }
@@ -291,6 +319,7 @@ static rmr_status draw_text(apple_context *a, const rmr_draw *d) {
     rmr_status s = text_line(d->text.utf8, d->text.size, d->text.font_size, d->color, &line);
     if (s != RMR_OK)
         return s;
+
     CGContextSaveGState(a->cg);
     CGContextSetBlendMode(a->cg, blend(d->blend));
     CGContextSetAlpha(a->cg, 1);
@@ -299,6 +328,7 @@ static rmr_status draw_text(apple_context *a, const rmr_draw *d) {
     CGContextSetTextMatrix(a->cg, CGAffineTransformIdentity);
     CGContextSetTextPosition(a->cg, 0, 0);
     CTLineDraw(line, a->cg);
+
     CGContextRestoreGState(a->cg);
     CFRelease(line);
     return RMR_OK;
@@ -316,15 +346,18 @@ static rmr_status draw(void *context, const rmr_draw *d) {
             a->group = d->group;
         }
     }
+
     if (d->mode == RMR_PDF)
         return draw_pdf(a, d);
     if (d->mode == RMR_IMAGE)
         return draw_image(a, d);
     if (d->mode == RMR_TEXT)
         return draw_text(a, d);
+
     CGPathRef path = make_path(d->path);
     if (!path)
         return RMR_ERR_OUT_OF_MEMORY;
+
     if (d->eraser_count) {
         if (__builtin_available(macOS 13.0, iOS 16.0, *)) {
             if (d->mode == RMR_STROKE) {
@@ -336,6 +369,7 @@ static rmr_status draw(void *context, const rmr_draw *d) {
                 if (!path)
                     return RMR_ERR_OUT_OF_MEMORY;
             }
+
             for (size_t i = 0; i < d->eraser_count; i++) {
                 CGPathRef mask = make_path(d->erasers[i]);
                 if (!mask) {
@@ -354,6 +388,7 @@ static rmr_status draw(void *context, const rmr_draw *d) {
             return RMR_ERR_UNSUPPORTED;
         }
     }
+
     CGContextSaveGState(a->cg);
     CGContextSetBlendMode(a->cg, d->blend == RMR_BLEND_DARKEN     ? kCGBlendModeDarken
                                  : d->blend == RMR_BLEND_MULTIPLY ? kCGBlendModeMultiply
@@ -361,6 +396,7 @@ static rmr_status draw(void *context, const rmr_draw *d) {
     CGContextSetAlpha(a->cg, d->color.alpha);
     CGContextAddPath(a->cg, path);
     CGPathRelease(path);
+
     if (d->mode == RMR_FILL_STROKE) {
         CGContextSetAlpha(a->cg, 1);
         CGContextSetRGBFillColor(a->cg, d->color.red, d->color.green, d->color.blue,
@@ -382,10 +418,12 @@ static rmr_status draw(void *context, const rmr_draw *d) {
                                         : nullptr;
             if (provider)
                 CGDataProviderRelease(provider);
+
             if (!image) {
                 CGContextRestoreGState(a->cg);
                 return RMR_ERR_OUT_OF_MEMORY;
             }
+
             CGContextClip(a->cg);
             CGContextSetInterpolationQuality(a->cg, kCGInterpolationNone);
             /* Images have their own bottom-up placement; page coordinates are
@@ -406,6 +444,7 @@ static rmr_status draw(void *context, const rmr_draw *d) {
         CGContextSetMiterLimit(a->cg, d->miter_limit != 0 ? d->miter_limit : 10);
         CGContextStrokePath(a->cg);
     }
+
     CGContextRestoreGState(a->cg);
     return RMR_OK;
 }
@@ -448,6 +487,7 @@ static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_shee
         return error(e, RMR_ERR_INVALID_ARGUMENT, "invalid bitmap arguments");
     if (cancel && cancel(context))
         return error(e, RMR_ERR_CANCELLED, "cancelled");
+
     rmr_rect v = rmr_plan_viewport(plan);
     double width = sheet ? sheet->width : ceil(v.width * scale);
     double height = sheet ? sheet->height : ceil(v.height * scale);
@@ -458,9 +498,11 @@ static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_shee
     size_t w = (size_t)width, h = (size_t)height, stride = w * 4;
     if (h > l.maximum_bitmap_bytes / stride)
         return error(e, RMR_ERR_LIMIT, "bitmap byte limit");
+
     uint8_t *pixels = calloc(h, stride);
     if (!pixels)
         return error(e, RMR_ERR_OUT_OF_MEMORY, "bitmap allocation failed");
+
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     CGContextRef cg =
         space ? CGBitmapContextCreate(pixels, w, h, 8, stride, space,
@@ -472,12 +514,14 @@ static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_shee
         free(pixels);
         return error(e, RMR_ERR_BACKEND, "bitmap context unavailable");
     }
+
     CGContextSetRGBFillColor(cg, background.red, background.green, background.blue,
                              background.alpha);
     CGContextFillRect(cg, CGRectMake(0, 0, width, height));
     /* Round-up adds spare pixels at bottom/right, not a shift in page coordinates. */
     if (!sheet)
         CGContextTranslateCTM(cg, 0, height - v.height * scale);
+
     apple_context state = {.cg = cg, .scale = scale, .limits = l, .sheet = sheet};
     rmr_backend b = backend(&state);
     rmr_status status = rmr_plan_execute(plan, &b, cancel, context, e);
@@ -486,6 +530,7 @@ static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_shee
         free(pixels);
         return status;
     }
+
     *out = (rmr_bitmap){pixels, w, h, stride};
     return RMR_OK;
 }
@@ -500,10 +545,12 @@ static size_t write_pdf(void *info, const void *bytes, size_t n) {
     pdf_sink *s = info;
     if (s->status != RMR_OK)
         return 0;
+
     if (n > s->maximum - s->buffer.size) {
         s->status = RMR_ERR_LIMIT;
         return 0;
     }
+
     size_t need = s->buffer.size + n;
     if (need > s->capacity) {
         size_t cap = s->capacity ? s->capacity : 4096;
@@ -516,6 +563,7 @@ static size_t write_pdf(void *info, const void *bytes, size_t n) {
         }
         if (cap > s->maximum)
             cap = s->maximum;
+
         void *p = realloc(s->buffer.bytes, cap);
         if (!p) {
             s->status = RMR_ERR_OUT_OF_MEMORY;
@@ -524,6 +572,7 @@ static size_t write_pdf(void *info, const void *bytes, size_t n) {
         s->buffer.bytes = p;
         s->capacity = cap;
     }
+
     if (n)
         memcpy(s->buffer.bytes + s->buffer.size, bytes, n);
     s->buffer.size += n;
@@ -538,6 +587,7 @@ static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets
         return error(e, RMR_ERR_INVALID_ARGUMENT, "invalid PDF arguments");
     if (count > l.maximum_draws)
         return error(e, RMR_ERR_LIMIT, "PDF page count limit");
+
     for (size_t i = 0; i < count; i++) {
         if (!plans[i])
             return error(e, RMR_ERR_INVALID_ARGUMENT, "null page plan");
@@ -553,19 +603,23 @@ static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets
         if (width > 10000000 || height > 10000000)
             return error(e, RMR_ERR_LIMIT, "PDF dimensions too large");
     }
+
     if (cancel && cancel(context))
         return error(e, RMR_ERR_CANCELLED, "cancelled");
+
     pdf_sink sink = {.maximum = l.maximum_pdf_bytes};
     CGDataConsumerCallbacks callbacks = {write_pdf, nullptr};
     CGDataConsumerRef consumer = CGDataConsumerCreate(&sink, &callbacks);
     if (!consumer)
         return error(e, RMR_ERR_OUT_OF_MEMORY, "PDF consumer unavailable");
+
     CGContextRef cg = CGPDFContextCreate(consumer, nullptr, nullptr);
     CGDataConsumerRelease(consumer);
     if (!cg) {
         rmr_buffer_free(&sink.buffer);
         return error(e, RMR_ERR_BACKEND, "PDF context unavailable");
     }
+
     rmr_status status = RMR_OK;
     for (size_t i = 0; i < count; i++) {
         rmr_rect v = rmr_plan_viewport(plans[i]);
@@ -576,6 +630,7 @@ static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets
             status = error(e, RMR_ERR_OUT_OF_MEMORY, "page box allocation failed");
             break;
         }
+
         const void *keys[] = {kCGPDFContextMediaBox}, *values[] = {data};
         CFDictionaryRef info =
             CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks,
@@ -585,6 +640,7 @@ static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets
             status = error(e, RMR_ERR_OUT_OF_MEMORY, "page dictionary allocation failed");
             break;
         }
+
         CGPDFContextBeginPage(cg, info);
         CFRelease(info);
         apple_context state = {
@@ -592,17 +648,21 @@ static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets
         rmr_backend b = backend(&state);
         status = rmr_plan_execute(plans[i], &b, cancel, context, e);
         CGPDFContextEndPage(cg);
+
         if (status != RMR_OK || sink.status != RMR_OK)
             break;
     }
+
     CGPDFContextClose(cg);
     CGContextRelease(cg);
+
     if (status == RMR_OK && sink.status != RMR_OK)
         status = error(e, sink.status, "PDF output memory limit or allocation failure");
     if (status != RMR_OK) {
         rmr_buffer_free(&sink.buffer);
         return status;
     }
+
     *out = sink.buffer;
     return RMR_OK;
 }

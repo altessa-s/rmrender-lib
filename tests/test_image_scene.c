@@ -35,10 +35,12 @@ static void pdf_check(rmr_plan *p, bool release_before_close) {
         CGRect box = CGRectMake(0, 0, 64, 64);
         CGContextRef output = CGPDFContextCreate(consumer, &box, nullptr);
         CHECK(output);
+
         CGDataConsumerRelease(consumer);
         CGPDFContextBeginPage(output, nullptr);
         rmr_sheet sheet = {64, 64, {1, 0, 0, -1, 32, 64}};
         OK(rmr_apple_draw_context(output, copy, &sheet, nullptr, nullptr, nullptr, nullptr));
+
         rmr_plan_free(copy); /* Deferred native decoding must not borrow the plan. */
         CGPDFContextEndPage(output);
         CGPDFContextClose(output);
@@ -50,23 +52,27 @@ static void pdf_check(rmr_plan *p, bool release_before_close) {
         CFRelease(data);
     } else
         OK(rmr_apple_pdf(pages, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
+
     CGDataProviderRef provider =
         CGDataProviderCreateWithData(nullptr, pdf.bytes, pdf.size, nullptr);
     CHECK(provider);
     CGPDFDocumentRef doc = CGPDFDocumentCreateWithProvider(provider);
     CHECK(doc);
+
     uint8_t pixels[64 * 64 * 4] = {0};
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     CHECK(space);
     CGContextRef cg = CGBitmapContextCreate(
         pixels, 64, 64, 8, 256, space, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CHECK(cg);
+
     CGContextDrawPDFPage(cg, CGPDFDocumentGetPage(doc, 1));
     rmr_bitmap bitmap = {pixels, 64, 64, 256};
     pixel(bitmap, 16, 16, 255, 0, 0, 255);
     pixel(bitmap, 48, 16, 0, 255, 0, 255);
     pixel(bitmap, 16, 48, 0, 0, 255, 255);
     pixel(bitmap, 48, 48, 128, 128, 0, 128);
+
     CGContextRelease(cg);
     CGColorSpaceRelease(space);
     CGPDFDocumentRelease(doc);
@@ -98,8 +104,10 @@ int main(void) {
     rm_page_image image = {
         .vertices = {{-32, 0, 0, 0}, {32, 0, 1, 0}, {32, 64, 1, 1}, {-32, 64, 0, 1}}};
     rm_page page = {.images = &image, .image_count = 1};
+
     rmr_plan *p = plan(&page, nullptr);
     CHECK(rmr_plan_count(p) == 1 && rmr_plan_draw(p, 0)->mode == RMR_IMAGE);
+
 #ifdef RMRENDER_TEST_APPLE
     rmr_bitmap b = render(p);
     pixel(b, 16, 16, 255, 0, 0, 255);
@@ -107,8 +115,10 @@ int main(void) {
     pixel(b, 16, 48, 0, 0, 255, 255);
     pixel(b, 48, 48, 128, 128, 0, 128);
     rmr_bitmap_free(&b);
+
     pdf_check(p, false);
     pdf_check(p, true);
+
     rmr_limits limit = rmr_limits_default();
     limit.maximum_bitmap_side = 4;
     rmr_bitmap untouched = {0};
@@ -116,12 +126,14 @@ int main(void) {
     CHECK(rmr_apple_bitmap(p, .0625, (rmr_color){0}, &limit, nullptr, nullptr, &untouched,
                            nullptr) == RMR_ERR_LIMIT &&
           !untouched.pixels);
+
     const rmr_plan *pages[] = {p};
     rmr_buffer pdf = {0};
     CHECK(rmr_apple_pdf(pages, 1, 1, &limit, nullptr, nullptr, &pdf, nullptr) == RMR_ERR_LIMIT &&
           !pdf.bytes);
 #endif
     rmr_plan_free(p);
+
 #ifdef RMRENDER_TEST_APPLE
     rmr_asset_view jpeg = {image_jpeg, sizeof image_jpeg};
     p = plan(&page, &jpeg);
@@ -130,6 +142,7 @@ int main(void) {
     rmr_bitmap_free(&b);
     rmr_plan_free(p);
 #endif
+
     /* Crop left half: full texture mapping remains unchanged, quad clips. */
     image.vertices[1].x = image.vertices[2].x = 0;
     image.vertices[1].u = image.vertices[2].u = .5;
@@ -141,6 +154,7 @@ int main(void) {
     rmr_bitmap_free(&b);
 #endif
     rmr_plan_free(p);
+
     image.vertices[1].x = image.vertices[2].x = 32;
     image.vertices[1].u = image.vertices[2].u = 1;
     rm_stroke_point points[] = {{.x = -30, .y = 16, .width = 40}, {.x = 30, .y = 16, .width = 40}};
@@ -150,9 +164,11 @@ int main(void) {
     page.strokes = strokes;
     page.stroke_count = 2;
     image.strokes_before = 1;
+
     p = plan(&page, nullptr);
     CHECK(rmr_plan_draw(p, 0)->eraser_count == 1 && rmr_plan_draw(p, 1)->mode == RMR_IMAGE &&
           !rmr_plan_draw(p, 1)->eraser_count);
+
 #ifdef RMRENDER_TEST_APPLE
     b = render(p);
     pixel(b, 16, 16, 255, 0, 0, 255);
@@ -160,6 +176,7 @@ int main(void) {
     rmr_bitmap_free(&b);
 #endif
     rmr_plan_free(p);
+
     page.stroke_count = 3;
     p = plan(&page, nullptr);
 #ifdef RMRENDER_TEST_APPLE
@@ -168,6 +185,7 @@ int main(void) {
     rmr_bitmap_free(&b);
 #endif
     rmr_plan_free(p);
+
     rm_stroke shader = ink;
     shader.tool = RM_TOOL_SHADER;
     shader.has_source_id = true;
@@ -181,6 +199,7 @@ int main(void) {
     CHECK(rmr_plan_draw(p, 0)->group_alpha == .25098);
     CHECK(fabs(rmr_plan_draw(p, 2)->group_alpha - 128.0 / 255) < 1e-12);
     CHECK(rmr_plan_draw(p, 3)->group_alpha == rmr_plan_draw(p, 2)->group_alpha);
+
 #ifdef RMRENDER_TEST_APPLE
     b = render(p);
     CHECK(b.pixels[16 * b.stride + 16 * 4 + 3] >= 159 &&
@@ -189,16 +208,20 @@ int main(void) {
 #endif
     rmr_plan_free(p);
     p = nullptr;
+
     CHECK(rmr_lines_scene_plan(&page, (rmr_rect){-32, 0, 64, 64}, refused, nullptr, nullptr,
                                nullptr, &p, nullptr) == RMR_ERR_CANCELLED &&
           !p);
+
     image.has_anchor = true;
     CHECK(rmr_lines_scene_plan(&page, (rmr_rect){-32, 0, 64, 64}, resolve, nullptr, nullptr,
                                nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED);
+
     image.has_anchor = false;
     page.has_text = true;
     CHECK(rmr_lines_scene_plan(&page, (rmr_rect){-32, 0, 64, 64}, resolve, nullptr, nullptr,
                                nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED);
+
     page.has_text = false;
     rm_page_image unordered[] = {image, image};
     unordered[0].strokes_before = 2;
@@ -206,17 +229,20 @@ int main(void) {
     page.image_count = 2;
     CHECK(rmr_lines_scene_plan(&page, (rmr_rect){-32, 0, 64, 64}, resolve, nullptr, nullptr,
                                nullptr, &p, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+
     page.images = &image;
     page.image_count = 1;
     image.strokes_before = SIZE_MAX;
     p = plan(&page, nullptr);
     CHECK(rmr_plan_draw(p, 3)->mode == RMR_IMAGE);
     rmr_plan_free(p);
+
     for (size_t k = 0; k < 4; k++)
         image.vertices[k].u = 0;
     p = plan(&page, nullptr);
     CHECK(rmr_plan_draw(p, 3)->mode == RMR_FILL);
     rmr_plan_free(p);
+
 #ifdef RMRENDER_TEST_APPLE
     image.vertices[1].u = image.vertices[2].u = 1;
     rmr_asset_view bad = {(const uint8_t *)"bad", 3};
@@ -226,6 +252,7 @@ int main(void) {
           !untouched.pixels);
     rmr_plan_free(p);
 #endif
+
     page.stroke_count = 0;
     page.images = unordered;
     page.image_count = 2;
@@ -235,12 +262,14 @@ int main(void) {
     CHECK(rmr_plan_count(p) == 2);
     CHECK(rmr_plan_draw(p, 0)->path.elements[0].end.x + 1 ==
           rmr_plan_draw(p, 1)->path.elements[0].end.x);
+
     rmr_limits budget = rmr_limits_default();
     budget.maximum_plan_bytes = rmr_plan_bytes(p);
     rmr_plan *unchanged = p;
     CHECK(rmr_lines_scene_plan(&page, (rmr_rect){-32, 0, 64, 64}, resolve, nullptr, nullptr,
                                &budget, &p, nullptr) == RMR_ERR_LIMIT &&
           p == unchanged);
+
     rmr_plan_free(p);
     puts("image ordering, placement, barriers and failures passed");
 }

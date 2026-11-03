@@ -16,6 +16,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
                                pdf_output_mode mode) {
     if (!document || !out || paper > RMR_PAPER_TABLET)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid document render input");
+
     rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
     rmr_asset_view pdf = rmr_archive_document_pdf(document);
     rmr_apple_pdf_source *source = nullptr;
@@ -26,6 +27,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
         if (status != RMR_OK)
             return status;
     }
+
     size_t listed = rmr_archive_document_count(document),
            total = listed ? listed : rmr_apple_pdf_source_count(source);
     if (!total)
@@ -37,6 +39,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
         return text_error(e, count ? RMR_ERR_LIMIT : RMR_ERR_INVALID_ARGUMENT,
                           "document page count invalid");
     }
+
     rm_page **parsed = calloc(count, sizeof *parsed);
     rmr_pdf_page *pages = calloc(count, sizeof *pages);
     if (!parsed || !pages) {
@@ -47,6 +50,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
     }
     remaining.maximum_plan_bytes -= count * (sizeof *parsed + sizeof *pages);
     rmr_document_report result = {.document_pages = total, .rendered_pages = count};
+
     for (size_t i = 0; i < count && listed; i++) {
         if (cancel && cancel(context)) {
             status = RMR_ERR_CANCELLED;
@@ -61,22 +65,26 @@ static rmr_status document_pdf(const rmr_archive_document *document,
         }
         result.skipped_blocks += parsed[i]->skipped_blocks;
     }
+
     rmr_point canvas;
     status = rmr_lines_document_canvas(
         (const rm_page *const *)parsed, count, rmr_archive_document_canvas(document),
         rmr_archive_document_landscape(document), &remaining, &canvas, e);
     if (status != RMR_OK)
         goto done;
+
     rmr_page_resources resources = given_resources ? *given_resources : (rmr_page_resources){0};
     if (!resources.image) {
         resources.image = rmr_archive_document_image;
         resources.image_context = (void *)(uintptr_t)document;
     }
+
     for (size_t i = 0; i < count; i++) {
         if (cancel && cancel(context)) {
             status = RMR_ERR_CANCELLED;
             goto done;
         }
+
         rm_page blank = {.background_visible = true, .root_document_visible = true};
         const rm_page *page = parsed[i] ? parsed[i] : &blank;
         rmr_document_page record = listed
@@ -85,6 +93,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
         if (source)
             record = rmr_document_page_checked(record, rmr_apple_pdf_source_count(source));
         result.refused_sources += record.refused_source ? 1u : 0u;
+
         rmr_point size = canvas,
                   points = {canvas.x * RMR_POINTS_PER_UNIT, canvas.y * RMR_POINTS_PER_UNIT};
         if (source && record.has_source) {
@@ -99,6 +108,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
                 goto done;
             points = (rmr_point){size.x * RMR_POINTS_PER_UNIT, size.y * RMR_POINTS_PER_UNIT};
         }
+
         // Imported PDF annotations do not paint notebook template backgrounds.
         // This also applies to inserted sheets, matching AnnotatedPDFRenderer.
         rm_page annotation = *page;
@@ -106,6 +116,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
             annotation.has_template_name = false;
             page = &annotation;
         }
+
         rmr_plan *plan = nullptr;
         status = rmr_apple_page_plan(page, size, source ? RMR_EDGE_CENTRELINE : RMR_EDGE_RIBBON,
                                      source ? 5 * 72 / 25.4 / RMR_POINTS_PER_UNIT : 0, &resources,
@@ -114,12 +125,14 @@ static rmr_status document_pdf(const rmr_archive_document *document,
             goto done;
         pages[i].marks = plan;
         remaining.maximum_plan_bytes -= rmr_plan_bytes(plan);
+
         rmr_rect viewport = rmr_plan_viewport(plan);
         status = source ? rmr_sheet_create(viewport, points.x, points.y, RMR_POINTS_PER_UNIT,
                                            &pages[i].sheet, e)
                         : rmr_paper_sheet(paper, size.x, size.y, viewport, &pages[i].sheet, e);
         if (status != RMR_OK)
             goto done;
+
         if (source) {
             // PDF dimensions remain fractional; bitmap sheet rounding is a
             // separate public contract and must not alter the page geometry.
@@ -134,11 +147,13 @@ static rmr_status document_pdf(const rmr_archive_document *document,
                 (pages[i].sheet.width - viewport.width * scale) / 2 - viewport.x * scale,
                 pages[i].sheet.height + viewport.y * scale};
         }
+
         pages[i].source_rect = (rmr_rect){-size.x / 2, 0, size.x, size.y};
         pages[i].source_page = record.source_page;
         pages[i].has_source = source && record.has_source;
         pages[i].source_visible = page->root_document_visible;
     }
+
     if (mode == PDF_RECOMPOSED && source)
         status = rmr_apple_pdf_recompose(source, pages, count, &remaining, cancel, context, out, e);
     else if (mode == PDF_INCREMENTAL && source)
@@ -150,6 +165,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
     reported = status != RMR_OK;
     if (status == RMR_OK && report)
         *report = result;
+
 done:
     for (size_t i = 0; i < count; i++) {
         rm_page_free(parsed[i]);

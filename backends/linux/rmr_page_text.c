@@ -11,6 +11,7 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
     if (!page || (!out && !measured) || !isfinite(canvas.x) || !isfinite(canvas.y) ||
         canvas.x <= 0 || canvas.y <= 0 || canvas.x > 100000 || canvas.y > 100000)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid page input");
+
     rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
     rmr_page_resources resources = given_resources ? *given_resources : (rmr_page_resources){0};
     rmr_text_provider template_text = rmr_linux_text_provider();
@@ -25,6 +26,7 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
     bool has_extent = false;
     rmr_anchor_context anchor_context = {0};
     rmr_anchor_provider provider = {0};
+
     if (page->has_text) {
         if (!fonts)
             return text_error(e, RMR_ERR_UNSUPPORTED, "document font provider required");
@@ -32,24 +34,29 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
         if (s != RMR_OK)
             goto done;
         remaining.maximum_plan_bytes -= rmr_linux_layout_bytes(layout);
+
         anchor_context = (rmr_anchor_context){rmr_linux_layout_anchors(layout), &limits};
         provider = rmr_lines_layout_anchor_provider(&anchor_context);
+
         has_extent = rmr_linux_layout_bottom(layout, &extent.bottom);
         extent.origin_x = page->text.origin_x;
         extent.origin_y = page->text.origin_y;
         extent.has_column_width = page->text.has_column_width;
         extent.column_width = page->text.column_width;
     }
+
     s = rmr_lines_place_scene(page->strokes, page->stroke_count, page->images, page->image_count,
                               layout ? &provider : nullptr, &remaining, &placed, e);
     if (s != RMR_OK)
         goto done;
     remaining.maximum_plan_bytes -= rmr_placed_scene_bytes(placed);
+
     rm_page resolved = *page;
     resolved.strokes = rmr_placed_scene_strokes(placed);
     resolved.images = rmr_placed_scene_images(placed);
     resolved.has_text = false;
     resolved.highlight_count = 0;
+
     rmr_rect viewport;
     s = rmr_lines_content_bounds_with_text(&resolved, canvas.x, canvas.y, edge, margin,
                                            has_extent ? &extent : nullptr, &remaining, &viewport,
@@ -60,32 +67,38 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
         *measured = viewport;
     if (!out)
         goto done;
+
     if (ink_only) {
         resolved.image_count = 0;
         s = rmr_lines_scene_plan(&resolved, viewport, resources.image, resources.image_context,
                                  resources.raster, &remaining, &result, e);
         goto done;
     }
+
     if (layout) {
         s = rmr_linux_layout_plan(layout, viewport, &remaining, &text, e);
         if (s != RMR_OK)
             goto done;
         remaining.maximum_plan_bytes -= rmr_plan_bytes(text);
     }
+
     s = rmr_lines_highlight_plan(page->highlights, page->highlight_count, viewport, &remaining,
                                  &highlights, e);
     if (s != RMR_OK)
         goto done;
     remaining.maximum_plan_bytes -= rmr_plan_bytes(highlights);
+
     s = rmr_lines_scene_plan(&resolved, viewport, resources.image, resources.image_context,
                              resources.raster, &remaining, &ink, e);
     if (s != RMR_OK)
         goto done;
     remaining.maximum_plan_bytes -= rmr_plan_bytes(ink);
+
     const rmr_plan *parts[] = {text, highlights, ink};
     s = rmr_plan_concat(parts + (text ? 0 : 1), text ? 3 : 2, viewport, &remaining, &foreground, e);
     if (s != RMR_OK)
         goto done;
+
     rmr_plan_free(text);
     text = nullptr;
     rmr_plan_free(highlights);
@@ -96,6 +109,7 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
     placed = nullptr;
     rmr_linux_layout_free(layout);
     layout = nullptr;
+
     remaining = limits;
     remaining.maximum_plan_bytes -= rmr_plan_bytes(foreground);
     const rmr_template *model = nullptr;
@@ -114,6 +128,7 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
             goto done;
         }
     }
+
     if (model) {
         rmr_point coverage;
         s = rmr_template_page_extent(canvas, viewport, &coverage, e);
@@ -125,6 +140,7 @@ static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge
         result = foreground;
         foreground = nullptr;
     }
+
 done:
     rmr_linux_layout_free(layout);
     rmr_placed_scene_free(placed);
@@ -159,6 +175,7 @@ rmr_status rmr_linux_page_bounds(const rm_page *page, rmr_point canvas, rmr_ink_
                                  const rmr_limits *limits, rmr_rect *out, rmr_error *error) {
     if (!out)
         return text_error(error, RMR_ERR_INVALID_ARGUMENT, "missing bounds output");
+
     rmr_rect result;
     rmr_status status = page_build(page, canvas, edge, margin, nullptr, fonts, limits, false,
                                    &result, nullptr, error);

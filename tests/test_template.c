@@ -54,6 +54,7 @@ int main(void) {
                                         .children = &child,
                                         .count = 1}};
     rmr_template t = {constants, 2, &root, 1};
+
     rmr_plan *p = plan(&t);
     CHECK(rmr_plan_count(p) == 15);
     CHECK(rmr_plan_draw(p, 0)->path.elements[0].end.x == -40);
@@ -63,38 +64,46 @@ int main(void) {
     CHECK(rmr_plan_draw(p, 0)->join == RMR_JOIN_MITER &&
           rmr_plan_draw(p, 0)->cap == RMR_CAP_SQUARE);
     rmr_plan_free(p);
+
     root.group.box.y.number = 55;
     root.group.rows.kind = RMR_REPEAT_BACKWARD;
     p = plan(&t);
     CHECK(rmr_plan_count(p) == 4 && rmr_plan_draw(p, 3)->path.elements[0].end.y == -5);
     rmr_plan_free(p);
+
     root.group.rows = (rmr_template_repeat){.kind = RMR_REPEAT_COUNT, .count = {.number = 2.9}};
     p = plan(&t);
     CHECK(rmr_plan_count(p) == 2);
     rmr_plan_free(p);
+
     root.group.rows.count.number = INFINITY;
     p = plan(&t);
     CHECK(rmr_plan_count(p) == 1);
     rmr_plan_free(p);
+
     root.group.rows.count.number = 0;
     p = plan(&t);
     CHECK(rmr_plan_count(p) == 1);
     rmr_plan_free(p);
+
     root.group.rows.count.number = 10001;
     p = plan(&t);
     CHECK(rmr_plan_count(p) == 10000);
     rmr_plan_free(p);
+
     root.group.rows.count.number = 1;
     child.path.has_fill = true;
     child.path.fill = (rmr_color){1, 0, 0, .5};
     p = plan(&t);
     CHECK(rmr_plan_draw(p, 0)->mode == RMR_FILL);
     rmr_plan_free(p);
+
     child.path.has_stroke_width = true;
     child.path.stroke_width.number = 2;
     p = plan(&t);
     CHECK(rmr_plan_draw(p, 0)->mode == RMR_FILL_STROKE &&
           rmr_plan_draw(p, 0)->stroke_color.alpha == 1);
+
     int calls = 0;
     rmr_backend backend = {
         RMR_BACKEND_ABI, sizeof backend, RMR_CAP_FILL | RMR_CAP_STROKE, &calls, begin, draw, end,
@@ -107,17 +116,20 @@ int main(void) {
     backend.capabilities |= RMR_CAP_MITER;
     OK(rmr_plan_execute(p, &backend, nullptr, nullptr, nullptr));
     CHECK(calls == 1);
+
     rmr_draw invalid = *rmr_plan_draw(p, 0);
     rmr_plan *rejected = nullptr;
     invalid.stroke_color.alpha = NAN;
     CHECK(rmr_plan_create(&invalid, 1, rmr_plan_viewport(p), nullptr, &rejected, nullptr) ==
               RMR_ERR_INVALID_ARGUMENT &&
           !rejected);
+
     invalid = *rmr_plan_draw(p, 0);
     invalid.group = 1;
     CHECK(rmr_plan_create(&invalid, 1, rmr_plan_viewport(p), nullptr, &rejected, nullptr) ==
               RMR_ERR_INVALID_ARGUMENT &&
           !rejected);
+
     rmr_plan *hidden = nullptr;
     OK(rmr_template_background_plan(nullptr, (rmr_point){0}, (rmr_point){0}, p, false, nullptr,
                                     &hidden, nullptr));
@@ -126,16 +138,19 @@ int main(void) {
     rmr_plan_free(hidden);
     rmr_plan_free(p);
     p = nullptr;
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_elements = 10;
     CHECK(rmr_template_plan(&t, (rmr_point){100, 200}, (rmr_point){100, 300},
                             (rmr_rect){-50, 0, 100, 300}, &limits, &p, nullptr) == RMR_ERR_LIMIT &&
           !p);
+
     /* A cyclic caller tree is bounded by group depth, including empty repeats. */
     root.group.children = &root;
     CHECK(rmr_template_plan(&t, (rmr_point){100, 200}, (rmr_point){100, 300},
                             (rmr_rect){-50, 0, 100, 300}, nullptr, &p, nullptr) == RMR_ERR_LIMIT &&
           !p);
+
     root.group.children = &child;
     root.group.count = 0;
     root.group.rows.count.number = 10000;
@@ -143,6 +158,7 @@ int main(void) {
     limits.maximum_elements = 100;
     CHECK(rmr_template_plan(&t, (rmr_point){100, 200}, (rmr_point){100, 300},
                             (rmr_rect){-50, 0, 100, 300}, &limits, &p, nullptr) == RMR_ERR_LIMIT);
+
     /* Numeric-only fixture: deterministic allocation-failure coverage. */
     line[1].x = (rmr_template_value){.number = 50};
     t = (rmr_template){.items = &child, .count = 1};
@@ -154,13 +170,16 @@ int main(void) {
               !p);
     }
     rmr_test_fail_after(SIZE_MAX);
+
     line[0].kind = RMR_LINE;
     CHECK(rmr_template_plan(&t, (rmr_point){100, 200}, (rmr_point){100, 300},
                             (rmr_rect){-50, 0, 100, 300}, nullptr, &p,
                             nullptr) == RMR_ERR_INVALID_ARGUMENT);
+
     rmr_expression_free(step);
     rmr_expression_free(width);
     rmr_expression_free(twice);
+
     rmr_template empty = {0};
     limits = rmr_limits_default();
     limits.maximum_plan_bytes = sizeof(rmr_plan);
@@ -168,5 +187,6 @@ int main(void) {
                          (rmr_rect){-50, 0, 100, 300}, &limits, &p, nullptr));
     CHECK(rmr_plan_count(p) == 0 && rmr_plan_bytes(p) == sizeof(rmr_plan));
     rmr_plan_free(p);
+
     puts("template constants, repetitions, paint, capabilities, limits and ownership passed");
 }

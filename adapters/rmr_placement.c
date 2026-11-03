@@ -53,6 +53,7 @@ static uint64_t hash(rm_text_anchor anchor) {
     uint64_t bits = 0;
     if (anchor.has_origin_x && anchor.origin_x != 0)
         memcpy(&bits, &anchor.origin_x, sizeof bits);
+
     uint64_t h = UINT64_C(14695981039346656037);
     uint64_t values[] = {(uint32_t)anchor.paragraph, (uint32_t)anchor.offset, anchor.has_origin_x,
                          bits};
@@ -61,6 +62,7 @@ static uint64_t hash(rm_text_anchor anchor) {
             h ^= (values[i] >> (j * 8)) & 255;
             h *= UINT64_C(1099511628211);
         }
+
     return h;
 }
 
@@ -76,6 +78,7 @@ static rmr_status pen(placement *p, rm_text_anchor anchor, size_t index, rmr_poi
     if (anchor.has_origin_x &&
         (!isfinite(anchor.origin_x) || fabs(anchor.origin_x) > p->limits.maximum_coordinate))
         return fail(e, RMR_ERR_INVALID_ARGUMENT, index, "invalid anchor origin");
+
     size_t slot = (size_t)(hash(anchor) & (p->capacity - 1));
     for (;;) {
         if (p->work == p->limits.maximum_elements)
@@ -122,8 +125,10 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
         (provider && (provider->abi_version != RMR_ANCHOR_PROVIDER_ABI ||
                       provider->struct_size < sizeof *provider || !provider->resolve)))
         return fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "invalid placement input/provider");
+
     if (stroke_count > l.maximum_draws || image_count > l.maximum_draws - stroke_count)
         return fail(error, RMR_ERR_LIMIT, 0, "placement item limit");
+
     size_t points = 0, files = 0, anchors = 0;
     for (size_t i = 0; i < stroke_count; i++) {
         if (strokes[i].point_count && !strokes[i].points)
@@ -133,8 +138,10 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
         points += strokes[i].point_count;
         anchors += strokes[i].has_anchor;
     }
+
     if (image_count > (l.maximum_points - points) / 4)
         return fail(error, RMR_ERR_LIMIT, stroke_count, "placement vertex limit");
+
     for (size_t i = 0; i < image_count; i++) {
         if (images[i].file.length && !images[i].file.bytes)
             return fail(error, RMR_ERR_INVALID_ARGUMENT, stroke_count + i,
@@ -144,14 +151,17 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
         files += images[i].file.length;
         anchors += images[i].has_anchor;
     }
+
     if (anchors && !provider)
         return fail(error, RMR_ERR_UNSUPPORTED, 0, "anchor provider required");
+
     size_t bytes = sizeof(rmr_placed_scene);
     if (!reserve(&bytes, stroke_count, sizeof(rm_stroke), l.maximum_plan_bytes) ||
         !reserve(&bytes, points, sizeof(rm_stroke_point), l.maximum_plan_bytes) ||
         !reserve(&bytes, image_count, sizeof(rm_page_image), l.maximum_plan_bytes) ||
         !reserve(&bytes, files, 1, l.maximum_plan_bytes))
         return fail(error, RMR_ERR_LIMIT, 0, "placement memory limit");
+
     size_t retained = bytes, capacity = 0;
     if (anchors) {
         if (anchors > SIZE_MAX / 2)
@@ -165,9 +175,11 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
         if (!reserve(&bytes, capacity, sizeof(entry), l.maximum_plan_bytes))
             return fail(error, RMR_ERR_LIMIT, 0, "anchor cache memory limit");
     }
+
     rmr_placed_scene *s = calloc(1, sizeof *s);
     if (!s)
         return fail(error, RMR_ERR_OUT_OF_MEMORY, 0, "placement allocation failed");
+
     s->strokes = stroke_count ? calloc(stroke_count, sizeof *s->strokes) : nullptr;
     s->points = points ? calloc(points, sizeof *s->points) : nullptr;
     s->images = image_count ? calloc(image_count, sizeof *s->images) : nullptr;
@@ -182,6 +194,7 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
         rmr_placed_scene_free(s);
         return fail(error, RMR_ERR_OUT_OF_MEMORY, 0, "placement allocation failed");
     }
+
     rmr_status status = RMR_OK;
     size_t at = 0, file_at = 0;
     for (size_t i = 0; i < stroke_count; i++) {
@@ -215,6 +228,7 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
             s->points[at++] = point;
         }
     }
+
     for (size_t i = 0; i < image_count; i++) {
         const rm_page_image *source = &images[i];
         rm_page_image *dest = &s->images[i];
@@ -249,11 +263,13 @@ rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
             }
         }
     }
+
     s->stroke_count = stroke_count;
     s->image_count = image_count;
     s->bytes = retained;
     *out = s;
     s = nullptr;
+
 done:
     free(p.cache);
     rmr_placed_scene_free(s);

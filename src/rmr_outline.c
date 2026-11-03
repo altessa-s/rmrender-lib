@@ -41,6 +41,7 @@ static void emit(builder *b, rmr_element e) {
         b->status = RMR_ERR_LIMIT;
         return;
     }
+
     if (b->path.count == b->capacity) {
         size_t n = b->capacity ? b->capacity * 2 : 64;
         if (n > b->maximum)
@@ -65,6 +66,7 @@ static void emit(builder *b, rmr_element e) {
 static void polygon(builder *b, rmr_point *corners, size_t n, bool wind) {
     if (n < 3)
         return;
+
     double area = 0;
     if (wind)
         for (size_t i = 0; i < n; i++) {
@@ -81,6 +83,7 @@ static void polygon(builder *b, rmr_point *corners, size_t n, bool wind) {
 static void disc(builder *b, rmr_point p, double radius) {
     if (radius <= 0)
         return;
+
     double k = radius * 0.5522847498307933, x = p.x, y = p.y;
     emit(b, (rmr_element){.kind = RMR_MOVE, .end = {x + radius, y}});
     emit(b, (rmr_element){RMR_CURVE, {x, y - radius}, {x + radius, y - k}, {x + k, y - radius}});
@@ -100,6 +103,7 @@ static size_t arc_steps(double radius, double sweep) {
 static void cap(builder *b, rmr_cap kind, rmr_point p, double r, direction outward) {
     if (kind == RMR_CAP_BUTT || r <= 0)
         return;
+
     rmr_point corners[65];
     size_t n = 0;
     if (kind == RMR_CAP_SQUARE) {
@@ -127,6 +131,7 @@ static void join(builder *b, rmr_point p, double r, direction before, direction 
     double turn = angle(before, after);
     if (r <= 0 || turn < 1e-6)
         return;
+
     double cross = before.x * after.y - before.y * after.x, side = cross < 0 ? 1 : -1;
     direction n0 = right(before), n1 = right(after);
     n0.x *= side;
@@ -162,6 +167,7 @@ static bool fits(const rmr_sample *points, size_t from, size_t to) {
     double span = (end.x - start.x) * along.x + (end.y - start.y) * along.y;
     if (span <= 0)
         return false;
+
     for (size_t i = from + 1; i < to; i++) {
         double dx = points[i].position.x - start.x, dy = points[i].position.y - start.y;
         if (fabs(dx * normal.x + dy * normal.y) > 0.1)
@@ -172,6 +178,7 @@ static bool fits(const rmr_sample *points, size_t from, size_t to) {
         if (fabs(points[i].width - expected) > 0.25)
             return false;
     }
+
     return true;
 }
 
@@ -185,15 +192,18 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid outline arguments");
     if (count > l.maximum_points || count > SIZE_MAX / sizeof(direction))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "too many stroke points");
+
     for (size_t i = 0; i < count; i++) {
         if (!rmr_point_valid(points[i].position, l.maximum_coordinate) ||
             !isfinite(points[i].width) || points[i].width < 0 || points[i].width > l.maximum_width)
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "invalid stroke point");
     }
+
     if (count < 2) {
         *out = (rmr_path){0};
         return RMR_OK;
     }
+
     /* Bound scratch allocation as well as the growing output. */
     size_t stride = sizeof(size_t) + sizeof(direction);
     if (count > l.maximum_plan_bytes / stride)
@@ -205,6 +215,7 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
         free(directions);
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
     }
+
     size_t used = 1, head = 0, tail = 1;
     while (tail < count) {
         if (tail + 1 < count && tail - head < 24 && fits(points, head, tail + 1)) {
@@ -215,11 +226,13 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
         head = tail;
         tail++;
     }
+
     size_t bands = used - 1;
     for (size_t i = 0; i < bands; i++) {
         rmr_point a = points[anchors[i]].position, z = points[anchors[i + 1]].position;
         directions[i] = between(a, z);
     }
+
     builder b = {.maximum = l.maximum_elements, .bytes = l.maximum_plan_bytes - count * stride};
     direction previous = {0}, first = {0}, last = {0};
     for (size_t i = 0; i < bands && b.status == RMR_OK; i++) {
@@ -239,6 +252,7 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
             join(&b, from, fh, previous, d, joining);
         previous = d;
     }
+
     if (!first.valid) {
         disc(&b, points[0].position, points[0].width / 2);
         disc(&b, points[count - 1].position, points[count - 1].width / 2);
@@ -247,12 +261,15 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
             (direction){-first.x, -first.y, true});
         cap(&b, end, points[count - 1].position, points[count - 1].width / 2, last);
     }
+
     free(anchors);
     free(directions);
+
     if (b.status != RMR_OK) {
         rmr_path_free(&b.path);
         return rmr_fail(e, b.status, 0, "outline allocation or element limit");
     }
+
     if (b.capacity > b.path.count && b.path.count) {
         rmr_element *exact = rmr_realloc(b.path.elements, b.path.count * sizeof(*exact));
         if (!exact) {
@@ -261,6 +278,7 @@ rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_
         }
         b.path.elements = exact;
     }
+
     *out = b.path;
     return RMR_OK;
 }

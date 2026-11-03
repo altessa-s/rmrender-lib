@@ -31,12 +31,14 @@ rmr_status rmr_template_store_create_layered(const char *const *directories, siz
     else if (count > l.maximum_elements || sizeof(rmr_template_store) > l.maximum_plan_bytes ||
              count > (l.maximum_plan_bytes - sizeof(rmr_template_store)) / sizeof(char *))
         status = RMR_ERR_LIMIT;
+
     rmr_template_store *s = nullptr;
     if (status == RMR_OK) {
         s = calloc(1, sizeof *s);
         if (!s)
             status = RMR_ERR_OUT_OF_MEMORY;
     }
+
     if (status == RMR_OK) {
         s->limits = l;
         s->limits.maximum_plan_bytes -= sizeof *s + count * sizeof(char *);
@@ -44,6 +46,7 @@ rmr_status rmr_template_store_create_layered(const char *const *directories, siz
         if (count && !s->directories)
             status = RMR_ERR_OUT_OF_MEMORY;
     }
+
     for (size_t i = 0; i < count && status == RMR_OK; i++) {
         if (!directories[i]) {
             status = RMR_ERR_INVALID_ARGUMENT;
@@ -63,10 +66,12 @@ rmr_status rmr_template_store_create_layered(const char *const *directories, siz
         s->count++;
         s->limits.maximum_plan_bytes -= length + 1;
     }
+
     if (status == RMR_OK) {
         *out = s;
         return RMR_OK;
     }
+
     rmr_template_store_free(s);
     if (error) {
         *error = (rmr_error){.code = status};
@@ -86,6 +91,7 @@ rmr_status rmr_template_store_resolve(void *context, rm_str name, const rmr_temp
         memchr(name.bytes, 0, name.length) || memchr(name.bytes, '/', name.length) ||
         memchr(name.bytes, '\\', name.length))
         return RMR_ERR_INVALID_ARGUMENT;
+
     rmr_buffer data = {0};
     rmr_status status = RMR_OK;
     for (size_t i = 0; i < s->count; i++) {
@@ -96,10 +102,12 @@ rmr_status rmr_template_store_resolve(void *context, rm_str name, const rmr_temp
         if (data.bytes)
             break;
     }
+
     if (!data.bytes) {
         *out = nullptr;
         return RMR_OK;
     }
+
     rmr_template_document_free(s->document);
     s->document = nullptr;
     rmr_limits l = s->limits;

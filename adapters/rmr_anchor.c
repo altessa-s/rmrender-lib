@@ -29,6 +29,7 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
                                               : 0;
     if (!count || count > text.length - *at)
         return false;
+
     unsigned value = c & (0x7fu >> count);
     for (unsigned j = 0; j < count; j++) {
         unsigned b = (unsigned char)text.bytes[(*at)++];
@@ -36,6 +37,7 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
             return false;
         value = (value << 6) | (b & 63);
     }
+
     if ((count == 1 && value < 128) || (count == 2 && value < 2048) ||
         (count == 3 && value < 65536) || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff))
         return false;
@@ -64,6 +66,7 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
     if (!layout->count)
         return result((rmr_point){anchor->has_origin_x ? anchor->origin_x : layout->left, 0},
                       l.maximum_coordinate, out, error);
+
     size_t number = anchor->paragraph < 0 ? 0 : (size_t)anchor->paragraph;
     if (number >= layout->count)
         number = layout->count - 1;
@@ -72,14 +75,17 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "invalid paragraph metrics");
     double margin =
         p->right_to_left ? layout->left + layout->column - p->indent : layout->left + p->indent;
+
     if (!p->has_typesetter || !p->line_count)
         return result((rmr_point){anchor->has_origin_x ? anchor->origin_x : margin, p->baseline},
                       l.maximum_coordinate, out, error);
+
     size_t left = l.maximum_elements - layout->count;
     if (p->line_count > left || p->text.length > left - p->line_count)
         return fail(error, RMR_ERR_LIMIT, "anchor layout work limit");
     if (!p->lines || (p->text.length && !p->text.bytes))
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "missing paragraph text/lines");
+
     size_t previous = 0;
     for (size_t i = 0; i < p->line_count; i++) {
         const rmr_anchor_line *line = &p->lines[i];
@@ -88,6 +94,7 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
             return fail(error, RMR_ERR_INVALID_ARGUMENT, "invalid visual line range/baseline");
         previous = line->location + line->length;
     }
+
     size_t target = anchor->offset > 0 ? (size_t)(anchor->offset - 1) : 0;
     size_t at = 0, count = 0, utf16 = 0, index = 0, edge_line = 0;
     bool end = false;
@@ -115,6 +122,7 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
             index = utf16;
         count++;
     }
+
     if (previous > utf16)
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "visual line past text end");
     size_t visual = p->line_count - 1;
@@ -123,15 +131,18 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
             visual = i;
             break;
         }
+
     double baseline = p->lines[visual].baseline;
     if (anchor->has_origin_x)
         return result((rmr_point){anchor->origin_x, baseline}, l.maximum_coordinate, out, error);
+
     const rmr_caret_provider *caret = layout->caret;
     if (!caret)
         return fail(error, RMR_ERR_UNSUPPORTED, "caret provider required");
     if (caret->abi_version != RMR_CARET_PROVIDER_ABI || caret->struct_size < sizeof *caret ||
         !caret->measure)
         return fail(error, RMR_ERR_INVALID_ARGUMENT, "invalid caret provider ABI");
+
     rmr_caret_offsets offsets = {NAN, NAN};
     rmr_status status = caret->measure(caret->context, number, visual, index, &offsets);
     if (status != RMR_OK)
@@ -139,6 +150,7 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
     if (!valid(offsets.at_index, l.maximum_coordinate) ||
         (p->right_to_left && !valid(offsets.at_start, l.maximum_coordinate)))
         return fail(error, RMR_ERR_BACKEND, "invalid caret metrics");
+
     if (p->right_to_left)
         margin -= offsets.at_start;
     return result((rmr_point){margin + offsets.at_index, baseline}, l.maximum_coordinate, out,

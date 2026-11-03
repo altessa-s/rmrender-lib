@@ -22,14 +22,17 @@ static void masked_output(void) {
         .path = {shape, 5}, .color = {1, 0, 0, 0.5}, .mask = {bits, 8, 8, 1, {0, 0, 8, 8}}};
     rmr_plan *plan = nullptr;
     OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &plan, nullptr));
+
     /* Caller buffers can disappear immediately after creation. */
     memset(bits, 0xff, sizeof bits);
+
     rmr_bitmap b = {0};
     OK(rmr_apple_bitmap(plan, 4, (rmr_color){0}, nullptr, nullptr, nullptr, &b, nullptr));
     size_t ink = 4 * b.stride + 4 * 4, clip = 4 * b.stride + 14 * 4, bottom = 24 * b.stride + 4 * 4;
     CHECK(b.pixels[ink + 3] >= 127 && b.pixels[ink + 3] <= 128);
     CHECK(b.pixels[clip + 3] == 0 && b.pixels[bottom + 3] == 0);
     rmr_bitmap_free(&b);
+
     rmr_buffer pdf = {0};
     const rmr_plan *pages[] = {plan};
     OK(rmr_apple_pdf(pages, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
@@ -48,6 +51,7 @@ static void masked_output(void) {
     CGContextDrawPDFPage(cg, CGPDFDocumentGetPage(doc, 1));
     CHECK(pixels[ink + 3] >= 127 && pixels[ink + 3] <= 128);
     CHECK(pixels[clip + 3] == 0 && pixels[bottom + 3] == 0);
+
     CGContextRelease(cg);
     CGColorSpaceRelease(space);
     CGPDFDocumentRelease(doc);
@@ -72,14 +76,17 @@ static void composition_output(void) {
         draws[i].group_alpha = .5;
         draws[i].group_blend = RMR_BLEND_NORMAL;
     }
+
     rmr_plan *plan = nullptr;
     OK(rmr_plan_create(draws, 2, rmr_plan_viewport(base), nullptr, &plan, nullptr));
     rmr_plan_free(base);
+
     rmr_bitmap bitmap = {0};
     OK(rmr_apple_bitmap(plan, 1, (rmr_color){0}, nullptr, nullptr, nullptr, &bitmap, nullptr));
     CHECK(bitmap.pixels[10 * bitmap.stride + 22 * 4 + 3] == 0);
     CHECK(bitmap.pixels[10 * bitmap.stride + 15 * 4 + 3] >= 127 &&
           bitmap.pixels[10 * bitmap.stride + 15 * 4 + 3] <= 128);
+
     rmr_bitmap_free(&bitmap);
     rmr_plan_free(plan);
 }
@@ -87,10 +94,12 @@ static void composition_output(void) {
 int main(void) {
     composition_output();
     masked_output();
+
     rmr_plan *plan = rectangle((rmr_color){1, 0, 0, 0.5}, RMR_BLEND_NORMAL);
     rmr_bitmap b = {0};
     OK(rmr_apple_bitmap(plan, 1, (rmr_color){0, 0, 0, 0}, nullptr, nullptr, nullptr, &b, nullptr));
     CHECK(b.width == 64 && b.height == 64 && b.stride == 256);
+
     size_t at = 10 * b.stride + 15 * 4;
     if (!(b.pixels[at] >= 127 && b.pixels[at] <= 128 && b.pixels[at + 3] >= 127 &&
           b.pixels[at + 3] <= 128))
@@ -100,17 +109,21 @@ int main(void) {
           b.pixels[at + 3] <= 128);
     CHECK(b.pixels[0] == 0 && b.pixels[50 * b.stride + 15 * 4 + 3] == 0);
     rmr_bitmap_free(&b);
+
     rmr_limits l = rmr_limits_default();
     l.maximum_bitmap_bytes = 100;
     CHECK(rmr_apple_bitmap(plan, 1, (rmr_color){0}, &l, nullptr, nullptr, &b, nullptr) ==
               RMR_ERR_LIMIT &&
           !b.pixels);
+
     CHECK(rmr_apple_bitmap(plan, 1, (rmr_color){0}, nullptr, cancelled, nullptr, &b, nullptr) ==
           RMR_ERR_CANCELLED);
+
     const rmr_plan *pages[] = {plan, plan};
     rmr_buffer pdf = {0};
     OK(rmr_apple_pdf(pages, 2, RMR_POINTS_PER_UNIT, nullptr, nullptr, nullptr, &pdf, nullptr));
     CHECK(pdf.size > 100 && memcmp(pdf.bytes, "%PDF-", 5) == 0);
+
     CGDataProviderRef provider =
         CGDataProviderCreateWithData(nullptr, pdf.bytes, pdf.size, nullptr);
     CHECK(provider);
@@ -122,13 +135,16 @@ int main(void) {
     CGPDFDocumentRelease(doc);
     CGDataProviderRelease(provider);
     rmr_buffer_free(&pdf);
+
     l = rmr_limits_default();
     l.maximum_pdf_bytes = 32;
     CHECK(rmr_apple_pdf(pages, 2, 1, &l, nullptr, nullptr, &pdf, nullptr) == RMR_ERR_LIMIT &&
           !pdf.bytes);
+
     CHECK(rmr_apple_pdf(pages, 2, 1, nullptr, cancelled, nullptr, &pdf, nullptr) ==
               RMR_ERR_CANCELLED &&
           !pdf.bytes);
+
     rmr_plan_free(plan);
     puts("apple bitmap/PDF passed");
     return 0;

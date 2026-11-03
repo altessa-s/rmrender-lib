@@ -81,6 +81,7 @@ static void failure(parser *p, rmr_status status, const char *message) {
 static void next(parser *p) {
     if (p->status != RMR_OK)
         return;
+
     while (p->position < p->length && space((unsigned char)p->source[p->position]))
         p->position++;
     p->start = p->position;
@@ -89,6 +90,7 @@ static void next(parser *p) {
         p->token = END;
         return;
     }
+
     unsigned char c = (unsigned char)p->source[p->position++];
     if (digit(c) || c == '.') {
         while (p->position < p->length &&
@@ -152,6 +154,7 @@ static void next(parser *p) {
                 return;
             }
     }
+
     p->token_length = p->position - p->start;
 }
 
@@ -162,15 +165,18 @@ static void emit(parser *p, operation op, size_t offset, size_t length, double n
         failure(p, RMR_ERR_LIMIT, "expression instruction limit");
         return;
     }
+
     if (p->code)
         p->code[p->count] = (instruction){op, offset, length, number};
     p->count++;
+
     if (op == NUMBER || op == NAME)
         p->stack++;
     else if (op == SELECT)
         p->stack -= 2;
     else if (op != NEG)
         p->stack--;
+
     if (p->stack > p->peak)
         p->peak = p->stack;
 }
@@ -191,6 +197,7 @@ static void ternary(parser *p);
 static void unary(parser *p) {
     if (p->status != RMR_OK)
         return;
+
     if (p->token == ADD || p->token == SUB) {
         if (!enter(p))
             return;
@@ -273,6 +280,7 @@ static void disjunction(parser *p) {
 
 static void ternary(parser *p) {
     disjunction(p);
+
     if (p->status == RMR_OK && p->token == QUESTION) {
         if (!enter(p))
             return;
@@ -310,26 +318,31 @@ rmr_status rmr_expression_compile(const char *source, size_t length, const rmr_l
                                   rmr_expression **out, rmr_error *e) {
     if (!source || !out)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "missing expression input or output");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (length > 65536 || sizeof(rmr_expression) >= l.maximum_plan_bytes ||
         length >= l.maximum_plan_bytes - sizeof(rmr_expression))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "expression source memory limit");
+
     char *copy = rmr_alloc(length + 1);
     if (!copy)
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
     memcpy(copy, source, length);
     copy[length] = 0;
+
     locale_t locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
     if (!locale) {
         free(copy);
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, "numeric locale unavailable");
     }
+
     parser p = {.source = copy,
                 .length = length,
                 .locale = locale,
                 .maximum = l.maximum_elements,
                 .error = e};
     rmr_status status = parse(&p);
+
     size_t bytes = sizeof(rmr_expression) + length + 1;
     if (status == RMR_OK && (p.count > (l.maximum_plan_bytes - bytes) / sizeof(instruction)))
         status = rmr_fail(e, RMR_ERR_LIMIT, 0, "expression code memory limit");
@@ -338,6 +351,7 @@ rmr_status rmr_expression_compile(const char *source, size_t length, const rmr_l
         if (p.peak > (l.maximum_plan_bytes - bytes) / sizeof(double))
             status = rmr_fail(e, RMR_ERR_LIMIT, 0, "expression stack memory limit");
     }
+
     rmr_expression *compiled = nullptr;
     if (status == RMR_OK) {
         compiled = rmr_calloc(1, sizeof *compiled);
@@ -357,12 +371,15 @@ rmr_status rmr_expression_compile(const char *source, size_t length, const rmr_l
             status = parse(&second);
         }
     }
+
     freelocale(locale);
+
     if (status != RMR_OK) {
         free(copy);
         rmr_expression_free(compiled);
         return status;
     }
+
     compiled->source = copy;
     *out = compiled;
     return RMR_OK;
@@ -374,6 +391,7 @@ rmr_status rmr_expression_evaluate(const rmr_expression *p, const rmr_binding *b
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid expression evaluation");
     if (count > 256)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "expression binding limit");
+
     for (size_t i = 0; i < count; i++) {
         rmr_binding b = bindings[i];
         if (!b.name || !b.length || b.length > 65536 || !letter((unsigned char)b.name[0]))
@@ -382,9 +400,11 @@ rmr_status rmr_expression_evaluate(const rmr_expression *p, const rmr_binding *b
             if (!letter((unsigned char)b.name[k]) && !digit((unsigned char)b.name[k]))
                 return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid expression binding name");
     }
+
     double *stack = rmr_calloc(p->stack_size, sizeof *stack);
     if (!stack)
         return rmr_fail(e, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
+
     size_t n = 0;
     rmr_status status = RMR_OK;
     for (size_t i = 0; i < p->count; i++) {
@@ -454,8 +474,10 @@ rmr_status rmr_expression_evaluate(const rmr_expression *p, const rmr_binding *b
             }
         }
     }
+
     if (status == RMR_OK)
         *out = stack[0];
+
     free(stack);
     return status;
 }

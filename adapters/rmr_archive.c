@@ -73,6 +73,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
                                        rmr_error *e) {
     if (!archive || !id || !*id || !out || (!archive->files && archive->count))
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "invalid archive document");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     size_t id_length = strlen(id);
     if (sizeof(rmr_archive_document) > l.maximum_plan_bytes ||
@@ -86,6 +87,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         archive->count > l.maximum_plan_bytes / sizeof(page_file) ||
         id_length >= l.maximum_plan_bytes)
         return fail(e, RMR_ERR_LIMIT, "archive index limit");
+
     rmr_archive_document *d = calloc(1, sizeof *d);
     page_file *files = archive->count ? calloc(archive->count, sizeof *files) : nullptr;
     if (!d || (archive->count && !files)) {
@@ -93,6 +95,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         free(files);
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "archive index allocation failed");
     }
+
     d->archive = archive;
     d->limits = l;
     d->id = malloc(id_length + 1);
@@ -102,6 +105,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "document ID allocation failed");
     }
     memcpy(d->id, id, id_length + 1);
+
     size_t found = 0, strings = 0, work = archive->count;
     const rmd_file *content = nullptr;
     rmr_status status = RMR_OK;
@@ -132,6 +136,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
             files[found++] = (page_file){i, f->name, {name.bytes, name.length - 3}};
         }
     }
+
     if (content) {
         rmr_limits metadata_limits = l;
         metadata_limits.maximum_plan_bytes -= base_bytes;
@@ -140,12 +145,14 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         if (status != RMR_OK)
             goto done;
     }
+
     size_t listed = rmr_document_layout_count(d->layout),
            deleted = rmr_document_layout_deleted_count(d->layout);
     if (found > l.maximum_draws || listed > l.maximum_draws - found) {
         status = RMR_ERR_LIMIT;
         goto done;
     }
+
     size_t capacity = listed + found;
     size_t available = l.maximum_plan_bytes - base_bytes - rmr_document_layout_bytes(d->layout);
     if (capacity > available / (sizeof *d->pages + sizeof *d->files) ||
@@ -153,6 +160,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         status = RMR_ERR_LIMIT;
         goto done;
     }
+
     d->pages = capacity ? calloc(capacity, sizeof *d->pages) : nullptr;
     d->files = capacity ? calloc(capacity, sizeof *d->files) : nullptr;
     d->strings = strings ? malloc(strings) : nullptr;
@@ -160,6 +168,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         status = RMR_ERR_OUT_OF_MEMORY;
         goto done;
     }
+
     for (size_t i = 0; i < listed; i++) {
         d->pages[d->count] = *rmr_document_layout_page(d->layout, i);
         size_t match = SIZE_MAX;
@@ -174,6 +183,7 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
         }
         d->files[d->count++] = match;
     }
+
     if (found > 1)
         qsort(files, found, sizeof *files, compare);
     size_t at = 0;
@@ -209,12 +219,14 @@ rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *i
             d->pages[d->count] = (rmr_document_page){.id = name};
             d->files[d->count++] = files[i].index;
         }
+
 done:
     free(files);
     if (status != RMR_OK) {
         rmr_archive_document_free(d);
         return fail(e, status, "archive document assembly failed");
     }
+
     *out = d;
     return RMR_OK;
 }
@@ -241,6 +253,7 @@ rmr_status rmr_archive_document_parse_page(const rmr_archive_document *d, size_t
                                            rmr_error *e) {
     if (!d || i >= d->count || !out)
         return fail(e, RMR_ERR_INVALID_ARGUMENT, "archive page index out of range");
+
     const uint8_t *bytes = (const uint8_t *)RM_HEADER;
     size_t size = RM_HEADER_LENGTH;
     if (d->files[i] != SIZE_MAX) {
@@ -250,6 +263,7 @@ rmr_status rmr_archive_document_parse_page(const rmr_archive_document *d, size_t
     }
     if (size > d->limits.maximum_plan_bytes)
         return fail(e, RMR_ERR_LIMIT, "page input byte limit");
+
     rm_page *page = nullptr;
     rm_error parse_error = {0};
     rm_status status = rm_parse_page(bytes, size, &page, &parse_error);
@@ -259,11 +273,13 @@ rmr_status rmr_archive_document_parse_page(const rmr_archive_document *d, size_t
                     : status == RM_ERR_UNSUPPORTED_VERSION ? RMR_ERR_UNSUPPORTED
                                                            : RMR_ERR_BACKEND,
                     "RMLines could not parse archive page");
+
     status = rm_page_set_template(page, d->pages[i].template_name);
     if (status != RM_OK) {
         rm_page_free(page);
         return fail(e, RMR_ERR_OUT_OF_MEMORY, "template name allocation failed");
     }
+
     *out = page;
     return RMR_OK;
 }
@@ -272,6 +288,7 @@ rmr_status rmr_archive_document_image(void *context, rm_str file, rmr_asset_view
     const rmr_archive_document *d = context;
     if (!d || !out || (!file.bytes && file.length))
         return RMR_ERR_INVALID_ARGUMENT;
+
     size_t work = 0;
     for (size_t i = 0; i < d->archive->count; i++) {
         const rmd_file *f = &d->archive->files[i];
@@ -288,6 +305,7 @@ rmr_status rmr_archive_document_image(void *context, rm_str file, rmr_asset_view
             return RMR_OK;
         }
     }
+
     *out = (rmr_asset_view){0};
     return RMR_OK;
 }

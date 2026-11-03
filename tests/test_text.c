@@ -60,9 +60,11 @@ int main(void) {
     rmr_error untouched = {.code = RMR_ERR_BACKEND, .index = 123};
     OK(rmr_template_document_decode(json, strlen(json), nullptr, &doc, &untouched));
     CHECK(untouched.code == RMR_ERR_BACKEND && untouched.index == 123);
+
     const rmr_template *t = rmr_template_document_model(doc);
     rmr_plan *p = nullptr;
     CHECK(build(t, nullptr, &p) == RMR_ERR_UNSUPPORTED && !p);
+
     int calls = 0;
     rmr_text_provider provider = {RMR_TEXT_PROVIDER_ABI, sizeof provider, &calls, measure};
     OK(build(t, &provider, &p));
@@ -74,12 +76,14 @@ int main(void) {
     CHECK(rmr_plan_draw(p, 1)->text.font_size == 10 && rmr_plan_draw(p, 1)->text.origin.x == -40);
     rmr_rect bounds = rmr_plan_bounds(p);
     CHECK(bounds.x == -40 && bounds.y == 22 && bounds.width == 50 && bounds.height == 30);
+
     rmr_plan *copy = nullptr;
     OK(rmr_template_background_plan_with_text(nullptr, (rmr_point){0}, (rmr_point){0}, p, false,
                                               nullptr, nullptr, &copy, nullptr));
     rmr_template_document_free(doc);
     rmr_plan_free(p);
     CHECK(!memcmp(rmr_plan_draw(copy, 0)->text.utf8, "Test", 4));
+
     calls = 0;
     rmr_backend backend = {RMR_BACKEND_ABI, sizeof backend, 0,           &calls,
                            backend_begin,   backend_draw,   backend_end, backend_abort};
@@ -88,6 +92,7 @@ int main(void) {
     backend.capabilities = RMR_CAP_TEXT;
     OK(rmr_plan_execute(copy, &backend, nullptr, nullptr, nullptr));
     CHECK(calls == 1);
+
     rmr_draw invalid = *rmr_plan_draw(copy, 0);
     invalid.text.utf8 = "\xc0\xaf";
     invalid.text.size = 2;
@@ -95,26 +100,32 @@ int main(void) {
     CHECK(rmr_plan_create(&invalid, 1, (rmr_rect){-50, 0, 100, 100}, nullptr, &p, nullptr) ==
               RMR_ERR_INVALID_ARGUMENT &&
           !p);
+
     invalid = *rmr_plan_draw(copy, 0);
     invalid.text.size = 65537;
     CHECK(rmr_plan_create(&invalid, 1, (rmr_rect){-50, 0, 100, 100}, nullptr, &p, nullptr) ==
           RMR_ERR_LIMIT);
+
     invalid = *rmr_plan_draw(copy, 0);
     invalid.group = 1;
     CHECK(rmr_plan_create(&invalid, 1, (rmr_rect){-50, 0, 100, 100}, nullptr, &p, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
     rmr_plan_free(copy);
+
     rmr_template_item label = {.kind = RMR_TEMPLATE_TEXT, .text = {.utf8 = "A", .size = 1}};
     rmr_template model = {.items = &label, .count = 1};
     provider.abi_version = 0;
     CHECK(build(&model, &provider, &p) == RMR_ERR_INVALID_ARGUMENT);
+
     provider.abi_version = RMR_TEXT_PROVIDER_ABI;
     provider.measure = bad_measure;
     CHECK(build(&model, &provider, &p) == RMR_ERR_BACKEND);
+
     provider.measure = measure;
     label.text.has_font_size = true;
     label.text.font_size.number = 0;
     CHECK(build(&model, &provider, &p) == RMR_ERR_INVALID_ARGUMENT);
+
     label.text.has_font_size = false;
     size_t attempts = 0;
     for (; attempts < 100; attempts++) {
@@ -129,6 +140,7 @@ int main(void) {
     }
     rmr_test_fail_after(SIZE_MAX);
     CHECK(attempts > 2 && attempts < 100);
+
     rmr_limits l = rmr_limits_default();
     l.maximum_plan_bytes = 1;
     p = nullptr;
@@ -136,6 +148,7 @@ int main(void) {
                                       (rmr_rect){-50, 0, 100, 100}, &provider, &l, &p,
                                       nullptr) == RMR_ERR_LIMIT &&
           !p);
+
     /* Six built-ins plus 250 constants leave no extra binding slot. */
     char names[250][16];
     rmr_template_constant constants[250] = {0};
@@ -147,6 +160,7 @@ int main(void) {
     model.constant_count = 250;
     p = nullptr;
     CHECK(build(&model, &provider, &p) == RMR_ERR_LIMIT && !p);
+
     constants[0].name = "textWidth";
     constants[0].length = 9;
     OK(build(&model, &provider, &p));

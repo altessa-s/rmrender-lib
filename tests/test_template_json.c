@@ -30,11 +30,13 @@ int main(void) {
     memcpy(borrowed, fixture, sizeof fixture);
     OK(decode(borrowed, &d));
     memset(borrowed, 0, sizeof borrowed);
+
     CHECK(!strcmp(rmr_template_document_name(d), "Own Линии 📓"));
     CHECK(!strcmp(rmr_template_document_orientation(d), "landscape"));
     CHECK(rmr_template_document_category_count(d) == 2);
     CHECK(!strcmp(rmr_template_document_category(d, 1), "Own"));
     CHECK(!rmr_template_document_category(d, 2));
+
     rmr_plan *p = nullptr;
     OK(rmr_template_plan(rmr_template_document_model(d), (rmr_point){100, 200},
                          (rmr_point){100, 300}, (rmr_rect){-50, 0, 100, 300}, nullptr, &p,
@@ -45,11 +47,13 @@ int main(void) {
     CHECK(draw->path.elements[1].end.x == 40 && draw->path.elements[1].end.y == 285);
     CHECK(draw->color.red == 18.0 / 255 && draw->color.alpha == 128.0 / 255);
     rmr_plan_free(p);
+
     OK(decode("{\"name\":\"empty\",\"orientation\":null,\"constants\":null,\"items\":[],\"future\":"
               "{\"ok\":[true,false,null]}}",
               &d));
     CHECK(!rmr_template_document_orientation(d));
     rmr_template_document_free(d);
+
     const char *invalid[] = {
         "",
         "null",
@@ -79,16 +83,19 @@ int main(void) {
         "{\"name\":\"x\",\"items\":[{\"type\":\"path\",\"data\":[\"M\",\"1 +\",0]}]}"};
     for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++)
         reject(invalid[i], RMR_ERR_INVALID_ARGUMENT);
+
     reject("{\"name\":\"x\",\"items\":[{\"type\":\"unknown\",\"text\":\"x\"}]}",
            RMR_ERR_UNSUPPORTED);
     reject("{\"name\":\"x\",\"items\":[{\"type\":\"path\",\"data\":[\"m\",0,0]}]}",
            RMR_ERR_UNSUPPORTED);
+
     /* Every truncated prefix must fail and preserve the output. */
     for (size_t i = 0; i < strlen(fixture); i++) {
         d = nullptr;
         CHECK(rmr_template_document_decode(fixture, i, nullptr, &d, nullptr) != RMR_OK);
         CHECK(!d);
     }
+
     size_t attempts = 0;
     for (; attempts < 1000; attempts++) {
         rmr_test_fail_after(attempts);
@@ -102,22 +109,26 @@ int main(void) {
     }
     rmr_test_fail_after(SIZE_MAX);
     CHECK(attempts > 30 && attempts < 1000);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_elements = 5;
     d = nullptr;
     CHECK(rmr_template_document_decode(fixture, strlen(fixture), &limits, &d, nullptr) ==
               RMR_ERR_LIMIT &&
           !d);
+
     limits = rmr_limits_default();
     limits.maximum_plan_bytes = strlen(fixture);
     CHECK(rmr_template_document_decode(fixture, strlen(fixture), &limits, &d, nullptr) ==
               RMR_ERR_LIMIT &&
           !d);
+
     char deep[400];
     memset(deep, '[', 150);
     memset(deep + 150, ']', 150);
     deep[300] = 0;
     reject(deep, RMR_ERR_LIMIT);
+
     /* Deterministic mutation smoke: success is safe to destroy; failures never publish. */
     uint32_t state = 123;
     for (size_t i = 0; i < 3000; i++) {
@@ -135,6 +146,7 @@ int main(void) {
         else
             CHECK(!d);
     }
+
     CHECK(!rmr_template_document_model(nullptr));
     rmr_template_document_free(nullptr);
     return 0;

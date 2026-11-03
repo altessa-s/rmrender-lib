@@ -47,6 +47,7 @@ cairo_status_t rmr_linux_write(void *ctx, const unsigned char *data, unsigned in
     }
     if (!size)
         return CAIRO_STATUS_SUCCESS;
+
     size_t needed = s->data.size + size;
     if (needed > s->capacity) {
         /* Cairo writes in small pieces; grow geometrically, never past the limit. */
@@ -63,6 +64,7 @@ cairo_status_t rmr_linux_write(void *ctx, const unsigned char *data, unsigned in
         s->data.bytes = p;
         s->capacity = grown;
     }
+
     memcpy(s->data.bytes + s->data.size, data, size);
     s->data.size = needed;
     return CAIRO_STATUS_SUCCESS;
@@ -89,6 +91,7 @@ rmr_status rmr_pdfium_save(FPDF_DOCUMENT doc, const rmr_limits *limits, rmr_buff
         free(w.sink.data.bytes);
         return w.sink.status ? w.sink.status : RMR_ERR_BACKEND;
     }
+
     *out = w.sink.data;
     return RMR_OK;
 }
@@ -97,18 +100,22 @@ rmr_status rmr_pdfium_form(FPDF_DOCUMENT dest, FPDF_PAGE page, FPDF_DOCUMENT sou
                            rmr_transform t) {
     if (index > INT_MAX)
         return RMR_ERR_LIMIT;
+
     FPDF_XOBJECT x = FPDF_NewXObjectFromPage(dest, source, (int)index);
     if (!x)
         return RMR_ERR_BACKEND;
+
     FPDF_PAGEOBJECT object = FPDF_NewFormObjectFromXObject(x);
     FPDF_CloseXObject(x);
     if (!object)
         return RMR_ERR_BACKEND;
+
     FPDF_PAGE original = FPDF_LoadPage(source, (int)index);
     if (!original) {
         FPDFPageObj_Destroy(object);
         return RMR_ERR_BACKEND;
     }
+
     FS_RECTF bounds;
     if (!FPDF_GetPageBoundingBox(original, &bounds) || bounds.right <= bounds.left ||
         bounds.top <= bounds.bottom) {
@@ -116,6 +123,7 @@ rmr_status rmr_pdfium_form(FPDF_DOCUMENT dest, FPDF_PAGE page, FPDF_DOCUMENT sou
         FPDFPageObj_Destroy(object);
         return RMR_ERR_BACKEND;
     }
+
     t = rmr_pdfium_raw_transform(original, t);
     FPDF_ClosePage(original);
     FPDFPageObj_Transform(object, t.a, t.b, t.c, t.d, t.tx, t.ty);
@@ -127,6 +135,7 @@ rmr_transform rmr_pdfium_raw_transform(FPDF_PAGE page, rmr_transform t) {
     FS_RECTF b = {0};
     FPDF_GetPageBoundingBox(page, &b);
     rmr_transform inverse;
+
     switch (FPDFPage_GetRotation(page)) {
     case 1:
         inverse = (rmr_transform){0, 1, -1, 0, b.right, b.bottom};
@@ -141,6 +150,7 @@ rmr_transform rmr_pdfium_raw_transform(FPDF_PAGE page, rmr_transform t) {
         inverse = (rmr_transform){1, 0, 0, 1, b.left, b.bottom};
         break;
     }
+
     return (rmr_transform){
         t.a * inverse.a + t.c * inverse.b,          t.b * inverse.a + t.d * inverse.b,
         t.a * inverse.c + t.c * inverse.d,          t.b * inverse.c + t.d * inverse.d,

@@ -31,21 +31,25 @@ static fixture actual_text(const char *hex) {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> "
         ">> /Contents 5 0 R >>");
     obj(&f, 4, 0, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
     char content[512];
     snprintf(content, sizeof content,
              "/Span << /ActualText <%s> >> BDC BT /F1 12 Tf 10 100 Td (A) Tj ET EMC", hex);
     stream(&f, 5, content);
+
     size_t x = f.n;
     add(&f, "xref\n0 6\n0000000000 65535 f \n");
     for (unsigned i = 1; i < 6; i++)
         add(&f, "%010zu 00000 n \n", f.offsets[i]);
     add(&f, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", x);
+
     return f;
 }
 
 int main(void) {
     (void)source;
     FPDF_InitLibrary();
+
     bool missing = false;
     for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
         fixture f = actual_text(cases[i].hex);
@@ -75,6 +79,7 @@ int main(void) {
         FPDF_ClosePage(page);
         FPDF_CloseDocument(doc);
     }
+
     FPDF_DestroyLibrary();
     if (missing) {
         fputs("PDFium drops non-BMP ActualText; rebuild with "

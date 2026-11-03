@@ -24,6 +24,7 @@ typedef struct {
 [[nodiscard]] RMR_API rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format,
                                                         rm_str text, const rmr_limits *limits,
                                                         rmr_type_metrics *out, rmr_error *error);
+
 typedef rmr_status (*rmr_font_resolve_fn)(void *context, const char *resource, rmr_asset_view *out);
 
 typedef struct {

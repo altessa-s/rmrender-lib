@@ -19,6 +19,7 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
     cairo_surface_t *surface = cairo_recording_surface_create(CAIRO_CONTENT_ALPHA, nullptr);
     cairo_t *cr = cairo_create(surface);
     rmr_status status = RMR_OK;
+
     for (size_t i = 0; i < stroke->point_count; i++) {
         rm_stroke_point p = stroke->points[i];
         if (!isfinite(p.width) || p.width < 0) {
@@ -36,6 +37,7 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
         else
             cairo_move_to(cr, p.x, p.y);
     }
+
     if (status == RMR_OK && stroke->point_count > 1) {
         cairo_set_line_width(cr, widest);
         cairo_set_line_cap(cr, style->cap == RMR_CAP_SQUARE ? CAIRO_LINE_CAP_SQUARE
@@ -50,11 +52,13 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
             y1 = bottom;
         }
     }
+
     cairo_status_t cs = cairo_status(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
     if (cs != CAIRO_STATUS_SUCCESS)
         status = cs == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY : RMR_ERR_BACKEND;
+
     if (status == RMR_OK)
         *out = (rmr_rect){x0, y0, x1 - x0, y1 - y0};
     return status;

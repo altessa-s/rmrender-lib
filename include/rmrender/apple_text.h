@@ -22,6 +22,7 @@ typedef struct rmr_apple_fonts rmr_apple_fonts;
                                                                   rmr_apple_fonts **out,
                                                                   rmr_error *error);
 RMR_API void rmr_apple_fonts_free(rmr_apple_fonts *fonts);
+
 typedef struct rmr_apple_layout rmr_apple_layout;
 
 /* Snapshot text and build immutable paragraph/line geometry with CoreText.

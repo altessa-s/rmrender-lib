@@ -24,12 +24,14 @@ static bool transform(const rm_image_vertex *v, rmr_transform *t) {
     double det = du1 * dv3 - du3 * dv1;
     if (fabs(det) <= DBL_EPSILON)
         return false;
+
     t->a = ((v[1].x - v[0].x) * dv3 - (v[3].x - v[0].x) * dv1) / det;
     t->b = ((v[1].y - v[0].y) * dv3 - (v[3].y - v[0].y) * dv1) / det;
     t->c = ((v[3].x - v[0].x) * du1 - (v[1].x - v[0].x) * du3) / det;
     t->d = ((v[3].y - v[0].y) * du1 - (v[1].y - v[0].y) * du3) / det;
     t->tx = v[0].x - v[0].u * t->a - v[0].v * t->c;
     t->ty = v[0].y - v[0].u * t->b - v[0].v * t->d;
+
     return true;
 }
 
@@ -41,11 +43,14 @@ rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
     if (!page || !out || (page->stroke_count && !page->strokes) ||
         (page->image_count && (!page->images || !resolve)))
         return fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid scene input");
+
     if (page->has_text || page->highlight_count)
         return fail(e, RMR_ERR_UNSUPPORTED, 0, "text and highlights require page providers");
+
     if (page->stroke_count > limits.maximum_draws ||
         page->image_count > limits.maximum_draws - page->stroke_count)
         return fail(e, RMR_ERR_LIMIT, 0, "scene command limit");
+
     for (size_t i = 0; i < page->image_count; i++) {
         const rm_page_image *im = &page->images[i];
         if (im->file.length && !im->file.bytes)
@@ -61,15 +66,18 @@ rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
                 return fail(e, RMR_ERR_INVALID_ARGUMENT, i, "invalid image vertex");
         }
     }
+
     rmr_plan *ink = nullptr;
     rmr_status status = rmr_lines_plan_with_raster(page->strokes, page->stroke_count, viewport,
                                                    raster, &limits, &ink, e);
     if (status != RMR_OK)
         return status;
+
     if (!page->image_count) {
         *out = ink;
         return RMR_OK;
     }
+
     size_t count = page->stroke_count + page->image_count;
     size_t bytes = rmr_plan_bytes(ink);
     rmr_draw *draws = nullptr;
@@ -79,11 +87,13 @@ rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
         status = fail(e, RMR_ERR_LIMIT, 0, "scene scratch memory limit");
         goto done;
     }
+
     bytes += count * sizeof *draws;
     if (page->image_count > (limits.maximum_plan_bytes - bytes) / (5 * sizeof *clips)) {
         status = fail(e, RMR_ERR_LIMIT, 0, "image clip memory limit");
         goto done;
     }
+
     bytes += page->image_count * 5 * sizeof *clips;
     draws = calloc(count, sizeof *draws);
     clips = calloc(page->image_count * 5, sizeof *clips);
@@ -91,6 +101,7 @@ rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
         status = fail(e, RMR_ERR_OUT_OF_MEMORY, 0, "scene allocation failed");
         goto done;
     }
+
     size_t stroke = 0, image = 0, at = 0;
     while (at < count) {
         if (image < page->image_count &&
@@ -137,8 +148,10 @@ rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
             stroke++;
         }
     }
+
     limits.maximum_plan_bytes -= bytes;
     status = rmr_plan_create(draws, count, viewport, &limits, out, e);
+
 done:
     free(clips);
     free(draws);

@@ -55,8 +55,10 @@ static double rtl_trailing_width(PangoLayoutLine *line) {
             break;
         tail = previous;
     }
+
     if (tail == end)
         return 0;
+
     int x;
     pango_layout_line_index_to_x(line, (int)(tail - text), FALSE, &x);
     return (double)x / PANGO_SCALE;
@@ -86,9 +88,11 @@ static int line_index_x(PangoLayoutLine *line, size_t index) {
 static double start_adjustment(PangoLayoutLine *line) {
     if (pango_layout_line_get_resolved_direction(line) != PANGO_DIRECTION_RTL)
         return 0;
+
     const char *text = pango_layout_get_text(line->layout);
     if (!line->length)
         return 0;
+
     if (pango_layout_get_direction(line->layout, 0) == PANGO_DIRECTION_RTL) {
         /* A retained pair adjustment at a soft-wrap boundary affects the
          * first logical glyph's advance, but not CoreText's leading caret. */
@@ -103,6 +107,7 @@ static double start_adjustment(PangoLayoutLine *line) {
         }
         return 0;
     }
+
     for (const char *c = text; *c; c = g_utf8_next_char(c)) {
         size_t at = (size_t)(c - text);
         if (pango_layout_get_direction(line->layout, (int)at) == PANGO_DIRECTION_RTL)
@@ -126,12 +131,14 @@ static double interior_adjustment(PangoLayoutLine *line, size_t index, int *x) {
     }
     if (!before || !after)
         return 0;
+
     bool direction_change = before->item->analysis.level != after->item->analysis.level;
     int attr_count;
     const PangoLogAttr *attrs = pango_layout_get_log_attrs_readonly(line->layout, &attr_count);
     glong character = g_utf8_pointer_to_offset(text, text + index);
     bool cursor_stop =
         attrs && character >= 0 && character < attr_count && attrs[character].is_cursor_position;
+
     /* Preserve composed-character stops; at a bidi boundary CoreText's
      * primary offset follows the preceding edge in LTR and the left edge in RTL. */
     if (direction_change || !cursor_stop)
@@ -143,6 +150,7 @@ static double interior_adjustment(PangoLayoutLine *line, size_t index, int *x) {
             *x = next;
         return 0;
     }
+
     bool rtl = (before->item->analysis.level & 1) != 0;
     PangoGlyphItem *selected = rtl ? after : before;
     size_t at = rtl ? index : previous;
@@ -174,6 +182,7 @@ static double end_pair_adjustment(PangoLayoutLine *line) {
     if (!line->length || rtl_logical_end(line) ||
         pango_layout_line_get_resolved_direction(line) == PANGO_DIRECTION_RTL)
         return 0;
+
     const char *text = pango_layout_get_text(line->layout);
     size_t previous = (size_t)(g_utf8_prev_char(text + line->length) - text);
     for (GSList *it = line->runs; it; it = it->next) {
@@ -190,6 +199,7 @@ static double end_pair_adjustment(PangoLayoutLine *line) {
                         rmr_pango_cluster_spacing(line->layout, (size_t)cluster.start_index,
                                                   (size_t)cluster.end_index));
     }
+
     return 0;
 }
 
@@ -197,6 +207,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
     rmr_linux_layout *l = ctx;
     if (!l || !out || pi >= l->anchors.count || li >= l->paragraphs[pi].line_count)
         return RMR_ERR_INVALID_ARGUMENT;
+
     const rmr_anchor_paragraph *p = &l->paragraphs[pi];
     size_t at = offset(p->text.bytes, p->text.length, index);
     if (at == SIZE_MAX || at > INT_MAX)
@@ -208,6 +219,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
     size_t local = at - first;
     int x = line_index_x(line, local), start = line_index_x(line, (size_t)line->start_index);
     double trailing = rtl_trailing_width(line);
+
     if (local == (size_t)line->length && local &&
         pango_layout_line_get_resolved_direction(line) == PANGO_DIRECTION_RTL &&
         !rtl_logical_end(line)) {
@@ -215,6 +227,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
         size_t previous = (size_t)(g_utf8_prev_char(text + local) - text);
         x = line_index_x(line, previous);
     }
+
     bool rtl_end = rtl_logical_end(line) && local >= (size_t)line->length;
     double adjustment =
         local > 0 && local < (size_t)line->length ? interior_adjustment(line, local, &x)
@@ -226,6 +239,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
     if (local == (size_t)line->length && at < p->text.length &&
         (p->text.bytes[at] == '\n' || p->text.bytes[at] == '\r'))
         adjustment = 0;
+
     double leading = start_adjustment(line);
     *out = (rmr_caret_offsets){(double)x / PANGO_SCALE - trailing + adjustment +
                                    (local == 0 ? leading : 0),
@@ -236,6 +250,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
 void rmr_linux_layout_free(rmr_linux_layout *l) {
     if (!l)
         return;
+
     for (size_t i = 0; i < l->anchors.count; i++) {
         if (l->native[i].lines) {
             for (size_t j = 0; j < l->paragraphs[i].line_count; j++)
@@ -250,6 +265,7 @@ void rmr_linux_layout_free(rmr_linux_layout *l) {
         free((void *)(uintptr_t)l->paragraphs[i].text.bytes);
         free((void *)(uintptr_t)l->paragraphs[i].lines);
     }
+
     free(l->paragraphs);
     free(l->native);
     rmr_linux_fonts_free(l->fonts);
@@ -308,6 +324,7 @@ static PangoLayout *marker(const rmr_linux_fonts *fonts, rmr_type_metrics m, rm_
         label[at] = 0;
     } else
         snprintf(label, sizeof label, "%zu.", ordinal);
+
     return rmr_pango_layout(fonts, (rm_str){label, strlen(label)}, m.size, m.face, false, false);
 }
 
@@ -351,6 +368,7 @@ static rmr_status paragraph_glyphs(PangoLayout *paragraph_layout, PangoLayout *l
             }
         if (!source)
             continue;
+
         bool rtl = (source->item->analysis.level & 1) != 0;
         int first = glyph_boundary(source, rtl ? to : from);
         int end = glyph_boundary(source, rtl ? from : to);
@@ -366,6 +384,7 @@ static rmr_status paragraph_glyphs(PangoLayout *paragraph_layout, PangoLayout *l
                 : (size_t)source->item->offset + (size_t)source->glyphs->log_clusters[after];
         if (cluster_from != from || cluster_to != to)
             continue;
+
         if ((size_t)count > limits->maximum_plan_bytes / (sizeof(PangoGlyphInfo) + sizeof(int)))
             return RMR_ERR_LIMIT;
         pango_glyph_string_set_size(run->glyphs, count);
@@ -375,6 +394,7 @@ static rmr_status paragraph_glyphs(PangoLayout *paragraph_layout, PangoLayout *l
                 source->glyphs->log_clusters[first + i] + source->item->offset - (int)from;
         }
     }
+
     return RMR_OK;
 }
 
@@ -388,14 +408,17 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
      * slices containing only the opposite script or neutral characters. */
     pango_context_set_base_dir(pango_layout_get_context(layout), direction);
     pango_layout_set_auto_dir(layout, FALSE);
+
     rmr_status status = rmr_pango_calibrate(layout, limits);
     if (status != RMR_OK)
         return status;
+
     const char *text = pango_layout_get_text(layout);
     size_t count = (size_t)g_utf8_strlen(text, -1);
     if (count >= limits->maximum_plan_bytes / (2 * sizeof(size_t) + sizeof(int) + sizeof(bool)) ||
         count >= limits->maximum_elements)
         return RMR_ERR_LIMIT;
+
     size_t *offsets = calloc(count + 1, sizeof *offsets), *ends = calloc(count + 1, sizeof *ends);
     int *widths = calloc(count + 1, sizeof *widths);
     bool *cluster_breaks = calloc(count + 1, sizeof *cluster_breaks);
@@ -406,6 +429,7 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
         free(cluster_breaks);
         return RMR_ERR_OUT_OF_MEMORY;
     }
+
     const char *cursor = text;
     for (size_t i = 0; i < count; i++) {
         offsets[i] = (size_t)(cursor - text);
@@ -413,6 +437,7 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
     }
     offsets[count] = (size_t)(cursor - text);
     cluster_breaks[0] = cluster_breaks[count] = true;
+
     for (GSList *li = pango_layout_get_lines(layout); li; li = li->next) {
         PangoLayoutLine *line = li->data;
         for (GSList *ri = line->runs; ri; ri = ri->next) {
@@ -448,12 +473,14 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
             }
         }
     }
+
     int attr_count = 0;
     const PangoLogAttr *attrs = pango_layout_get_log_attrs_readonly(layout, &attr_count);
     if (!attrs || attr_count < 0 || (size_t)attr_count != count + 1) {
         status = RMR_ERR_BACKEND;
         goto done;
     }
+
     size_t lines = 0, start = 0;
     double maximum = column * PANGO_SCALE;
     while (start < count) {
@@ -480,9 +507,11 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
             if (attrs[i + 1].is_char_break && cluster_breaks[i + 1])
                 character = i + 1;
         }
+
         ends[lines++] = offsets[end];
         start = end;
     }
+
     size_t *compact = realloc(ends, lines * sizeof *ends);
     if (!compact) {
         status = RMR_ERR_OUT_OF_MEMORY;
@@ -492,6 +521,7 @@ static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limi
     *ends_out = ends;
     *count_out = lines;
     ends = nullptr;
+
 done:
     free(cluster_breaks);
     free(offsets);
@@ -509,16 +539,19 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         !isfinite(text->origin_y) || fabs(text->origin_x) > limits.maximum_coordinate ||
         fabs(text->origin_y) > limits.maximum_coordinate)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text layout");
+
     double column = text->has_column_width ? text->column_width
                     : text->origin_x < 0   ? -2 * text->origin_x
                                            : page_width;
     if (!isfinite(column) || column <= 0 || column > 1000000)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text column");
+
     size_t count = text->paragraph_count, base = sizeof(rmr_linux_layout);
     if (base > limits.maximum_plan_bytes || count > limits.maximum_elements ||
         count >
             (limits.maximum_plan_bytes - base) / (sizeof(paragraph) + sizeof(rmr_anchor_paragraph)))
         return text_error(e, RMR_ERR_LIMIT, "paragraph limit");
+
     rmr_linux_layout *l = calloc(1, sizeof *l);
     if (!l)
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
@@ -530,25 +563,30 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         free(l);
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
     }
+
     l->fonts = (rmr_linux_fonts *)(uintptr_t)fonts;
     atomic_fetch_add(&l->fonts->references, 1);
     l->bytes = base + count * (sizeof(paragraph) + sizeof(rmr_anchor_paragraph));
     l->caret = (rmr_caret_provider){RMR_CARET_PROVIDER_ABI, sizeof(rmr_caret_provider), l, caret};
     l->anchors = (rmr_anchor_layout){text->origin_x + 4, fmax(column - 8, 32), l->paragraphs, count,
                                      &l->caret};
+
     size_t ordinals[17] = {0}, work = count;
     rm_list_family families[17] = {0};
     rmr_type_metrics previous = {0};
     double baseline = text->origin_y;
     rmr_status s = RMR_OK;
+
     for (size_t i = 0; i < count && s == RMR_OK; i++) {
         const rm_paragraph *in = &text->paragraphs[i];
         rmr_anchor_paragraph *p = &l->paragraphs[i];
         paragraph *n = &l->native[i];
         const rm_paragraph_format *fmt = in->has_format ? &in->format : nullptr;
+
         s = rmr_lines_type_metrics(fmt, in->text, &limits, &n->metrics, e);
         if (s != RMR_OK)
             break;
+
         size_t length = in->text.length;
         if (length > INT_MAX || length >= limits.maximum_plan_bytes - l->bytes ||
             length > limits.maximum_elements - work) {
@@ -567,6 +605,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             s = RMR_ERR_INVALID_ARGUMENT;
             break;
         }
+
         char *copy = malloc(length + 1);
         if (!copy) {
             s = RMR_ERR_OUT_OF_MEMORY;
@@ -577,6 +616,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         copy[length] = 0;
         p->text = (rm_str){copy, length};
         l->bytes += length + 1;
+
         int level = fmt ? rm_paragraph_format_level(fmt) : 1;
         if (level < 1 || level > 16) {
             s = RMR_ERR_LIMIT;
@@ -585,6 +625,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         n->family =
             fmt ? rm_paragraph_style_list_family(rm_paragraph_format_style(fmt)) : RM_LIST_NONE;
         p->indent = n->family == RM_LIST_NONE ? 0 : 48 * (double)level;
+
         size_t ordinal = 0;
         if (n->family != RM_LIST_NONE) {
             for (int k = level + 1; k < 17; k++) {
@@ -600,10 +641,12 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             memset(ordinals, 0, sizeof ordinals);
             memset(families, 0, sizeof families);
         }
+
         baseline += i ? previous.descent + previous.after + n->metrics.before + n->metrics.ascent
                       : n->metrics.first_baseline_drop;
         p->baseline = baseline;
         previous = n->metrics;
+
         n->checkbox = rm_text_block_checkbox_state(text, i);
         if (n->family == RM_LIST_BULLET || n->family == RM_LIST_NUMBERED)
             n->marker = marker(fonts, n->metrics, n->family, ordinal, level);
@@ -612,10 +655,12 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             if (s != RMR_OK)
                 break;
         }
+
         if (!length) {
             l->bottom = baseline + n->metrics.descent + 24;
             continue;
         }
+
         n->layout =
             rmr_pango_layout(fonts, p->text, n->metrics.size, n->metrics.face, false, false);
         pango_layout_set_width(n->layout,
@@ -645,6 +690,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         }
         pango_layout_set_attributes(n->layout, attrs);
         pango_attr_list_unref(attrs);
+
         size_t lines = 0, *line_ends = nullptr;
         rmr_limits remaining = limits;
         remaining.maximum_plan_bytes -= l->bytes;
@@ -660,6 +706,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             break;
         }
         work += lines;
+
         rmr_anchor_line *visual = calloc(lines, sizeof *visual);
         if (!visual) {
             free(line_ends);
@@ -677,21 +724,26 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
         p->line_count = lines;
         p->has_typesetter = true;
         l->bytes += lines * (sizeof *visual + sizeof *n->lines);
+
         remaining.maximum_plan_bytes =
             limits.maximum_plan_bytes - l->bytes - lines * sizeof *line_ends;
         rmr_type_metrics last = n->metrics;
+
         for (size_t j = 0; j < lines; j++) {
             size_t start = j ? line_ends[j - 1] : 0, end = line_ends[j];
+
             /* Shape each chosen line independently, retaining trailing spaces in caret
              * geometry (Pango's wrapping layout collapses them at soft breaks). */
             size_t visible_end = end;
             while (visible_end > start &&
                    (copy[visible_end - 1] == '\n' || copy[visible_end - 1] == '\r'))
                 visible_end--;
+
             n->lines[j] = pango_layout_copy(n->layout);
             pango_layout_set_width(n->lines[j], -1);
             pango_layout_set_single_paragraph_mode(n->lines[j], TRUE);
             pango_layout_set_text(n->lines[j], copy + start, (int)(visible_end - start));
+
             PangoAttrList *line_attrs = pango_attr_list_new();
             GSList *all_attrs =
                 pango_attr_list_get_attributes(rmr_pango_source_attributes(n->layout));
@@ -707,6 +759,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             g_slist_free(all_attrs);
             pango_layout_set_attributes(n->lines[j], line_attrs);
             pango_attr_list_unref(line_attrs);
+
             s = rmr_pango_calibrate(n->lines[j], &remaining);
             if (s == RMR_OK)
                 s = paragraph_glyphs(n->layout, n->lines[j], start, &remaining);
@@ -715,6 +768,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
             s = rmr_lines_type_metrics(fmt, (rm_str){copy + start, end - start}, &limits, &last, e);
             if (s != RMR_OK)
                 break;
+
             if (j)
                 baseline += last.height;
             visual[j] =
@@ -724,15 +778,18 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
                     pango_layout_line_get_resolved_direction(
                         pango_layout_get_line_readonly(n->lines[j], 0)) == PANGO_DIRECTION_RTL;
         }
+
         free(line_ends);
         l->bottom = baseline + last.descent + 24;
         if (!isfinite(l->bottom) || fabs(l->bottom) > limits.maximum_coordinate)
             s = RMR_ERR_LIMIT;
     }
+
     if (s != RMR_OK) {
         rmr_linux_layout_free(l);
         return text_error(e, s, "paragraph layout failed");
     }
+
     *out = l;
     return RMR_OK;
 }
@@ -741,11 +798,13 @@ rmr_status rmr_linux_layout_line(const rmr_linux_layout *l, size_t pi, size_t li
                                  rmr_text_line *out, rmr_error *e) {
     if (!l || !out || pi >= l->anchors.count || li >= l->paragraphs[pi].line_count)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text line index");
+
     const rmr_anchor_paragraph *p = &l->paragraphs[pi];
     rmr_anchor_line v = p->lines[li];
     PangoLayoutLine *line = pango_layout_get_line_readonly(l->native[pi].lines[li], 0);
     PangoRectangle logical;
     pango_layout_line_get_extents(line, nullptr, &logical);
+
     double width = (double)logical.width / PANGO_SCALE,
            start = (double)line_index_x(line, 0) / PANGO_SCALE - rtl_trailing_width(line) +
                    start_adjustment(line),
@@ -773,14 +832,17 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
                                  const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!l || !out)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing layout/output");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     rmr_plan *valid = nullptr;
     rmr_status s = rmr_plan_create(nullptr, 0, viewport, &limits, &valid, e);
     if (s != RMR_OK)
         return s;
     rmr_plan_free(valid);
+
     if (!l->anchors.count)
         return rmr_plan_create(nullptr, 0, viewport, &limits, out, e);
+
     layout_sink output = {.sink.maximum = limits.maximum_pdf_bytes < limits.maximum_plan_bytes / 2
                                               ? limits.maximum_pdf_bytes
                                               : limits.maximum_plan_bytes / 2};
@@ -795,6 +857,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
         const rmr_anchor_paragraph *p = &l->paragraphs[i];
         const paragraph *n = &l->native[i];
         double x = l->anchors.left + p->indent, y = p->baseline;
+
         if (n->marker) {
             PangoRectangle logical;
             pango_layout_get_extents(n->marker, nullptr, &logical);
@@ -825,6 +888,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
                 }
             }
         }
+
         for (size_t j = 0; j < p->line_count; j++) {
             rmr_text_line v;
             s = rmr_linux_layout_line(l, i, j, &v, e);
@@ -843,6 +907,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
             }
         }
     }
+
     output.discard = s != RMR_OK;
     cairo_show_page(cr);
     cairo_status_t cs = cairo_status(cr);
@@ -855,6 +920,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
         s = sink->status;
     else if (cs != CAIRO_STATUS_SUCCESS)
         s = RMR_ERR_BACKEND;
+
     if (s == RMR_OK) {
         rmr_element clip[] = {
             {.kind = RMR_MOVE, .end = {viewport.x, viewport.y}},
@@ -871,6 +937,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
         limits.maximum_plan_bytes -= sink->data.size;
         s = rmr_plan_create(&d, 1, viewport, &limits, out, e);
     }
+
     rmr_buffer_free(&sink->data);
     return s == RMR_OK ? s : text_error(e, s, "text PDF rendering failed");
 }
@@ -882,11 +949,14 @@ rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face, bo
     if (!fonts || !out || (!text.bytes && text.length) || !isfinite(size) || size <= 0 ||
         size > 100000 || face > RMR_FACE_SERIF)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text measurement");
+
     if (text.length > INT_MAX || text.length > l.maximum_elements ||
         text.length > l.maximum_plan_bytes / 4)
         return text_error(e, RMR_ERR_LIMIT, "text measurement limit");
+
     if (!g_utf8_validate(text.bytes ? text.bytes : "", (gssize)text.length, nullptr))
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid UTF-8");
+
     PangoLayout *p = rmr_pango_layout(fonts, text, size, face, bold, italic);
     pango_layout_set_single_paragraph_mode(p, TRUE);
     rmr_status status = rmr_pango_calibrate(p, &l);
@@ -894,9 +964,11 @@ rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face, bo
         g_object_unref(p);
         return text_error(e, status, "text calibration limit");
     }
+
     PangoRectangle logical;
     pango_layout_get_extents(p, nullptr, &logical);
     double width = (double)logical.width / PANGO_SCALE;
+
     if (less_rightmost) {
         PangoLayoutLine *line = pango_layout_get_line_readonly(p, 0);
         double right = 0, advance = 0, x = 0;
@@ -913,6 +985,7 @@ rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face, bo
         }
         width -= advance;
     }
+
     g_object_unref(p);
     *out = width;
     return RMR_OK;

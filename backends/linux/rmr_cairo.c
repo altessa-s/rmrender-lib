@@ -61,6 +61,7 @@ static rmr_status dimensions(double w, double h, const rmr_limits *l, size_t *wi
         return RMR_ERR_INVALID_ARGUMENT;
     if (w > l->maximum_bitmap_side || h > l->maximum_bitmap_side || w > INT_MAX || h > INT_MAX)
         return RMR_ERR_LIMIT;
+
     *width = (size_t)ceil(w);
     *height = (size_t)ceil(h);
     if (*width > 64000000 / *height || *width > l->maximum_bitmap_bytes / 4 / *height)
@@ -104,9 +105,11 @@ static rmr_status segment_end(drawing *c) {
         cs = cairo_surface_status(c->surface);
     cairo_surface_destroy(c->surface);
     c->surface = nullptr;
+
     rmr_status s = c->sink.status;
     if (s == RMR_OK && cs != CAIRO_STATUS_SUCCESS)
         s = RMR_ERR_BACKEND;
+
     if (s == RMR_OK && c->dirty) {
         FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(c->sink.data.bytes, c->sink.data.size, nullptr);
         s = doc ? rmr_pdfium_form(c->pdf, c->page, doc, 0, (rmr_transform){1, 0, 0, 1, 0, 0})
@@ -114,6 +117,7 @@ static rmr_status segment_end(drawing *c) {
         if (doc)
             FPDF_CloseDocument(doc);
     }
+
     rmr_buffer_free(&c->sink.data);
     return s;
 }
@@ -136,18 +140,21 @@ static rmr_status measure(void *ctx, const char *text, size_t size, double font_
     if (!out || !text || size > 65536 || !isfinite(font_size) || font_size <= 0 ||
         font_size > 100000 || !g_utf8_validate(text, (gssize)size, nullptr))
         return RMR_ERR_INVALID_ARGUMENT;
+
     cairo_surface_t *s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
     cairo_t *cr = cairo_create(s);
     PangoLayout *p = label(cr, text, size, font_size);
     PangoRectangle ink, logical;
     pango_layout_get_extents(p, &ink, &logical);
     double base = (double)pango_layout_get_baseline(p) / PANGO_SCALE;
+
     double x = fmin(ink.x, logical.x) / (double)PANGO_SCALE,
            y = fmin(ink.y, logical.y) / (double)PANGO_SCALE - base;
     double right = fmax(ink.x + ink.width, logical.x + logical.width) / (double)PANGO_SCALE;
     double bottom =
         fmax(ink.y + ink.height, logical.y + logical.height) / (double)PANGO_SCALE - base;
     *out = (rmr_text_metrics){(double)logical.width / PANGO_SCALE, {x, y, right - x, bottom - y}};
+
     g_object_unref(p);
     cairo_destroy(cr);
     cairo_surface_destroy(s);
@@ -178,9 +185,11 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
                                                                                      : nullptr;
     if (!type)
         return RMR_ERR_BACKEND;
+
     GdkPixbufLoader *loader = gdk_pixbuf_loader_new_with_type(type, nullptr);
     if (!loader)
         return RMR_ERR_BACKEND;
+
     image_size check = {l, RMR_OK};
     g_signal_connect(loader, "size-prepared", G_CALLBACK(prepared), &check);
     bool ok = gdk_pixbuf_loader_write(loader, im->bytes, im->size, nullptr) != 0;
@@ -190,6 +199,7 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
     rmr_status status = check.status;
     if (status == RMR_OK && !pix)
         status = RMR_ERR_BACKEND;
+
     if (status == RMR_OK) {
         int w = gdk_pixbuf_get_width(pix), h = gdk_pixbuf_get_height(pix),
             channels = gdk_pixbuf_get_n_channels(pix), stride = gdk_pixbuf_get_rowstride(pix);
@@ -215,6 +225,7 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
         if (status != RMR_OK)
             cairo_surface_destroy(surface);
     }
+
     g_object_unref(loader);
     return status;
 }
@@ -222,15 +233,18 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
 static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
     if (d->image.size > c->limits.maximum_pdf_bytes || d->pdf_page > INT_MAX)
         return RMR_ERR_LIMIT;
+
     FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(d->image.bytes, d->image.size, nullptr);
     if (!doc)
         return RMR_ERR_BACKEND;
+
     FPDF_PAGE page = FPDF_LoadPage(doc, (int)d->pdf_page);
     FS_RECTF page_box;
     rmr_status s = page && FPDF_GetPageBoundingBox(page, &page_box) &&
                            page_box.right > page_box.left && page_box.top > page_box.bottom
                        ? RMR_OK
                        : RMR_ERR_BACKEND;
+
     if (s == RMR_OK && c->pdf) {
         size_t count = 0;
         rmr_pdf_page_geometry *geometry = nullptr;
@@ -252,6 +266,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
             s = RMR_ERR_UNSUPPORTED;
         if (s == RMR_OK)
             s = segment_end(c);
+
         if (s == RMR_OK) {
             rmr_pdf_page_geometry g = geometry[d->pdf_page];
             rmr_rect m = g.media;
@@ -274,6 +289,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                                     1 + m.y / m.height};
                 break;
             }
+
             rmr_transform t = d->image.transform, q = c->sheet.transform;
             rmr_transform a = {t.a * n.a + t.c * n.b,          t.b * n.a + t.d * n.b,
                                t.a * n.c + t.c * n.d,          t.b * n.c + t.d * n.d,
@@ -281,6 +297,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
             rmr_transform final = {q.a * a.a + q.c * a.b,          q.b * a.a + q.d * a.b,
                                    q.a * a.c + q.c * a.d,          q.b * a.c + q.d * a.d,
                                    q.a * a.tx + q.c * a.ty + q.tx, q.b * a.tx + q.d * a.ty + q.ty};
+
             FPDF_DOCUMENT wrapper = FPDF_CreateNewDocument();
             FPDF_PAGE wrap =
                 wrapper ? FPDFPage_New(wrapper, 0, c->sheet.width, c->sheet.height) : nullptr;
@@ -297,11 +314,13 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                                                   (unsigned int)lrint(d->color.alpha * 255)) ||
                         !FPDFPage_GenerateContent(wrap))
                         s = RMR_ERR_BACKEND;
+
                     rmr_buffer raw = {0}, clipped = {0};
                     if (s == RMR_OK)
                         s = rmr_pdfium_save(wrapper, &c->limits, &raw);
                     if (s == RMR_OK)
                         s = rmr_pdf_clip(raw.bytes, raw.size, d->path, q, &c->limits, &clipped);
+
                     if (s == RMR_OK) {
                         FPDF_DOCUMENT clipped_doc =
                             FPDF_LoadMemDocument64(clipped.bytes, clipped.size, nullptr);
@@ -311,15 +330,18 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                         if (clipped_doc)
                             FPDF_CloseDocument(clipped_doc);
                     }
+
                     rmr_buffer_free(&clipped);
                     rmr_buffer_free(&raw);
                 }
                 FPDF_ClosePage(wrap);
             }
+
             if (wrapper)
                 FPDF_CloseDocument(wrapper);
             segment_start(c);
         }
+
         free(geometry);
     } else if (s == RMR_OK) {
         rmr_transform t = d->image.transform;
@@ -329,6 +351,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
         double sy = hypot(cm.xx * t.c + cm.xy * t.d, cm.yx * t.c + cm.yy * t.d);
         size_t iw, ih;
         s = dimensions(fmax(1, sx), fmax(1, sy), &c->limits, &iw, &ih);
+
         if (s == RMR_OK) {
             cairo_surface_t *surf =
                 cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)iw, (int)ih);
@@ -342,6 +365,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                     s = RMR_ERR_BACKEND;
                 else {
                     FPDFBitmap_FillRect(bm, 0, 0, (int)iw, (int)ih, 0);
+
                     size_t count = 0;
                     rmr_pdf_page_geometry *geometry = nullptr;
                     s = rmr_pdf_pages(d->image.bytes, d->image.size, &c->limits, nullptr, 0, &count,
@@ -359,6 +383,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                                           count, &count, nullptr);
                     if (s == RMR_OK && !geometry[d->pdf_page].has_media)
                         s = RMR_ERR_UNSUPPORTED;
+
                     if (s == RMR_OK) {
                         rmr_pdf_page_geometry g = geometry[d->pdf_page];
                         rmr_rect media = g.media;
@@ -390,6 +415,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                                                 1 + media.y / media.height};
                             break;
                         }
+
                         n = rmr_pdfium_raw_transform(page, n);
                         double pw = FPDF_GetPageWidthF(page), ph = FPDF_GetPageHeightF(page);
                         FS_MATRIX matrix = {(float)(n.a * (double)iw),
@@ -410,12 +436,15 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                             bottom = fmax(bottom, yy[k]);
                         }
                         FS_RECTF clip = {(float)left, (float)top, (float)right, (float)bottom};
+
                         /* Use the same software glyph rasterizer on macOS and Linux. */
                         FPDF_RenderPageBitmapWithMatrix(bm, page, &matrix, &clip,
                                                         FPDF_NO_NATIVETEXT);
                     }
+
                     free(geometry);
                     FPDFBitmap_Destroy(bm);
+
                     /* PDFium BGRA is straight alpha; Cairo ARGB32 is premultiplied. */
                     uint8_t *pixels = cairo_image_surface_get_data(surf);
                     size_t stride = (size_t)cairo_image_surface_get_stride(surf);
@@ -425,6 +454,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
                             for (size_t channel = 0; channel < 3; channel++)
                                 v[channel] = (uint8_t)(((unsigned)v[channel] * v[3] + 127) / 255);
                         }
+
                     cairo_surface_mark_dirty(surf);
                     cairo_matrix_t m = {t.a / (double)iw,
                                         t.b / (double)iw,
@@ -440,6 +470,7 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
             cairo_surface_destroy(surf);
         }
     }
+
     if (page)
         FPDF_ClosePage(page);
     FPDF_CloseDocument(doc);
@@ -473,17 +504,21 @@ static rmr_status draw(void *ctx, const rmr_draw *d) {
             c->blend = d->group_blend;
         }
     }
+
     if (d->mode == RMR_PDF && c->pdf)
         return paint_pdf(c, d);
+
     cairo_t *cr = c->cr;
     cairo_save(cr);
     cairo_set_operator(cr, blend(d->blend));
     color(cr, d->color);
+
     bool isolate = d->eraser_count > 0;
     if (isolate) {
         cairo_push_group(cr);
         cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     }
+
     cairo_set_line_width(cr, d->line_width);
     cairo_set_line_cap(cr, d->cap == RMR_CAP_ROUND    ? CAIRO_LINE_CAP_ROUND
                            : d->cap == RMR_CAP_SQUARE ? CAIRO_LINE_CAP_SQUARE
@@ -492,8 +527,10 @@ static rmr_status draw(void *ctx, const rmr_draw *d) {
                             : d->join == RMR_JOIN_BEVEL ? CAIRO_LINE_JOIN_BEVEL
                                                         : CAIRO_LINE_JOIN_MITER);
     cairo_set_miter_limit(cr, d->miter_limit != 0 ? d->miter_limit : 10);
+
     rmr_status s = RMR_OK;
     path(cr, d->path);
+
     if (d->mode == RMR_IMAGE || d->mode == RMR_PDF) {
         cairo_clip(cr);
         if (d->mode == RMR_PDF)
@@ -560,6 +597,7 @@ static rmr_status draw(void *ctx, const rmr_draw *d) {
         cairo_stroke(cr);
     } else
         cairo_fill(cr);
+
     if (isolate) {
         /* Restore the page matrix after masks, then remove earlier ink only. */
         cairo_identity_matrix(cr);
@@ -574,6 +612,7 @@ static rmr_status draw(void *ctx, const rmr_draw *d) {
         cairo_set_operator(cr, blend(d->blend));
         cairo_paint(cr);
     }
+
     cairo_restore(cr);
     c->dirty = true;
     if (s == RMR_OK && cairo_status(cr) != CAIRO_STATUS_SUCCESS)
@@ -612,12 +651,14 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
         !isfinite(bg.blue) || !isfinite(bg.alpha) || bg.red < 0 || bg.red > 1 || bg.green < 0 ||
         bg.green > 1 || bg.blue < 0 || bg.blue > 1 || bg.alpha < 0 || bg.alpha > 1)
         return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid bitmap input");
+
     drawing c = {
         .limits = given ? *given : rmr_limits_default(), .sheet = *sheet, .clip_viewport = clip};
     size_t w, h;
     rmr_status s = dimensions(sheet->width, sheet->height, &c.limits, &w, &h);
     if (s != RMR_OK)
         return rmr_linux_error(e, s, "bitmap limit");
+
     c.surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)w, (int)h);
     cairo_status_t created = cairo_surface_status(c.surface);
     if (created != CAIRO_STATUS_SUCCESS) {
@@ -626,6 +667,7 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
             e, created == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY : RMR_ERR_BACKEND,
             "bitmap allocation failed");
     }
+
     c.cr = cairo_create(c.surface);
     color(c.cr, bg);
     cairo_paint(c.cr);
@@ -634,6 +676,7 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
     s = rmr_plan_execute(plan, &b, cancel, ctx, e);
     cairo_destroy(c.cr);
     cairo_surface_flush(c.surface);
+
     if (s == RMR_OK) {
         uint8_t *pixels = malloc(w * h * 4);
         if (!pixels)
@@ -654,6 +697,7 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
             *out = (rmr_bitmap){pixels, w, h, w * 4};
         }
     }
+
     cairo_surface_destroy(c.surface);
     return s == RMR_OK ? s : rmr_linux_error(e, s, "Linux bitmap rendering failed");
 }
@@ -687,21 +731,25 @@ rmr_status rmr_linux_render_pdf(const rmr_plan *const *plans, const rmr_sheet *s
     for (size_t i = 0; i < count; i++)
         if (!plans[i] || !sheet_valid(&sheets[i]))
             return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid PDF sheet");
+
     FPDF_DOCUMENT doc = FPDF_CreateNewDocument();
     if (!doc)
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
+
     rmr_status s = RMR_OK;
     for (size_t i = 0; i < count && s == RMR_OK; i++) {
         if (cancel && cancel(ctx)) {
             s = RMR_ERR_CANCELLED;
             break;
         }
+
         drawing c = {.limits = *limits, .sheet = sheets[i], .pdf = doc};
         c.page = FPDFPage_New(doc, (int)i, c.sheet.width, c.sheet.height);
         if (!c.page) {
             s = RMR_ERR_BACKEND;
             break;
         }
+
         segment_start(&c);
         rmr_backend b = backend(&c);
         s = rmr_plan_execute(plans[i], &b, cancel, ctx, e);
@@ -710,12 +758,15 @@ rmr_status rmr_linux_render_pdf(const rmr_plan *const *plans, const rmr_sheet *s
             if (s == RMR_OK)
                 s = finish;
         }
+
         if (s == RMR_OK && !FPDFPage_GenerateContent(c.page))
             s = RMR_ERR_BACKEND;
         FPDF_ClosePage(c.page);
     }
+
     if (s == RMR_OK)
         s = rmr_pdfium_save(doc, limits, out);
+
     FPDF_CloseDocument(doc);
     return s == RMR_OK ? s : rmr_linux_error(e, s, "Linux PDF rendering failed");
 }
@@ -735,12 +786,15 @@ rmr_status rmr_linux_pdf(const rmr_plan *const *plans, size_t count, double scal
                          rmr_error *e) {
     if (!plans || !out || !count || !isfinite(scale) || scale <= 0)
         return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid PDF input");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     if (count > limits.maximum_draws || count > limits.maximum_plan_bytes / sizeof(rmr_sheet))
         return rmr_linux_error(e, RMR_ERR_LIMIT, "PDF sheets limit");
+
     rmr_sheet *sheets = calloc(count, sizeof *sheets);
     if (!sheets)
         return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
+
     for (size_t i = 0; i < count; i++) {
         rmr_rect v = rmr_plan_viewport(plans[i]);
         sheets[i] =
@@ -748,6 +802,7 @@ rmr_status rmr_linux_pdf(const rmr_plan *const *plans, size_t count, double scal
                         .height = v.height * scale,
                         .transform = {scale, 0, 0, -scale, -v.x * scale, (v.height + v.y) * scale}};
     }
+
     rmr_status s = rmr_linux_pdf_sheets(plans, sheets, count, &limits, cancel, ctx, out, e);
     free(sheets);
     return s;

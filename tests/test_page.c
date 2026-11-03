@@ -32,52 +32,66 @@ static void canvas_checks(void) {
     rmr_point out = {0};
     rm_page a = {0}, b = {.has_paper_size = true, .paper_size = {100, 200}};
     const rm_page *pages[] = {nullptr, &a, &b};
+
     OK(rmr_lines_document_canvas(pages, 3, (rmr_point){800, 600}, false, nullptr, &out, nullptr));
     CHECK(out.x == 100 && out.y == 200);
+
     OK(rmr_lines_document_canvas(pages, 3, (rmr_point){800, 600}, true, nullptr, &out, nullptr));
     CHECK(out.x == 200 && out.y == 100);
+
     a.has_paper_size = true;
     a.paper_size = (rm_size){50, 80};
     OK(rmr_lines_document_canvas(pages, 3, (rmr_point){0}, false, nullptr, &out, nullptr));
     CHECK(out.x == 50 && out.y == 80);
+
     a.paper_size.width = NAN;
     b.paper_size.height = 100001;
     OK(rmr_lines_document_canvas(pages, 3, (rmr_point){800, 600}, false, nullptr, &out, nullptr));
     CHECK(out.x == 800 && out.y == 600);
+
     OK(rmr_lines_document_canvas(pages, 3, (rmr_point){INFINITY, 600}, true, nullptr, &out,
                                  nullptr));
     CHECK(out.x == 1872 && out.y == 1404);
+
     OK(rmr_lines_document_canvas(nullptr, 0, (rmr_point){100000, 100000}, true, nullptr, &out,
                                  nullptr));
     CHECK(out.x == 100000 && out.y == 100000);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_elements = 2;
     out = (rmr_point){1, 2};
     CHECK(rmr_lines_document_canvas(pages, 3, (rmr_point){0}, false, &limits, &out, nullptr) ==
               RMR_ERR_LIMIT &&
           out.x == 1);
+
     CHECK(rmr_lines_document_canvas(nullptr, 1, (rmr_point){0}, false, nullptr, &out, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
+
     OK(rmr_template_page_extent((rmr_point){100, 200}, (rmr_rect){-100, -20, 300, 420}, &out,
                                 nullptr));
     CHECK(out.x == 250 && out.y == 400);
+
     OK(rmr_template_page_extent((rmr_point){100, 200}, (rmr_rect){-1e8, -1e8, 2e8, 2e8}, &out,
                                 nullptr));
     CHECK(out.x == 100000 && out.y == 100000);
+
     OK(rmr_template_page_extent((rmr_point){100, 200}, (rmr_rect){-80, -20, 130, 220}, &out,
                                 nullptr));
     CHECK(out.x == 100 && out.y == 200);
+
     double fractional = 990.8701741838819, left = 898.9821295774763;
     OK(rmr_template_page_extent((rmr_point){fractional, 200},
                                 (rmr_rect){-fractional / 2 - left, 0, fractional + left, 200}, &out,
                                 nullptr));
     CHECK(out.x == fractional && out.y == 200);
+
     CHECK(rmr_template_page_extent((rmr_point){100, 200}, (rmr_rect){-40, 0, 100, 200}, &out,
                                    nullptr) == RMR_ERR_INVALID_ARGUMENT);
 }
 
 int main(void) {
     canvas_checks();
+
     const char json[] =
         "{\"name\":\"Own\",\"orientation\":\"landscape\",\"items\":[{\"type\":\"group\","
         "\"boundingBox\":{\"height\":20},\"repeat\":{\"rows\":\"down\"},\"children\":[{\"type\":"
@@ -99,9 +113,11 @@ int main(void) {
                     .template_name = {"Own", 3},
                     .background_visible = true};
     rmr_plan *p = nullptr;
+
     OK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                     nullptr, &p, nullptr));
     CHECK(store.calls == 1 && image_calls == 0);
+
     rmr_rect viewport = rmr_plan_viewport(p);
     CHECK(viewport.height > 240 && viewport.width == 100);
     size_t repeats = (size_t)ceil(viewport.height / 20);
@@ -109,9 +125,11 @@ int main(void) {
     CHECK(rmr_plan_draw(p, 0)->color.green == 1 && rmr_plan_draw(p, repeats)->color.green == 0);
     CHECK(rmr_plan_draw(p, 0)->path.elements[1].end.x ==
           50); /* template orientation never turns canvas */
+
     size_t composed_bytes = rmr_plan_bytes(p);
     rmr_template_document_free(document);
     store.model = nullptr;
+
 #ifdef RMRENDER_TEST_APPLE
     rmr_sheet sheet;
     OK(rmr_sheet_create(viewport, 100, 200, 1, &sheet, nullptr));
@@ -130,6 +148,7 @@ int main(void) {
 #endif
     rmr_plan_free(p);
     p = nullptr;
+
     /* Missing model and hidden background keep the foreground and skip needless copies. */
     OK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                     nullptr, &p, nullptr));
@@ -137,6 +156,7 @@ int main(void) {
     size_t foreground_bytes = rmr_plan_bytes(p);
     rmr_plan_free(p);
     p = nullptr;
+
     page.background_visible = false;
     resources.template = nullptr;
     OK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
@@ -144,15 +164,18 @@ int main(void) {
     CHECK(store.calls == 2);
     rmr_plan_free(p);
     p = nullptr;
+
     page.background_visible = true;
     CHECK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                        nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED &&
           !p);
+
     resources.template = resolve_template;
     store.status = RMR_ERR_BACKEND;
     CHECK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                        nullptr, &p, nullptr) == RMR_ERR_BACKEND &&
           !p);
+
     store.status = RMR_OK;
     OK(rmr_template_document_decode(json, strlen(json), nullptr, &document, nullptr));
     store.model = rmr_template_document_model(document);
@@ -161,6 +184,7 @@ int main(void) {
     CHECK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                        &limits, &p, nullptr) == RMR_ERR_LIMIT &&
           !p);
+
     rm_page_image image = {
         .vertices = {{-10, 0, 0, 0}, {10, 0, 1, 0}, {10, 300, 1, 1}, {-10, 300, 0, 1}}};
     page.images = &image;
@@ -170,10 +194,12 @@ int main(void) {
     CHECK(image_calls == 1 && rmr_plan_viewport(p).height >= 300);
     rmr_plan_free(p);
     p = nullptr;
+
     page.has_text = true;
     CHECK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                        nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED &&
           !p);
+
     rmr_template_document_free(document);
     /* A named template can contain text; only its provider is platform-specific. */
     page.has_text = false;
@@ -183,9 +209,11 @@ int main(void) {
                              "label\",\"position\":{\"x\":10,\"y\":30}}]}";
     OK(rmr_template_document_decode(text_json, strlen(text_json), nullptr, &document, nullptr));
     store.model = rmr_template_document_model(document);
+
     CHECK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,
                                        nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED &&
           !p);
+
 #ifdef RMRENDER_TEST_APPLE
     rmr_text_provider text_provider = rmr_apple_text_provider();
     resources.text = &text_provider;
@@ -195,6 +223,7 @@ int main(void) {
     rmr_plan_free(p);
     p = nullptr;
 #endif
+
     page.template_name.length = 0;
     resources.template = nullptr;
     OK(rmr_lines_composed_page_plan(&page, (rmr_point){100, 200}, RMR_EDGE_UNCUT, 0, &resources,

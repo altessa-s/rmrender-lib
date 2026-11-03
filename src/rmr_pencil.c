@@ -41,11 +41,13 @@ static double density(rmr_grain grain, double p) {
         {.72, .820}, {.78, .840}, {.84, .890}, {.91, .960}, {1, .980}};
     static const double brush[][2] = {{0, 0},     {.19, 0},   {.22, .33}, {.28, .39}, {.34, .60},
                                       {.41, .78}, {.47, .92}, {.53, 1},   {1, 1}};
+
     const double (*table)[2] = grain == RMR_GRAIN_BRISTLE ? brush : pencil;
     size_t count =
         grain == RMR_GRAIN_BRISTLE ? sizeof brush / sizeof *brush : sizeof pencil / sizeof *pencil;
     if (p <= table[0][0])
         return table[0][1];
+
     for (size_t i = 1; i < count; i++)
         if (p < table[i][0])
             return table[i - 1][1] + (table[i][1] - table[i - 1][1]) *
@@ -83,6 +85,7 @@ static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value, double
     double p = (double)(value - 1) / 253;
     if (grain == RMR_GRAIN_NOISE || grain == RMR_GRAIN_BRISTLE)
         return rmr_grain_noise(x, y) < density(grain, p);
+
     uint64_t salt =
         grain == RMR_GRAIN_STAMP ? UINT64_C(0x7374616D7074696C) : UINT64_C(0x62616C6C736B6970);
     uint64_t h = hash(cell((double)x / 64), cell((double)y / 64), salt);
@@ -94,6 +97,7 @@ static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value, double
         return ((pencil_tiles[family * 4 + a][bit / 8] | pencil_tiles[family * 4 + b][bit / 8]) &
                 mask) != 0;
     }
+
     double share = (1 - smooth(.5, .85, p)) * (width > 3 ? 3 / width : 1);
     return share <= 0 || (marker_tiles[a][bit / 8] & mask) || unit(x, y, salt) >= share;
 }
@@ -107,17 +111,21 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
         (raster && (raster->abi_version != RMR_UNIT_RASTER_ABI ||
                     raster->struct_size < sizeof *raster || !raster->render)))
         return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "invalid grain arguments");
+
     rmr_limits limits = given ? *given : rmr_limits_default();
     rmr_status status = rmr_grain_validate(points, count, limits, error);
     if (status != RMR_OK)
         return status;
+
     rmr_mask m;
     status = rmr_mask_layout(box, limits, &m, error);
     if (status != RMR_OK)
         return status;
+
     size_t w = m.width / 2, h = m.height / 2, area = w * h, bytes = m.stride * m.height;
     if (area > limits.maximum_plan_bytes - bytes)
         return rmr_fail(error, RMR_ERR_LIMIT, 0, "grain map memory limit");
+
     uint8_t *map = rmr_calloc(area, 1);
     m.bytes = rmr_alloc(bytes);
     if (!map || !m.bytes) {
@@ -125,6 +133,7 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
         free(m.bytes);
         return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, nullptr);
     }
+
     memset(m.bytes, 255, bytes);
     double run = 0;
     size_t work = 0;
@@ -133,11 +142,13 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
     for (size_t i = 0; i < count; i++)
         sum += (float)(points[i].width * 4);
     double mean = count ? rmr_clamp((double)sum / (double)count / 4, .7, 200) : .7;
+
     // The final iteration is the stationary streak's disc if no segment moved.
     for (size_t i = 1; i <= count; i++) {
         bool stationary = i == count;
         if (stationary && (grain != RMR_GRAIN_STREAK || moved))
             break;
+
         rmr_grain_point a = points[stationary ? 0 : i - 1], b = points[stationary ? 0 : i];
         double ax = a.x, ay = a.y, ex = (double)b.x - ax, ey = (double)b.y - ay;
         double length = sqrt(ex * ex + ey * ey);
@@ -149,6 +160,7 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
         if (!stationary)
             moved = true;
         double radius = fmax(a.width, b.width) / 2 + (grain == RMR_GRAIN_STREAK ? 0 : 1);
+
         size_t top, bottom, left, right;
         if (!cells(fmin(ay, ay + ey) - radius - box.y, fmax(ay, ay + ey) + radius - box.y, h, &top,
                    &bottom) ||
@@ -157,9 +169,11 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
             run += advance;
             continue;
         }
+
         double dx = length > 0 ? ex / length : 1, dy = length > 0 ? ey / length : 0;
         double p0 = pressure(a.pressure), p1 = pressure(b.pressure);
         unsigned byte = 1 + (unsigned)round((p0 + p1) / 2 * 253);
+
         for (size_t row = top; row <= bottom; row++) {
             double cy = box.y + (double)row + .5 - ay;
             for (size_t col = left; col <= right; col++) {
@@ -167,17 +181,20 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
                     status = rmr_fail(error, RMR_ERR_LIMIT, work, "grain capsule work limit");
                     goto done;
                 }
+
                 size_t at = row * w + col;
                 double cx = box.x + (double)col + .5 - ax;
                 if (grain == RMR_GRAIN_STREAK) {
                     if (map[at])
                         continue;
+
                     double along = cx * dx + cy * dy;
                     double tau = length > 0 ? rmr_clamp(along / length, 0, 1) : 0;
                     double qx = cx - dx * tau * length, qy = cy - dy * tau * length;
                     double half = a.width / 2 + (b.width / 2 - a.width / 2) * tau;
                     if (qx * qx + qy * qy > half * half)
                         continue;
+
                     double speed = (double)a.speed + ((double)b.speed - (double)a.speed) * tau;
                     if (!isfinite(speed))
                         speed = 0;
@@ -194,8 +211,10 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
                 }
             }
         }
+
         run += advance;
     }
+
     for (size_t row = 0; row < h; row++)
         for (size_t col = 0; col < w; col++) {
             unsigned byte = map[row * w + col];
@@ -210,6 +229,7 @@ rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain
                             (uint8_t)~(0x80u >> (pixel & 7));
                     }
         }
+
     *out = m;
 done:
     free(map);

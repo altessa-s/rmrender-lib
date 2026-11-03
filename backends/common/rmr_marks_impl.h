@@ -42,6 +42,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
         (!page->highlights && page->highlight_count) || !isfinite(frame.x) || !isfinite(frame.y) ||
         !isfinite(frame.width) || !isfinite(frame.height) || frame.width <= 0 || frame.height <= 0)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid marks input");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (page->stroke_count > l.maximum_draws ||
         page->highlight_count > l.maximum_draws - page->stroke_count ||
@@ -61,6 +62,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
     bytes += items * 25;
     if (text_bytes > l.maximum_plan_bytes - bytes)
         return text_error(e, RMR_ERR_LIMIT, "marks strings limit");
+
     size_t rectangles = 0;
     for (size_t i = 0; i < page->highlight_count; i++) {
         const rm_highlight *h = &page->highlights[i];
@@ -77,6 +79,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
         }
     }
     bytes += text_bytes;
+
     rmr_limits remaining = l;
     remaining.maximum_plan_bytes -= bytes;
     mark_layout *layout = nullptr;
@@ -92,12 +95,14 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
         ac = (rmr_anchor_context){mark_layout_anchors(layout), &l};
         provider = rmr_lines_layout_anchor_provider(&ac);
     }
+
     status = rmr_lines_place_scene(page->strokes, page->stroke_count, nullptr, 0,
                                    layout ? &provider : nullptr, &remaining, &placed, e);
     if (status != RMR_OK) {
         mark_layout_free(layout);
         return status;
     }
+
     rmr_page_marks *m = calloc(1, sizeof *m);
     if (!m) {
         status = RMR_ERR_OUT_OF_MEMORY;
@@ -121,6 +126,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
         m->page.page_id = (rmm_str){m->strings, id.length};
         at = id.length + 1;
     }
+
     const rm_stroke *strokes = rmr_placed_scene_strokes(placed);
     for (size_t i = 0; i < page->stroke_count; i++) {
         const rm_stroke *stroke = &strokes[i];
@@ -139,6 +145,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
             (rmm_mark_band){normalized(box, frame), rgb(style.color), {m->strings + at, (size_t)n}};
         at += 25;
     }
+
     for (size_t i = 0; i < page->highlight_count; i++) {
         const rm_highlight *h = &page->highlights[i];
         if (!h->has_text || !h->text.length || !h->rectangle_count)
@@ -159,6 +166,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
                                  fmax(box.y + box.height, r.y + r.height) - y};
             }
         }
+
         rmr_color color;
         status = rmr_lines_highlight_color(h, &color, e);
         if (status != RMR_OK)
@@ -172,6 +180,7 @@ rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame
             (rmm_marked_highlight){{m->strings + at, h->text.length}, band};
         at += h->text.length + 1;
     }
+
 done:
     rmr_placed_scene_free(placed);
     mark_layout_free(layout);
@@ -203,19 +212,23 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
     if (!page || !out || (!blocks && count) || !page->pixels || !page->width || !page->height ||
         page->width > SIZE_MAX / 4 || page->stride < page->width * 4)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid mark sheet input");
+
     rmr_limits l = given ? *given : rmr_limits_default();
     if (page->width > l.maximum_bitmap_side || page->height > l.maximum_bitmap_side ||
         page->stride > l.maximum_bitmap_bytes / page->height || count > l.maximum_elements ||
         margin > l.maximum_bitmap_side || rule > l.maximum_bitmap_side)
         return text_error(e, RMR_ERR_LIMIT, "mark sheet input limit");
+
     typedef struct {
         size_t x, y, w, h, index;
     } cut;
     if (count > l.maximum_plan_bytes / (sizeof(cut) + sizeof(rmm_mark_strip)))
         return text_error(e, RMR_ERR_LIMIT, "mark sheet storage limit");
+
     cut *cuts = count ? calloc(count, sizeof *cuts) : nullptr;
     if (count && !cuts)
         return text_error(e, RMR_ERR_OUT_OF_MEMORY, "mark sheet allocation failed");
+
     size_t used = 0, width = 0, height = rule;
     rmr_status status = RMR_OK;
     for (size_t i = 0; i < count; i++) {
@@ -225,6 +238,7 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
             status = RMR_ERR_INVALID_ARGUMENT;
             goto done;
         }
+
         double x0 = fmax(0, b.x0 * (double)page->width - (double)margin),
                y0 = fmax(0, b.y0 * (double)page->height - (double)margin);
         double x1 = fmin((double)page->width, b.x1 * (double)page->width + (double)margin),
@@ -244,10 +258,12 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
             width = w;
         cuts[used++] = (cut){x, y, w, h, i};
     }
+
     if (!used) {
         *out = (rmr_mark_sheet){0};
         goto done;
     }
+
     size_t scratch = count * sizeof(cut), strip_bytes = used * sizeof(rmm_mark_strip);
     if (width > SIZE_MAX / 4 || width * 4 > l.maximum_bitmap_bytes / height ||
         strip_bytes > l.maximum_plan_bytes - scratch ||
@@ -255,6 +271,7 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
         status = RMR_ERR_LIMIT;
         goto done;
     }
+
     uint8_t *pixels = malloc(width * 4 * height);
     rmm_mark_strip *strips = calloc(used, sizeof *strips);
     if (!pixels || !strips) {
@@ -263,6 +280,7 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
         status = RMR_ERR_OUT_OF_MEMORY;
         goto done;
     }
+
     memset(pixels, 255, width * 4 * height);
     size_t top = rule;
     for (size_t i = 0; i < used; i++) {
@@ -278,10 +296,12 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
                 }
             }
         }
+
         strips[i] = (rmm_mark_strip){blocks[c.index],
                                      {0, (double)top / (double)height, (double)c.w / (double)width,
                                       (double)(top + c.h) / (double)height}};
         top += c.h;
+
         for (size_t y = 0; y < rule; y++)
             for (size_t x = 0; x < width; x++) {
                 uint8_t *pixel = pixels + ((top + y) * width + x) * 4;
@@ -289,7 +309,9 @@ rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, s
             }
         top += rule;
     }
+
     *out = (rmr_mark_sheet){{pixels, width, height, width * 4}, strips, used};
+
 done:
     free(cuts);
     return status == RMR_OK ? RMR_OK : text_error(e, status, "mark sheet construction failed");

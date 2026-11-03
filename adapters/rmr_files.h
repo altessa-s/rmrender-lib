@@ -17,10 +17,12 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
     if (!length || memchr(name, 0, length) || memchr(name, '/', length) ||
         memchr(name, '\\', length))
         return RMR_ERR_INVALID_ARGUMENT;
+
     size_t root = strlen(directory), suffix = strlen(extension);
     if (root > maximum || length > maximum - root || suffix > maximum - root - length ||
         maximum - root - length - suffix < 2)
         return RMR_ERR_LIMIT;
+
     size_t capacity = root + length + suffix + 2;
     char *path = malloc(capacity);
     if (!path)
@@ -29,6 +31,7 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
     path[root] = '/';
     memcpy(path + root + 1, name, length);
     memcpy(path + root + 1 + length, extension, suffix + 1);
+
     FILE *file = fopen(path, "rb");
     free(path);
     if (!file) {
@@ -38,6 +41,7 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
         }
         return RMR_ERR_BACKEND;
     }
+
     rmr_status status = RMR_OK;
     if (fseek(file, 0, SEEK_END) != 0)
         status = RMR_ERR_BACKEND;
@@ -50,6 +54,7 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
         fclose(file);
         return status;
     }
+
     size_t size = (size_t)measured;
     rewind(file);
     uint8_t *bytes = malloc(size ? size : 1);
@@ -63,6 +68,7 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
         free(bytes);
         return status;
     }
+
     *out = (rmr_buffer){bytes, size};
     return RMR_OK;
 }

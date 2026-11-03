@@ -88,10 +88,12 @@ rmr_status rmr_page_to_pdf(rmr_rect v, double scale, rmr_transform *out, rmr_err
     if (!out || !isfinite(scale) || scale <= 0 || !isfinite(v.x) || !isfinite(v.y) ||
         !isfinite(v.width) || !isfinite(v.height) || v.width <= 0 || v.height <= 0)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid viewport or scale");
+
     rmr_transform t = {scale, 0, 0, -scale, -v.x * scale, (v.y + v.height) * scale};
     if (!isfinite(t.tx) || !isfinite(t.ty) || !isfinite(v.width * scale) ||
         !isfinite(v.height * scale))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "transform overflow");
+
     *out = t;
     return RMR_OK;
 }
@@ -103,14 +105,17 @@ rmr_point rmr_transform_point(rmr_transform t, rmr_point p) {
 rmr_status rmr_paper_points(rmr_paper paper, double w, double h, rmr_point *out, rmr_error *e) {
     if (!out || paper > RMR_PAPER_TABLET || !isfinite(w) || !isfinite(h) || w <= 0 || h <= 0)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid paper or canvas");
+
     rmr_point size = paper == RMR_PAPER_A4 ? (rmr_point){595.276, 841.89}
                      : paper == RMR_PAPER_LETTER
                          ? (rmr_point){612, 792}
                          : (rmr_point){w * RMR_POINTS_PER_UNIT, h * RMR_POINTS_PER_UNIT};
     if (w > h && size.y > size.x)
         size = (rmr_point){size.y, size.x};
+
     if (!isfinite(size.x) || !isfinite(size.y) || size.x <= 0 || size.y <= 0)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "paper dimensions overflow or underflow");
+
     *out = size;
     return RMR_OK;
 }
@@ -121,14 +126,17 @@ rmr_status rmr_sheet_create(rmr_rect b, double fw, double fh, double scale, rmr_
         b.width <= 0 || b.height <= 0 || !isfinite(fw) || !isfinite(fh) || fw <= 0 || fh <= 0 ||
         !isfinite(scale) || scale <= 0)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "invalid sheet input");
+
     double width = b.width * scale, height = b.height * scale;
     if (!isfinite(width) || !isfinite(height))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "sheet dimensions overflow");
+
     rmr_sheet s = {.width = round(fmax(fw, width)), .height = round(fmax(fh, height))};
     s.transform = (rmr_transform){
         scale, 0, 0, -scale, (s.width - width) / 2 - b.x * scale, s.height + b.y * scale};
     if (s.width < 1 || s.height < 1 || !isfinite(s.transform.tx) || !isfinite(s.transform.ty))
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "sheet placement overflow or empty rounded sheet");
+
     *out = s;
     return RMR_OK;
 }
@@ -137,13 +145,16 @@ rmr_status rmr_paper_sheet(rmr_paper paper, double w, double h, rmr_rect bounds,
                            rmr_error *e) {
     if (!out)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, 0, "missing sheet output");
+
     rmr_point size;
     rmr_status s = rmr_paper_points(paper, w, h, &size, e);
     if (s != RMR_OK)
         return s;
+
     double scale = size.x / w;
     if (!isfinite(scale) || scale <= 0)
         return rmr_fail(e, RMR_ERR_LIMIT, 0, "paper scale overflow");
+
     return rmr_sheet_create(bounds, size.x, size.y, scale, out, e);
 }
 
@@ -152,6 +163,7 @@ bool rmr_utf8_valid(const char *s, size_t n) {
         unsigned c = (unsigned char)s[i++];
         if (c < 128)
             continue;
+
         unsigned count = c >= 0xc2 && c <= 0xdf   ? 1
                          : c >= 0xe0 && c <= 0xef ? 2
                          : c >= 0xf0 && c <= 0xf4 ? 3
@@ -165,9 +177,11 @@ bool rmr_utf8_valid(const char *s, size_t n) {
                 return false;
             v = (v << 6) | (b & 63);
         }
+
         if ((count == 1 && v < 128) || (count == 2 && v < 2048) || (count == 3 && v < 65536) ||
             v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff))
             return false;
     }
+
     return true;
 }

@@ -12,12 +12,15 @@ int main(void) {
     l.maximum_elements = 1;
     CHECK(rmr_outline(points, 2, RMR_CAP_ROUND, RMR_JOIN_ROUND, &l, &p, nullptr) == RMR_ERR_LIMIT);
     CHECK(!p.elements);
+
     l = rmr_limits_default();
     l.maximum_points = 1;
     CHECK(rmr_outline(points, 2, RMR_CAP_ROUND, RMR_JOIN_ROUND, &l, &p, nullptr) == RMR_ERR_LIMIT);
+
     points[0].position.x = NAN;
     CHECK(rmr_outline(points, 2, RMR_CAP_ROUND, RMR_JOIN_ROUND, nullptr, &p, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
+
     points[0].position.x = 0;
     bool succeeded = false;
     for (size_t budget = 0; budget < 100; budget++) {
@@ -31,6 +34,7 @@ int main(void) {
         CHECK(s == RMR_ERR_OUT_OF_MEMORY && !p.elements);
     }
     CHECK(succeeded);
+
     rmr_draw d = {.path = {p.elements, p.count}, .mode = RMR_FILL, .color = {0, 0, 0, 1}};
     rmr_plan *plan = nullptr;
     succeeded = false;
@@ -46,13 +50,16 @@ int main(void) {
         CHECK(s == RMR_ERR_OUT_OF_MEMORY && !plan);
     }
     CHECK(succeeded);
+
     rmr_plan_free(plan);
     rmr_path_free(&p);
+
     rmr_element bad = {.kind = RMR_LINE, .end = {1, 2}};
     d.path = (rmr_path_view){&bad, 1};
     plan = nullptr;
     CHECK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 10, 10}, nullptr, &plan, nullptr) ==
           RMR_ERR_INVALID_ARGUMENT);
+
     /* Bounded, deterministic arbitrary geometry with duplicates and acute turns. */
     uint32_t state = 0x524d52;
     for (size_t i = 0; i < 20000; i++) {
@@ -66,6 +73,7 @@ int main(void) {
         OK(rmr_outline(samples, 8, (rmr_cap)(i % 3), (rmr_join)(i % 2), nullptr, &p, nullptr));
         rmr_path_free(&p);
     }
+
     puts("errors and 20000 geometry cases passed");
     return 0;
 }

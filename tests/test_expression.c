@@ -25,6 +25,7 @@ int main(void) {
     CHECK(eval("0 ? 1 : 1 ? 2 : 3") == 2 && eval("1 ? 0 ? 2 : 3 : 4") == 3);
     CHECK(eval("---2 + +.5") == -1.5 && eval("1.25 + 2.5") == 3.75);
     CHECK(eval("-7 / -zero") == 0 && !signbit(eval("-7 / -zero")));
+
     char source[] = "x+1";
     rmr_expression *p = nullptr;
     OK(rmr_expression_compile(source, 3, nullptr, &p, nullptr));
@@ -33,6 +34,7 @@ int main(void) {
     double out = 123;
     OK(rmr_expression_evaluate(p, &b, 1, &out, nullptr));
     CHECK(out == 9);
+
     out = 123;
     rmr_error e = {0};
     CHECK(rmr_expression_evaluate(p, nullptr, 0, &out, &e) == RMR_ERR_INVALID_ARGUMENT &&
@@ -42,6 +44,7 @@ int main(void) {
     rmr_test_fail_after(SIZE_MAX);
     rmr_expression_free(p);
     p = nullptr;
+
     const char *bad[] = {"",     "1..2", "1e3",  "1 < 2 < 3", "!1",  "1?2",
                          "(1+2", "1 2",  "a(2)", "1 ? : 3",   "1 &&"};
     for (size_t i = 0; i < sizeof bad / sizeof *bad; i++)
@@ -49,6 +52,7 @@ int main(void) {
                   RMR_ERR_INVALID_ARGUMENT &&
               !p);
     CHECK(rmr_expression_compile("\xc3\xa9", 2, nullptr, &p, nullptr) == RMR_ERR_UNSUPPORTED);
+
     const char *eager[] = {"1 ? 2 : missing", "0 && missing", "1 || missing"};
     for (size_t i = 0; i < 3; i++) {
         OK(rmr_expression_compile(eager[i], strlen(eager[i]), nullptr, &p, nullptr));
@@ -58,18 +62,21 @@ int main(void) {
         rmr_expression_free(p);
         p = nullptr;
     }
+
     for (size_t i = 0; i < 3; i++) {
         rmr_test_fail_after(i);
         CHECK(rmr_expression_compile("1+2", 3, nullptr, &p, nullptr) == RMR_ERR_OUT_OF_MEMORY &&
               !p);
     }
     rmr_test_fail_after(SIZE_MAX);
+
     rmr_limits limits = rmr_limits_default();
     limits.maximum_elements = 2;
     CHECK(rmr_expression_compile("1+2", 3, &limits, &p, nullptr) == RMR_ERR_LIMIT);
     limits = rmr_limits_default();
     limits.maximum_plan_bytes = 1;
     CHECK(rmr_expression_compile("1", 1, &limits, &p, nullptr) == RMR_ERR_LIMIT);
+
     char nested[131];
     memset(nested, '(', 65);
     nested[65] = '1';
@@ -77,10 +84,12 @@ int main(void) {
     CHECK(rmr_expression_compile(nested, sizeof nested, nullptr, &p, nullptr) == RMR_ERR_LIMIT);
     CHECK(rmr_expression_compile("1", 65537, nullptr, &p, nullptr) == RMR_ERR_LIMIT);
     OK(rmr_expression_compile(nested + 1, sizeof nested - 2, nullptr, &p, nullptr));
+
     OK(rmr_expression_evaluate(p, nullptr, 0, &out, nullptr));
     CHECK(out == 1);
     rmr_expression_free(p);
     p = nullptr;
+
     OK(rmr_expression_compile("x", 1, nullptr, &p, nullptr));
     b.value = INFINITY;
     OK(rmr_expression_evaluate(p, &b, 1, &out, nullptr));
@@ -89,10 +98,12 @@ int main(void) {
     OK(rmr_expression_evaluate(p, &b, 1, &out, nullptr));
     CHECK(isnan(out));
     CHECK(rmr_expression_evaluate(p, &b, 257, &out, nullptr) == RMR_ERR_LIMIT);
+
     b.name = "1x";
     b.length = 2;
     CHECK(rmr_expression_evaluate(p, &b, 1, &out, nullptr) == RMR_ERR_INVALID_ARGUMENT);
     rmr_expression_free(p);
+
     /* No global-locale dependency: comma locales must still parse a decimal dot. */
     const char *current = setlocale(LC_NUMERIC, nullptr);
     char saved[128];
@@ -105,5 +116,6 @@ int main(void) {
             break;
         }
     CHECK(setlocale(LC_NUMERIC, saved));
+
     puts("expression precedence, ownership, eager branches, locale and limits passed");
 }

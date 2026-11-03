@@ -57,6 +57,7 @@ int main(int argc, char **argv) {
     F *fonts = nullptr;
     OK(create(argv[1], nullptr, &fonts, nullptr));
     const double columns[] = {1, 20, 100, 500};
+
     for (size_t sample = 0; sample < sizeof clusters / sizeof *clusters; sample++)
         for (size_t column = 0; column < sizeof columns / sizeof *columns; column++) {
             char text[256];
@@ -73,6 +74,7 @@ int main(int argc, char **argv) {
             OK(layout_create(&block, columns[column], fonts, nullptr, &layout, nullptr));
             const rmr_anchor_layout *a = anchors(layout);
             CHECK(a->count == 1 && a->paragraphs[0].line_count);
+
             size_t end = 0;
             for (size_t line = 0; line < a->paragraphs[0].line_count; line++) {
                 rmr_text_line visual;
@@ -101,6 +103,7 @@ int main(int argc, char **argv) {
                         CHECK(c.at_index == 123 && c.at_start == 456);
                 }
             }
+
             CHECK(end == total);
             invalid(a->caret, 1, 0, 0);
             invalid(a->caret, 0, a->paragraphs[0].line_count, 0);
@@ -111,6 +114,7 @@ int main(int argc, char **argv) {
             CHECK(untouched.at_index == 123 && untouched.at_start == 456);
             layout_free(layout);
         }
+
     release(fonts);
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     FcFini();
