@@ -299,10 +299,11 @@ bad:
     stop(s->j, RMR_ERR_INVALID_ARGUMENT, "malformed PDF object");
     return nullptr;
 }
+/* PDF integers may carry an explicit plus sign. */
 static bool uint_value(node *n, uint64_t *out) {
     if (!n || n->type != SCALAR)
         return false;
-    scan s = {.data = n->raw, .size = n->length};
+    scan s = {.data = n->raw, .size = n->length, .pos = n->length > 1 && n->raw[0] == '+'};
     return integer(&s, out) && s.pos == s.size;
 }
 /* zlib state is heap memory charged to the scratch budget and released by
@@ -1937,8 +1938,8 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
 /* Rewriting keeps object identities and generations, but discards historical
  * revisions and expands packed objects. It is deliberately separate from the
  * incremental writer: rewriting can never preserve signed byte ranges. */
-/* A fresh file keeps the source's declared version, %PDF-<major>.<minor>,
- * and falls back to 1.7 when the header is not in that form. */
+/* A fresh file keeps the source's declared version, a %PDF-<major>.<minor>
+ * line, and falls back to 1.7 when the header line is not in that form. */
 static void header(writer *w, const uint8_t *source, size_t size) {
     size_t end = 5, major = 0, minor = 0;
     while (end < size && end < 16 && source[end] >= '0' && source[end] <= '9')
@@ -1946,7 +1947,7 @@ static void header(writer *w, const uint8_t *source, size_t size) {
     if (end < size && source[end] == '.')
         for (end++; end < size && end < 16 && source[end] >= '0' && source[end] <= '9'; end++)
             minor++;
-    bool valid = major && minor && (end == size || source[end] < '0' || source[end] > '9');
+    bool valid = major && minor && end < size && (source[end] == '\r' || source[end] == '\n');
     if (valid)
         put(w, source, end);
     else

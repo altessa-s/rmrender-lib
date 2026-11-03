@@ -250,6 +250,11 @@ static void select_labels_check(void) {
     rmr_buffer_free(&out);
     char *start = strstr(f.bytes, "/St 5 >>");
     assert(start);
+    memcpy(start, "/St +5>>", 8);
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
+                                nullptr) == RMR_OK);
+    assert(squashed_contains(&out, "/Nums[0<</S/D/St5>>"));
+    rmr_buffer_free(&out);
     const char *invalid[] = {"/St(5)>>", "/St 0 >>"};
     for (size_t i = 0; i < 2; i++) {
         memcpy(start, invalid[i], 8);
@@ -281,10 +286,12 @@ static void reserved_check(void) {
     size_t count;
     assert(rmr_pdf_pages((uint8_t *)direct.bytes, direct.n, nullptr, nullptr, 0, &count, nullptr) ==
            RMR_ERR_INVALID_ARGUMENT);
-    const char *const headers[][2] = {{"%PDF-2.0", "%PDF-2.0\n"}, {"%PDF-x.7", "%PDF-1.7\n"}};
-    for (size_t i = 0; i < 2; i++) {
+    /* The last header runs into object 1 without a line break. */
+    const char *const headers[][2] = {
+        {"%PDF-2.0\n", "%PDF-2.0\n"}, {"%PDF-x.7\n", "%PDF-1.7\n"}, {"%PDF-1.71", "%PDF-1.7\n"}};
+    for (size_t i = 0; i < 3; i++) {
         fixture f = overlay_fixture();
-        memcpy(f.bytes, headers[i][0], 8);
+        memcpy(f.bytes, headers[i][0], 9);
         assert(rmr_pdf_rewrite((uint8_t *)f.bytes, f.n, nullptr, nullptr, nullptr, &out, nullptr) ==
                RMR_OK);
         assert(out.size > 9 && !memcmp(out.bytes, headers[i][1], 9));
