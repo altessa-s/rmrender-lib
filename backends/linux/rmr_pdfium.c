@@ -37,15 +37,26 @@ cairo_status_t rmr_linux_write(void *ctx, const unsigned char *data, unsigned in
         s->status = RMR_ERR_LIMIT;
         return CAIRO_STATUS_WRITE_ERROR;
     }
-    uint8_t *p = realloc(s->data.bytes, s->data.size + size);
-    if (!p && size) {
-        s->status = RMR_ERR_OUT_OF_MEMORY;
-        return CAIRO_STATUS_NO_MEMORY;
+    if (!size)
+        return CAIRO_STATUS_SUCCESS;
+    size_t needed = s->data.size + size;
+    if (needed > s->capacity) {
+        /* Cairo writes in small pieces; grow geometrically, never past the limit. */
+        size_t grown = s->capacity < 4096 ? 4096 : s->capacity;
+        while (grown < needed)
+            grown = grown > s->maximum / 2 ? s->maximum : grown * 2;
+        if (grown > s->maximum)
+            grown = s->maximum;
+        uint8_t *p = realloc(s->data.bytes, grown);
+        if (!p) {
+            s->status = RMR_ERR_OUT_OF_MEMORY;
+            return CAIRO_STATUS_NO_MEMORY;
+        }
+        s->data.bytes = p;
+        s->capacity = grown;
     }
-    s->data.bytes = p;
-    if (size)
-        memcpy(p + s->data.size, data, size);
-    s->data.size += size;
+    memcpy(s->data.bytes + s->data.size, data, size);
+    s->data.size = needed;
     return CAIRO_STATUS_SUCCESS;
 }
 typedef struct {

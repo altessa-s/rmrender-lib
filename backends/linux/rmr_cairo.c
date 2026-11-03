@@ -1,7 +1,7 @@
-#include "../../src/rmr_pdf_edit.h"
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+#include "../../src/rmr_pdf_edit.h"
 #include "rmr_linux_internal.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <limits.h>
@@ -202,7 +202,7 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
     g_object_unref(loader);
     return status;
 }
-static rmr_status paint_pdf(drawing *c, const rmr_draw *d) {
+static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
     if (d->image.size > c->limits.maximum_pdf_bytes || d->pdf_page > INT_MAX)
         return RMR_ERR_LIMIT;
     FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(d->image.bytes, d->image.size, nullptr);
@@ -393,7 +393,9 @@ static rmr_status paint_pdf(drawing *c, const rmr_draw *d) {
                             bottom = fmax(bottom, yy[k]);
                         }
                         FS_RECTF clip = {(float)left, (float)top, (float)right, (float)bottom};
-                        FPDF_RenderPageBitmapWithMatrix(bm, page, &matrix, &clip, 0);
+                        /* Use the same software glyph rasterizer on macOS and Linux. */
+                        FPDF_RenderPageBitmapWithMatrix(bm, page, &matrix, &clip,
+                                                        FPDF_NO_NATIVETEXT);
                     }
                     free(geometry);
                     FPDFBitmap_Destroy(bm);
@@ -424,6 +426,12 @@ static rmr_status paint_pdf(drawing *c, const rmr_draw *d) {
     if (page)
         FPDF_ClosePage(page);
     FPDF_CloseDocument(doc);
+    return s;
+}
+static rmr_status paint_pdf(drawing *c, const rmr_draw *d) {
+    rmr_pdfium_lock();
+    rmr_status s = paint_pdf_locked(c, d);
+    rmr_pdfium_unlock();
     return s;
 }
 static rmr_status begin(void *ctx, rmr_rect viewport) {
@@ -586,14 +594,20 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
     if (s != RMR_OK)
         return rmr_linux_error(e, s, "bitmap limit");
     c.surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)w, (int)h);
+    cairo_status_t created = cairo_surface_status(c.surface);
+    if (created != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(c.surface);
+        return rmr_linux_error(e,
+                               created == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY
+                                                                 : RMR_ERR_BACKEND,
+                               "bitmap allocation failed");
+    }
     c.cr = cairo_create(c.surface);
     color(c.cr, bg);
     cairo_paint(c.cr);
     setup(&c);
     rmr_backend b = backend(&c);
-    rmr_pdfium_lock();
     s = rmr_plan_execute(plan, &b, cancel, ctx, e);
-    rmr_pdfium_unlock();
     cairo_destroy(c.cr);
     cairo_surface_flush(c.surface);
     if (s == RMR_OK) {

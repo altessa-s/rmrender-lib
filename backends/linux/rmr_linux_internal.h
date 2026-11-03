@@ -17,7 +17,7 @@
 #include <string.h>
 typedef struct {
     rmr_buffer data;
-    size_t maximum;
+    size_t capacity, maximum;
     rmr_status status;
 } rmr_sink;
 RMR_API rmr_status rmr_linux_error(rmr_error *e, rmr_status s, const char *message);
