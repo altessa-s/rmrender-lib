@@ -43,4 +43,16 @@ RMR_API size_t rmr_linux_pdf_source_count(const rmr_linux_pdf_source *source);
     const rmr_linux_pdf_source *source, const rmr_pdf_page *pages, size_t count,
     const rmr_limits *limits, rmr_cancel_fn cancel, void *context, rmr_buffer *out,
     rmr_pdf_incremental_report *report, rmr_error *error);
+/* Fresh export preserving interactive objects with reordered, removed or
+ * duplicated source pages. Keeps each source page's native coordinates and
+ * rotation, applying marks through the same mapping as incremental export.
+ * Copies have separate widgets sharing the original field value. All pages
+ * must have a visible source; notebooks without a source render normally.
+ * Insertion/hidden-source pages and XFA return UNSUPPORTED. Signature bytes
+ * survive but cryptographic validity does not. See rmr_pdf_select_pages. */
+[[nodiscard]] RMR_API rmr_status rmr_linux_pdf_recompose(const rmr_linux_pdf_source *source,
+                                                         const rmr_pdf_page *pages, size_t count,
+                                                         const rmr_limits *limits,
+                                                         rmr_cancel_fn cancel, void *context,
+                                                         rmr_buffer *out, rmr_error *error);
 #endif

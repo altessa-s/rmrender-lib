@@ -1512,7 +1512,7 @@ static int update_order(const void *a, const void *b) {
 }
 static void finish(writer *w, file *f) {
     size_t offset = w->data.size;
-    bool hybrid = get(f->trailer, "XRefStm") != nullptr;
+    bool hybrid = f->xref_streams && get(f->trailer, "XRefStm") != nullptr;
     size_t hybrid_offset = offset;
     if (f->xref_streams)
         begin(w, reserve(w), 0);
@@ -1527,6 +1527,27 @@ static void finish(writer *w, file *f) {
     for (update *u = w->updates; u; u = u->next)
         list[i++] = *u;
     qsort(list, w->count, sizeof *list, update_order);
+    if (!f->last) {
+        /* A fresh file has no preceding xref to supply missing rows. Include
+         * free entries for holes left by packed/xref objects or source gaps. */
+        format(w, "xref\n0 %zu\n0000000000 65535 f \n", w->next_number);
+        i = 0;
+        for (size_t id = 1; id < w->next_number && tick(w->j); id++) {
+            if (i < w->count && list[i].id == id) {
+                if (list[i].offset > 9999999999ULL) {
+                    stop(w->j, RMR_ERR_LIMIT, "classic xref offset limit");
+                    return;
+                }
+                format(w, "%010zu %05u n \n", list[i].offset, list[i].gen);
+                i++;
+            } else
+                text(w, "0000000000 65535 f \n");
+        }
+        format(w, "trailer\n<< /Size %zu\n", w->next_number);
+        trailer_fields(w, f->trailer);
+        format(w, ">>\nstartxref\n%zu\n%%%%EOF\n", offset);
+        return;
+    }
     if (f->xref_streams) {
         if (w->count > SIZE_MAX / 11) {
             stop(w->j, RMR_ERR_LIMIT, "xref stream length");
@@ -1683,7 +1704,9 @@ static void clip_point(writer *w, rmr_transform t, rmr_point p) {
 }
 rmr_status rmr_pdf_clip(const uint8_t *pdf, size_t size, rmr_path_view path,
                         rmr_transform transform, const rmr_limits *limits, rmr_buffer *out) {
-    if (!pdf || !size || !out || (path.count && !path.elements))
+    double determinant = transform.a * transform.d - transform.b * transform.c;
+    if (!pdf || !size || !out || (path.count && !path.elements) || !isfinite(determinant) ||
+        determinant == 0 || !isfinite(transform.tx) || !isfinite(transform.ty))
         return RMR_ERR_INVALID_ARGUMENT;
     job j = {.limits = limits ? *limits : rmr_limits_default()};
     writer w = {.j = &j}, c = {.j = &j};
@@ -1782,6 +1805,8 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
         w.next_number = f.next_number;
         put(&w, pdf, size);
         text(&w, "\n");
+        if (f.page_count > SIZE_MAX / sizeof(page *))
+            stop(&j, RMR_ERR_LIMIT, "navigation page limit");
         page **pages = take(&j, f.page_count * sizeof *pages);
         uint32_t *ids = take(&j, link_count * sizeof *ids);
         outline_entry *tree = take(&j, (outline_count + 1) * sizeof *tree);
@@ -1899,4 +1924,445 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
         free(w.data.bytes);
     release(&j);
     return j.status;
+}
+
+/* Rewriting keeps object identities and generations, but discards historical
+ * revisions and expands packed objects. It is deliberately separate from the
+ * incremental writer: rewriting can never preserve signed byte ranges. */
+rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size, const rmr_limits *limits,
+                           rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_error *error) {
+    if (!source || !size || !out)
+        return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF rewrite input");
+    job j = {
+        .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
+    writer w = {.j = &j};
+    file f;
+    if (tick(&j) && open_file(&f, &j, source, size, false)) {
+        w.next_number = f.next_number;
+        /* Preserve the declared PDF version, including PDF 2.0 inputs. */
+        put(&w, source, 8);
+        text(&w, "\n%\342\343\317\323\n");
+        for (size_t i = 0; i < f.count && tick(&j); i++) {
+            entry *e = &f.entries[i];
+            if (!e->live)
+                continue;
+            node *n = object(&f, e, 0);
+            if (!n)
+                break;
+            node *type = n->type == DICT ? get(n, "Type") : nullptr;
+            if (e->stream && (named(type, "ObjStm") || named(type, "XRef")))
+                continue;
+            begin(&w, e->number, e->generation);
+            value(&w, nullptr, n, 0);
+            if (e->stream) {
+                text(&w, "\nstream\n");
+                put(&w, e->stream, e->stream_size);
+                text(&w, "\nendstream");
+            }
+            end(&w);
+        }
+        if (j.status == RMR_OK) {
+            f.last = 0;
+            f.xref_streams = false;
+            finish(&w, &f);
+        }
+    }
+    if (j.status == RMR_OK)
+        *out = w.data;
+    else
+        free(w.data.bytes);
+    release(&j);
+    return j.status == RMR_OK
+               ? RMR_OK
+               : rmr_fail(error, j.status, 0, j.reason ? j.reason : "PDF rewrite failed");
+}
+
+/* Page selection preserves native coordinates. Every output page owns its
+ * annotation objects, while copied widgets share their original field value. */
+typedef struct {
+    node *original, *dict;
+    entry *entry;
+    uint32_t id;
+} selected_annot;
+typedef struct {
+    page *original;
+    node *dict;
+    uint32_t id;
+    selected_annot *annots;
+    size_t count;
+} selected_page;
+static node *select_token(job *j, kind type, const char *text_value) {
+    node *n = take(j, sizeof *n);
+    size_t size = strlen(text_value);
+    uint8_t *raw = take(j, size);
+    if (!n || !raw)
+        return nullptr;
+    memcpy(raw, text_value, size);
+    *n = (node){.type = type, .raw = raw, .length = size};
+    return n;
+}
+static node *select_ref(job *j, uint32_t id, uint32_t generation) {
+    char raw[48];
+    snprintf(raw, sizeof raw, "%u %u R", id, generation);
+    node *n = select_token(j, REF, raw);
+    if (n) {
+        n->number = id;
+        n->generation = generation;
+    }
+    return n;
+}
+static node *select_clone(job *j, const node *n, unsigned depth) {
+    if (!n || !tick(j))
+        return nullptr;
+    if (depth >= 64) {
+        stop(j, RMR_ERR_LIMIT, "page copy nesting");
+        return nullptr;
+    }
+    node *copy = take(j, sizeof *copy);
+    if (!copy)
+        return nullptr;
+    *copy = *n;
+    copy->child = copy->next = nullptr;
+    node **tail = &copy->child;
+    for (const node *c = n->child; c && j->status == RMR_OK; c = c->next) {
+        *tail = select_clone(j, c, depth + 1);
+        if (*tail)
+            tail = &(*tail)->next;
+    }
+    return copy;
+}
+static void select_set(job *j, node *dict, const char *key, node *v) {
+    if (!dict || !v || j->status != RMR_OK)
+        return;
+    for (node *k = dict->child; k; k = k->next->next)
+        if (named(k, key)) {
+            v->next = k->next->next;
+            k->next = v;
+            return;
+        }
+    char raw[64];
+    snprintf(raw, sizeof raw, "/%s", key);
+    node *k = select_token(j, NAME, raw);
+    if (k) {
+        v->next = dict->child;
+        k->next = v;
+        dict->child = k;
+    }
+}
+static void select_remove(node *dict, const char *key) {
+    if (!dict)
+        return;
+    for (node **at = &dict->child; *at; at = &(*at)->next->next)
+        if (named(*at, key)) {
+            *at = (*at)->next->next;
+            return;
+        }
+}
+typedef struct {
+    node value;
+    node *tail;
+} selection_array;
+static node *select_array(job *j) {
+    selection_array *a = take(j, sizeof *a);
+    if (a)
+        a->value.type = ARRAY;
+    return a ? &a->value : nullptr;
+}
+/* Only arrays created by select_array are appended to. */
+static void select_append(node *array, node *item) {
+    if (!array || !item)
+        return;
+    selection_array *a = (selection_array *)array;
+    if (a->tail)
+        a->tail->next = item;
+    else
+        array->child = item;
+    a->tail = item;
+}
+static bool select_merged(node *dict) {
+    return get(dict, "T") || get(dict, "FT") || get(dict, "V") || get(dict, "DV");
+}
+/* Page and annotation references are remapped without traversing indirect
+ * objects. Self-links and popup/reply relations use the current page copy. */
+static void select_refs(file *f, node *n, const selected_page *local, unsigned depth) {
+    if (!n || !tick(f->j))
+        return;
+    if (depth >= 64) {
+        stop(f->j, RMR_ERR_LIMIT, "page reference nesting");
+        return;
+    }
+    if (n->type == REF) {
+        entry *e = lookup(f, n->number);
+        if (!e || !e->live || e->generation != n->generation)
+            return;
+        uint32_t id = e->mapped;
+        if (local) {
+            if (e == local->original->object)
+                id = local->id;
+            for (size_t i = 0; i < local->count && tick(f->j); i++)
+                if (e == local->annots[i].entry)
+                    id = local->annots[i].id;
+        }
+        bool is_page = e->object && named(get(e->object, "Type"), "Page");
+        if (id || is_page) {
+            node *replacement = id ? select_ref(f->j, id, 0) : select_token(f->j, SCALAR, "null");
+            if (replacement) {
+                replacement->next = n->next;
+                *n = *replacement;
+            }
+        }
+    } else if (n->type == DICT) {
+        bool widget = named(get(n, "Subtype"), "Widget");
+        for (node *k = n->child; k && f->j->status == RMR_OK; k = k->next->next)
+            if (!(widget && named(k, "Parent")))
+                select_refs(f, k->next, local, depth + 1);
+    } else
+        for (node *c = n->child; c && f->j->status == RMR_OK; c = c->next)
+            select_refs(f, c, local, depth + 1);
+}
+static node *select_fields(file *f, node *array, node **widgets, uint8_t *seen,
+                           const uint8_t *attached, unsigned depth) {
+    array = resolve(f, array, 0);
+    if (!array || array->type != ARRAY || depth >= 64) {
+        stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid form field tree");
+        return nullptr;
+    }
+    node *result = select_array(f->j);
+    for (node *ref = array->child; ref && tick(f->j); ref = ref->next) {
+        entry *e = ref->type == REF ? lookup(f, ref->number) : nullptr;
+        node *dict = resolve(f, ref, 0);
+        if (!e || !dict || dict->type != DICT || seen[e - f->entries]) {
+            stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid or repeated form field");
+            break;
+        }
+        size_t index = (size_t)(e - f->entries);
+        seen[index] = 1;
+        if (named(get(dict, "Subtype"), "Widget")) {
+            node *copies = widgets[index];
+            if (!copies || !copies->child) {
+                /* Fields with no widget in any source page can carry hidden
+                 * values used by calculations; page removal must not drop them. */
+                if (!attached[index]) {
+                    seen[index] = 2;
+                    select_append(result, select_clone(f->j, ref, 0));
+                }
+                continue;
+            }
+            if (!select_merged(dict)) {
+                for (node *c = copies->child; c && tick(f->j); c = c->next)
+                    select_append(result, select_clone(f->j, c, 0));
+                seen[index] = 2;
+                continue;
+            }
+            /* Split a merged field/widget: retain its field identity and
+             * values, and give each selected page its own child widget. */
+            const char *keys[] = {"Type", "Subtype", "Rect",         "P",      "AP",
+                                  "AS",   "F",       "BS",           "Border", "MK",
+                                  "H",    "A",       "StructParent", "OC",     "Popup"};
+            for (size_t k = 0; k < sizeof keys / sizeof *keys; k++)
+                select_remove(dict, keys[k]);
+            select_set(f->j, dict, "Kids", select_clone(f->j, copies, 0));
+        } else if (get(dict, "Kids")) {
+            node *kids = select_fields(f, get(dict, "Kids"), widgets, seen, attached, depth + 1);
+            if (!kids || !kids->child)
+                continue;
+            select_set(f->j, dict, "Kids", kids);
+        }
+        seen[index] = 2;
+        select_append(result, select_clone(f->j, ref, 0));
+    }
+    return result;
+}
+rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t *indices,
+                                size_t count, const rmr_limits *limits, rmr_cancel_fn cancel,
+                                void *context, rmr_buffer *out, rmr_error *error) {
+    if (!source || !size || !indices || !count || !out)
+        return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0, "missing PDF selection input");
+    job j = {
+        .limits = limits ? *limits : rmr_limits_default(), .cancel = cancel, .context = context};
+    writer w = {.j = &j};
+    file f;
+    if (count > j.limits.maximum_draws || count > SIZE_MAX / sizeof(selected_page))
+        stop(&j, RMR_ERR_LIMIT, "PDF selection page limit");
+    if (tick(&j) && open_file(&f, &j, source, size, false)) {
+        w.next_number = f.next_number;
+        if (f.page_count > SIZE_MAX / sizeof(page *) || f.count > SIZE_MAX / sizeof(node *))
+            stop(&j, RMR_ERR_LIMIT, "PDF selection object limit");
+        selected_page *copies = take(&j, count * sizeof *copies);
+        page **pages = take(&j, f.page_count * sizeof *pages);
+        node **widgets = take(&j, f.count * sizeof *widgets);
+        uint8_t *seen = take(&j, f.count);
+        uint8_t *attached = take(&j, f.count);
+        uint32_t tree_id = reserve(&w);
+        node *kids = select_array(&j);
+        /* Load objects before installing new references: every imported
+         * object remains bounded by the same parser and work limits. */
+        for (size_t i = 0; i < f.count && tick(&j); i++)
+            if (f.entries[i].live)
+                object(&f, &f.entries[i], 0);
+        if (j.status == RMR_OK) {
+            size_t pi = 0;
+            for (page *p = f.pages; p && tick(&j); p = p->next) {
+                pages[pi++] = p;
+                node *annots = resolve(&f, get(p->object->object, "Annots"), 0);
+                if (annots && annots->type != ARRAY) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid annotations");
+                    break;
+                }
+                for (node *n = annots ? annots->child : nullptr; n && tick(&j); n = n->next) {
+                    entry *e = n->type == REF ? lookup(&f, n->number) : nullptr;
+                    if (e && e->generation == n->generation)
+                        attached[e - f.entries] = 1;
+                }
+            }
+            for (size_t i = 0; i < count && tick(&j); i++) {
+                if (indices[i] >= f.page_count) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "selected page out of range");
+                    break;
+                }
+                selected_page *p = &copies[i];
+                p->original = pages[indices[i]];
+                p->id = reserve(&w);
+                if (!p->original->object->mapped)
+                    p->original->object->mapped = p->id;
+                select_append(kids, select_ref(&j, p->id, 0));
+                node *annots = resolve(&f, get(p->original->object->object, "Annots"), 0);
+                if (annots && annots->type != ARRAY) {
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid annotations");
+                    break;
+                }
+                for (node *n = annots ? annots->child : nullptr; n && tick(&j); n = n->next)
+                    p->count++;
+                if (p->count > SIZE_MAX / sizeof *p->annots) {
+                    stop(&j, RMR_ERR_LIMIT, "annotation count limit");
+                    break;
+                }
+                p->annots = take(&j, p->count * sizeof *p->annots);
+                size_t k = 0;
+                for (node *n = annots ? annots->child : nullptr; n && tick(&j); n = n->next, k++) {
+                    selected_annot *a = &p->annots[k];
+                    a->original = resolve(&f, n, 0);
+                    a->entry = n->type == REF ? lookup(&f, n->number) : nullptr;
+                    if (!a->original || a->original->type != DICT) {
+                        stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid annotation dictionary");
+                        break;
+                    }
+                    a->id = reserve(&w);
+                    a->dict = select_clone(&j, a->original, 0);
+                    if (named(get(a->original, "Subtype"), "Widget")) {
+                        if (!a->entry) {
+                            stop(&j, RMR_ERR_INVALID_ARGUMENT, "widget must be indirect");
+                            break;
+                        }
+                        size_t index = (size_t)(a->entry - f.entries);
+                        if (!widgets[index])
+                            widgets[index] = select_array(&j);
+                        select_append(widgets[index], select_ref(&j, a->id, 0));
+                    } else if (a->entry && !a->entry->mapped)
+                        a->entry->mapped = a->id;
+                }
+            }
+        }
+        node *form = j.status == RMR_OK ? resolve(&f, get(f.root, "AcroForm"), 0) : nullptr;
+        if (form && (form->type != DICT || get(form, "XFA")))
+            stop(&j, RMR_ERR_UNSUPPORTED, "page selection requires an AcroForm without XFA");
+        /* Clone pages before modifying merged field dictionaries. */
+        for (size_t i = 0; i < count && tick(&j); i++) {
+            selected_page *p = &copies[i];
+            p->dict = select_clone(&j, p->original->object->object, 0);
+            select_set(&j, p->dict, "Parent", select_ref(&j, tree_id, 0));
+            const char *names[] = {"Resources", "MediaBox", "CropBox", "Rotate"};
+            node *inherited[] = {p->original->resources, p->original->media, p->original->crop,
+                                 p->original->rotate};
+            for (size_t k = 0; k < 4; k++)
+                if (inherited[k])
+                    select_set(&j, p->dict, names[k], select_clone(&j, inherited[k], 0));
+            node *annots = select_array(&j);
+            for (size_t k = 0; k < p->count && tick(&j); k++) {
+                selected_annot *a = &p->annots[k];
+                select_refs(&f, a->dict, p, 0);
+                select_set(&j, a->dict, "P", select_ref(&j, p->id, 0));
+                if (named(get(a->original, "Subtype"), "Widget") && select_merged(a->original)) {
+                    const char *keys[] = {"FT", "T", "TU", "TM", "Ff", "V", "DV", "Kids"};
+                    for (size_t q = 0; q < sizeof keys / sizeof *keys; q++)
+                        select_remove(a->dict, keys[q]);
+                    select_set(&j, a->dict, "Parent",
+                               select_ref(&j, a->entry->number, a->entry->generation));
+                }
+                select_append(annots, select_ref(&j, a->id, 0));
+            }
+            select_set(&j, p->dict, "Annots", annots);
+            select_refs(&f, p->dict, p, 0);
+        }
+        if (form && j.status == RMR_OK) {
+            node *fields = select_fields(&f, get(form, "Fields"), widgets, seen, attached, 0);
+            select_set(&j, form, "Fields", fields);
+            node *order = resolve(&f, get(form, "CO"), 0);
+            if (order) {
+                node *retained = select_array(&j);
+                if (order->type != ARRAY)
+                    stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid calculation order");
+                for (node *n = order->child; n && tick(&j); n = n->next) {
+                    entry *e = n->type == REF ? lookup(&f, n->number) : nullptr;
+                    if (e && seen[e - f.entries] == 2)
+                        select_append(retained, select_clone(&j, n, 0));
+                }
+                select_set(&j, form, "CO", retained);
+            }
+        }
+        for (size_t i = 0; i < f.count && tick(&j); i++)
+            if (widgets[i] && !seen[i])
+                stop(&j, RMR_ERR_INVALID_ARGUMENT, "widget missing from form field tree");
+        select_set(&j, f.root, "Pages", select_ref(&j, tree_id, 0));
+        if (j.status == RMR_OK) {
+            put(&w, source, 8);
+            text(&w, "\n%\342\343\317\323\n");
+            begin(&w, tree_id, 0);
+            format(&w, "<< /Type /Pages /Count %zu /Kids ", count);
+            value(&w, nullptr, kids, 0);
+            text(&w, " >>");
+            end(&w);
+        }
+        for (size_t i = 0; i < count && tick(&j); i++) {
+            selected_page *p = &copies[i];
+            begin(&w, p->id, 0);
+            value(&w, nullptr, p->dict, 0);
+            end(&w);
+            for (size_t k = 0; k < p->count && tick(&j); k++) {
+                begin(&w, p->annots[k].id, 0);
+                value(&w, nullptr, p->annots[k].dict, 0);
+                end(&w);
+            }
+        }
+        for (size_t i = 0; i < f.count && tick(&j); i++) {
+            entry *e = &f.entries[i];
+            if (!e->live)
+                continue;
+            node *type = get(e->object, "Type");
+            if (e->stream && (named(type, "ObjStm") || named(type, "XRef")))
+                continue;
+            select_refs(&f, e->object, nullptr, 0);
+            begin(&w, e->number, e->generation);
+            value(&w, nullptr, e->object, 0);
+            if (e->stream) {
+                text(&w, "\nstream\n");
+                put(&w, e->stream, e->stream_size);
+                text(&w, "\nendstream");
+            }
+            end(&w);
+        }
+        if (j.status == RMR_OK) {
+            f.last = 0;
+            f.xref_streams = false;
+            finish(&w, &f);
+        }
+    }
+    if (j.status == RMR_OK)
+        *out = w.data;
+    else
+        free(w.data.bytes);
+    release(&j);
+    return j.status == RMR_OK
+               ? RMR_OK
+               : rmr_fail(error, j.status, 0, j.reason ? j.reason : "PDF page selection failed");
 }

@@ -747,3 +747,13 @@ rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const r
     free(geometry);
     return status;
 }
+
+#define RMR_PDF_NATIVE(name) rmr_apple_##name
+#define RMR_PDF_BYTES(s) CFDataGetBytePtr((s)->data)
+#define RMR_PDF_SIZE(s) ((size_t)CFDataGetLength((s)->data))
+#define RMR_PDF_FAIL fail
+#include "../common/rmr_pdf_recompose_impl.h"
+#undef RMR_PDF_NATIVE
+#undef RMR_PDF_BYTES
+#undef RMR_PDF_SIZE
+#undef RMR_PDF_FAIL

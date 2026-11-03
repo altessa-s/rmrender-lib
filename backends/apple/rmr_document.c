@@ -4,12 +4,13 @@
 #include "rmr_typography_internal.h"
 #include <rmlines/parser.h>
 #include <rmrender/apple_document.h>
+typedef enum { PDF_FRESH, PDF_INCREMENTAL, PDF_RECOMPOSED } pdf_output_mode;
 static rmr_status document_pdf(const rmr_archive_document *document,
                                const rmr_page_resources *given_resources,
                                const rmr_apple_fonts *fonts, rmr_paper paper, size_t maximum_pages,
                                const rmr_limits *given, rmr_cancel_fn cancel, void *context,
                                rmr_buffer *out, rmr_document_report *report, rmr_error *e,
-                               bool preserve) {
+                               pdf_output_mode mode) {
     if (!document || !out || paper > RMR_PAPER_TABLET)
         return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid document render input");
     rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
@@ -134,7 +135,9 @@ static rmr_status document_pdf(const rmr_archive_document *document,
         pages[i].has_source = source && record.has_source;
         pages[i].source_visible = page->root_document_visible;
     }
-    if (preserve && source)
+    if (mode == PDF_RECOMPOSED && source)
+        status = rmr_apple_pdf_recompose(source, pages, count, &remaining, cancel, context, out, e);
+    else if (mode == PDF_INCREMENTAL && source)
         status = rmr_apple_pdf_incremental(source, pages, count, &remaining, cancel, context, out,
                                            nullptr, e);
     else
@@ -159,7 +162,7 @@ rmr_status rmr_apple_document_pdf(const rmr_archive_document *document,
                                   rmr_cancel_fn cancel, void *context, rmr_buffer *out,
                                   rmr_document_report *report, rmr_error *error) {
     return document_pdf(document, resources, fonts, paper, maximum_pages, limits, cancel, context,
-                        out, report, error, false);
+                        out, report, error, PDF_FRESH);
 }
 rmr_status rmr_apple_document_pdf_preserving(const rmr_archive_document *document,
                                              const rmr_page_resources *resources,
@@ -168,5 +171,15 @@ rmr_status rmr_apple_document_pdf_preserving(const rmr_archive_document *documen
                                              rmr_cancel_fn cancel, void *context, rmr_buffer *out,
                                              rmr_document_report *report, rmr_error *error) {
     return document_pdf(document, resources, fonts, paper, maximum_pages, limits, cancel, context,
-                        out, report, error, true);
+                        out, report, error, PDF_INCREMENTAL);
+}
+
+rmr_status rmr_apple_document_pdf_recomposed(const rmr_archive_document *document,
+                                             const rmr_page_resources *resources,
+                                             const rmr_apple_fonts *fonts, rmr_paper paper,
+                                             size_t maximum_pages, const rmr_limits *limits,
+                                             rmr_cancel_fn cancel, void *context, rmr_buffer *out,
+                                             rmr_document_report *report, rmr_error *error) {
+    return document_pdf(document, resources, fonts, paper, maximum_pages, limits, cancel, context,
+                        out, report, error, PDF_RECOMPOSED);
 }

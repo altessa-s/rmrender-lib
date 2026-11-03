@@ -9,6 +9,7 @@
 #include <fpdf_attachment.h>
 #include <fpdf_doc.h>
 #include <fpdf_edit.h>
+#include <fpdf_formfill.h>
 #include <fpdf_signature.h>
 #include <fpdf_text.h>
 #include <fpdfview.h>
@@ -195,7 +196,7 @@ static void imported_actual_text(const char *preview) {
                          .source_rect = {0, 0, 100, 100},
                          .has_source = true,
                          .source_visible = true};
-    for (unsigned route = 0; route < 2; route++) {
+    for (unsigned route = 0; route < 3; route++) {
         rmr_buffer pdf = {0};
         if (route)
             OK(rmr_linux_pdf_incremental(src, &page, 1, nullptr, nullptr, nullptr, &pdf, nullptr,
@@ -203,6 +204,13 @@ static void imported_actual_text(const char *preview) {
         else
             OK(rmr_linux_pdf_overlay(src, &page, 1, nullptr, nullptr, nullptr, &pdf, nullptr,
                                      nullptr));
+        if (route == 2) {
+            rmr_buffer rewritten = {0};
+            OK(rmr_pdf_rewrite(pdf.bytes, pdf.size, nullptr, nullptr, nullptr, &rewritten,
+                               nullptr));
+            rmr_buffer_free(&pdf);
+            pdf = rewritten;
+        }
         FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
         CHECK(doc);
         FPDF_PAGE native = FPDF_LoadPage(doc, 0);
@@ -232,6 +240,161 @@ static void imported_actual_text(const char *preview) {
     rmr_plan_free(plan);
     rmr_linux_pdf_source_free(src);
 }
+static fixture split_widget_source(void) {
+    fixture f = source(false);
+    char *last = strstr(f.bytes, "startxref");
+    CHECK(last);
+    size_t previous = (size_t)strtoull(last + 9, nullptr, 10);
+    obj(&f, 6, 0, "<< /Type /Page /Parent 2 0 R /Rotate 90 /Contents 4 0 R /Annots [17 0 R] >>");
+    obj(&f, 7, 0, "<< /Fields [18 0 R 10 0 R] /CO [18 0 R] /NeedAppearances true >>");
+    obj(&f, 8, 0,
+        "<< /Type /Annot /Subtype /Widget /Parent 18 0 R /Rect [10 150 100 180] /P 3 7 R >>");
+    obj(&f, 17, 0,
+        "<< /Type /Annot /Subtype /Widget /Parent 18 0 R /Rect [10 150 100 180] /P 6 0 R >>");
+    obj(&f, 18, 0, "<< /FT /Tx /T (Name) /V (Alice) /Kids [8 0 R 17 0 R] >>");
+    size_t x = f.n;
+    add(&f, "xref\n6 3\n");
+    for (unsigned i = 6; i <= 8; i++)
+        add(&f, "%010zu 00000 n \n", f.offsets[i]);
+    add(&f, "17 2\n%010zu 00000 n \n%010zu 00000 n \n", f.offsets[17], f.offsets[18]);
+    add(&f, "trailer\n<< /Size 19 /Prev %zu >>\nstartxref\n%zu\n%%%%EOF\n", previous, x);
+    return f;
+}
+static void selected_objects_case(bool split) {
+    fixture f = split ? split_widget_source() : source(false);
+    const size_t indices[] = {1, 0, 0};
+    rmr_buffer output = {0};
+    OK(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, indices, 3, nullptr, nullptr, nullptr, &output,
+                            nullptr));
+    FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(output.bytes, output.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == 3);
+    CHECK(FPDFDoc_GetAttachmentCount(doc) == 1 && FPDF_GetSignatureCount(doc) == 1);
+    FPDF_FORMFILLINFO info = {.version = 1};
+    FPDF_FORMHANDLE form = FPDFDOC_InitFormFillEnvironment(doc, &info);
+    CHECK(form);
+    for (int i = 0; i < 3; i++) {
+        FPDF_PAGE page = FPDF_LoadPage(doc, i);
+        CHECK(page);
+        CHECK(FPDFPage_GetRotation(page) == (i == 0 ? 1 : 0));
+        CHECK(FPDFPage_GetAnnotCount(page) == (i == 0 ? (split ? 1 : 0) : 2));
+        if (i) {
+            FPDF_ANNOTATION a = FPDFPage_GetAnnot(page, 0);
+            unsigned short value[32] = {0};
+            CHECK(FPDFAnnot_GetFormFieldValue(form, a, value, sizeof value) == 12);
+            CHECK(value[0] == 'A' && value[4] == 'e');
+            CHECK(FPDFAnnot_GetFormFieldName(form, a, value, sizeof value) == 10);
+            CHECK(value[0] == 'N' && value[3] == 'e');
+            FPDFPage_CloseAnnot(a);
+            a = FPDFPage_GetAnnot(page, 1);
+            CHECK(FPDFAnnot_GetStringValue(a, "Contents", value, sizeof value) == 14);
+            CHECK(value[0] == 'A' && value[5] == 'e');
+            FPDFPage_CloseAnnot(a);
+        }
+        FPDF_ClosePage(page);
+    }
+    FPDFDOC_ExitFormFillEnvironment(form);
+    FPDF_CloseDocument(doc);
+    const size_t again_index = 2;
+    rmr_buffer again = {0};
+    OK(rmr_pdf_select_pages(output.bytes, output.size, &again_index, 1, nullptr, nullptr, nullptr,
+                            &again, nullptr));
+    doc = FPDF_LoadMemDocument64(again.bytes, again.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == 1);
+    form = FPDFDOC_InitFormFillEnvironment(doc, &info);
+    CHECK(form);
+    FPDF_PAGE selected = FPDF_LoadPage(doc, 0);
+    CHECK(selected && FPDFPage_GetAnnotCount(selected) == 2);
+    FPDF_ANNOTATION widget = FPDFPage_GetAnnot(selected, 0);
+    unsigned short retained_value[32] = {0};
+    CHECK(FPDFAnnot_GetFormFieldValue(form, widget, retained_value, sizeof retained_value) == 12);
+    CHECK(retained_value[0] == 'A' && retained_value[4] == 'e');
+    FPDFPage_CloseAnnot(widget);
+    FPDF_ClosePage(selected);
+    FPDFDOC_ExitFormFillEnvironment(form);
+    FPDF_CloseDocument(doc);
+    rmr_buffer_free(&again);
+    rmr_buffer_free(&output);
+    OK(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, indices, 1, nullptr, nullptr, nullptr, &output,
+                            nullptr));
+    doc = FPDF_LoadMemDocument64(output.bytes, output.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == 1);
+    CHECK(FPDF_GetSignatureCount(doc) == 1);
+    FPDF_PAGE only = FPDF_LoadPage(doc, 0);
+    CHECK(only && FPDFPage_GetAnnotCount(only) == (split ? 1 : 0));
+    FPDF_ClosePage(only);
+    FPDF_CloseDocument(doc);
+    rmr_buffer_free(&output);
+}
+static void selected_annotations(void) {
+    fixture f = source(false);
+    size_t previous = (size_t)strtoull(strstr(f.bytes, "startxref") + 9, nullptr, 10);
+    obj(&f, 3, 7,
+        "<< /Type /Page /Parent 2 0 R /Contents 16 0 R /Annots [8 0 R 9 0 R 17 0 R 18 0 R 20 0 R] "
+        ">>");
+    obj(&f, 9, 0,
+        "<< /Type /Annot /Subtype /Text /Contents (A note) /Rect [10 20 30 40] /P 3 7 R /Popup 17 "
+        "0 R >>");
+    obj(&f, 17, 0,
+        "<< /Type /Annot /Subtype /Popup /Rect [30 40 100 100] /Parent 9 0 R /P 3 7 R >>");
+    obj(&f, 18, 0,
+        "<< /Type /Annot /Subtype /Ink /Rect [0 0 20 20] /InkList [[10 10 20 20]] /AP << /N 19 0 R "
+        ">> /P 3 7 R >>");
+    const char *draw = "0 0 m 20 20 l S\n";
+    f.offsets[19] = f.n;
+    add(&f,
+        "19 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Resources << >> /Length %zu "
+        ">>\nstream\n%s\nendstream\nendobj\n",
+        strlen(draw), draw);
+    obj(&f, 20, 0,
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest [3 7 R /XYZ 10 20 null] /P 3 7 R "
+        ">>");
+    size_t x = f.n;
+    add(&f, "xref\n3 1\n%010zu 00007 n \n9 1\n%010zu 00000 n \n17 4\n", f.offsets[3], f.offsets[9]);
+    for (unsigned i = 17; i <= 20; i++)
+        add(&f, "%010zu 00000 n \n", f.offsets[i]);
+    add(&f, "trailer\n<< /Size 21 /Prev %zu >>\nstartxref\n%zu\n%%%%EOF\n", previous, x);
+    size_t indices[] = {0, 0};
+    rmr_buffer output = {0};
+    OK(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, indices, 2, nullptr, nullptr, nullptr, &output,
+                            nullptr));
+    FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(output.bytes, output.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == 2);
+    for (int i = 0; i < 2; i++) {
+        FPDF_PAGE page = FPDF_LoadPage(doc, i);
+        CHECK(page && FPDFPage_GetAnnotCount(page) == 5);
+        FPDF_ANNOTATION note = FPDFPage_GetAnnot(page, 1);
+        FPDF_ANNOTATION popup = FPDFAnnot_GetLinkedAnnot(note, "Popup");
+        CHECK(popup && FPDFAnnot_GetSubtype(popup) == FPDF_ANNOT_POPUP);
+        FPDF_ANNOTATION parent = FPDFAnnot_GetLinkedAnnot(popup, "Parent");
+        unsigned short text[32] = {0};
+        CHECK(parent && FPDFAnnot_GetStringValue(parent, "Contents", text, sizeof text) == 14);
+        CHECK(text[0] == 'A');
+        if (!i) {
+            const unsigned short changed[] = {'X', 0};
+            CHECK(FPDFAnnot_SetStringValue(parent, "Contents", changed));
+            CHECK(FPDFAnnot_GetStringValue(note, "Contents", text, sizeof text) == 4);
+            CHECK(text[0] == 'X');
+        }
+        FPDFPage_CloseAnnot(parent);
+        FPDFPage_CloseAnnot(popup);
+        FPDFPage_CloseAnnot(note);
+        FPDF_ANNOTATION ink = FPDFPage_GetAnnot(page, 3);
+        CHECK(FPDFAnnot_GetInkListCount(ink) == 1);
+        FS_POINTF points[2];
+        CHECK(FPDFAnnot_GetInkListPath(ink, 0, points, 2) == 2);
+        CHECK(points[0].x == 10 && points[1].y == 20);
+        CHECK(FPDFAnnot_GetAP(ink, FPDF_ANNOT_APPEARANCEMODE_NORMAL, nullptr, 0) > 2);
+        FPDFPage_CloseAnnot(ink);
+        int position = 0;
+        FPDF_LINK link;
+        CHECK(FPDFLink_Enumerate(page, &position, &link));
+        FPDF_DEST dest = FPDFLink_GetDest(doc, link);
+        CHECK(dest && FPDFDest_GetDestPageIndex(doc, dest) == i);
+        FPDF_ClosePage(page);
+    }
+    FPDF_CloseDocument(doc);
+    rmr_buffer_free(&output);
+}
 static void pdf_source(void) {
     fixture f = source(false);
     rmr_linux_pdf_source *src = nullptr;
@@ -260,6 +423,23 @@ static void pdf_source(void) {
     CHECK(updated);
     preserved_objects(updated);
     FPDF_CloseDocument(updated);
+    rmr_buffer fresh = {0};
+    OK(rmr_pdf_rewrite(pdf.bytes, pdf.size, nullptr, nullptr, nullptr, &fresh, &error));
+    CHECK(fresh.size < pdf.size);
+    FPDF_DOCUMENT rewritten = FPDF_LoadMemDocument64(fresh.bytes, fresh.size, nullptr);
+    CHECK(rewritten);
+    preserved_objects(rewritten);
+    FPDF_CloseDocument(rewritten);
+    rmr_buffer_free(&fresh);
+    rmr_buffer_free(&pdf);
+    rmr_pdf_page repeated[] = {pages[1], pages[0], pages[0]};
+    OK(rmr_linux_pdf_recompose(src, repeated, 3, nullptr, nullptr, nullptr, &pdf, &error));
+    doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == 3 && FPDF_GetSignatureCount(doc) == 1);
+    FPDF_PAGE duplicate = FPDF_LoadPage(doc, 2);
+    CHECK(duplicate && FPDFPage_GetAnnotCount(duplicate) == 2);
+    FPDF_ClosePage(duplicate);
+    FPDF_CloseDocument(doc);
     rmr_buffer_free(&pdf);
     pages[0].source_page = 1;
     CHECK(rmr_linux_pdf_incremental(src, pages, 2, nullptr, nullptr, nullptr, &pdf, nullptr,
@@ -518,6 +698,9 @@ int main(int argc, char **argv) {
     graphics();
     images();
     pdf_source();
+    selected_objects_case(false);
+    selected_objects_case(true);
+    selected_annotations();
     imported_actual_text(argc == 3 ? argv[2] : nullptr);
     rotations();
     navigation_test();

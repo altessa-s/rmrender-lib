@@ -214,6 +214,29 @@ int main(int argc, char **argv) {
     pixels(doc, 1);
     pixels(doc, 2);
     CGPDFDocumentRelease(doc);
+    rmr_pdf_page selected[] = {pages[1], pages[0], pages[0]};
+    rmr_buffer recomposed = {0};
+    assert(rmr_apple_pdf_recompose(src, selected, 3, nullptr, nullptr, nullptr, &recomposed,
+                                   &error) == RMR_OK);
+    doc = document(recomposed.bytes, recomposed.size);
+    assert(CGPDFDocumentGetNumberOfPages(doc) == 3);
+    assert(CGPDFPageGetRotationAngle(CGPDFDocumentGetPage(doc, 1)) == 90);
+    for (size_t i = 2; i <= 3; i++) {
+        CGPDFArrayRef annotations;
+        assert(CGPDFDictionaryGetArray(CGPDFPageGetDictionary(CGPDFDocumentGetPage(doc, i)),
+                                       "Annots", &annotations));
+        assert(CGPDFArrayGetCount(annotations) == 2);
+        pixels(doc, i);
+    }
+    CGPDFDictionaryRef form, field;
+    CGPDFArrayRef fields, widgets;
+    assert(CGPDFDictionaryGetDictionary(CGPDFDocumentGetCatalog(doc), "AcroForm", &form));
+    assert(CGPDFDictionaryGetArray(form, "Fields", &fields));
+    assert(CGPDFArrayGetDictionary(fields, 0, &field));
+    assert(CGPDFDictionaryGetArray(field, "Kids", &widgets));
+    assert(CGPDFArrayGetCount(widgets) == 2);
+    CGPDFDocumentRelease(doc);
+    rmr_buffer_free(&recomposed);
     rmr_apple_pdf_source *again = nullptr;
     assert(rmr_apple_pdf_source_create(result.bytes, result.size, nullptr, &again, &error) ==
            RMR_OK);

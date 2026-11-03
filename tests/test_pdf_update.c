@@ -115,9 +115,108 @@ static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool
     return f;
 }
 
+static bool cancel_rewrite(void *context) {
+    (void)context;
+    return true;
+}
+static void rewrite_check(const uint8_t *bytes, size_t size, size_t expected_pages) {
+    rmr_buffer fresh = {0};
+    assert(rmr_pdf_rewrite(bytes, size, nullptr, nullptr, nullptr, &fresh, nullptr) == RMR_OK);
+    size_t count = 0;
+    assert(rmr_pdf_pages(fresh.bytes, fresh.size, nullptr, nullptr, 0, &count, nullptr) == RMR_OK);
+    assert(count == expected_pages);
+    /* A subsequent append must resolve the newly emitted xref independently. */
+    fixture ov = overlay_fixture();
+    rmr_pdf_overlay o = {.pdf = (uint8_t *)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
+    rmr_buffer next = {0};
+    assert(rmr_pdf_incremental(fresh.bytes, fresh.size, &o, 1, nullptr, nullptr, nullptr, &next,
+                               nullptr, nullptr) == RMR_OK);
+    rmr_buffer_free(&next);
+    rmr_buffer_free(&fresh);
+}
+static void rewrite_failures(fixture *f) {
+    rmr_buffer out = {(uint8_t *)(uintptr_t)1, 19};
+    assert(rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, nullptr, cancel_rewrite, nullptr, &out,
+                           nullptr) == RMR_ERR_CANCELLED);
+    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    size_t allocations;
+    for (allocations = 0; allocations < 3000; allocations++) {
+        rmr_test_fail_after(allocations);
+        rmr_status s =
+            rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, nullptr, nullptr, nullptr, &out, nullptr);
+        rmr_test_fail_after(SIZE_MAX);
+        if (s == RMR_OK) {
+            rmr_buffer_free(&out);
+            break;
+        }
+        assert(s == RMR_ERR_OUT_OF_MEMORY);
+        assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    }
+    assert(allocations < 3000);
+    rmr_limits l = rmr_limits_default();
+    l.maximum_plan_bytes = 64;
+    assert(rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, &l, nullptr, nullptr, &out, nullptr) ==
+           RMR_ERR_LIMIT);
+    fixture sparse = *f;
+    size_t previous = lastxref(&sparse), at = sparse.n;
+    add(&sparse,
+        "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1000000 /Prev %zu "
+        ">>\nstartxref\n%zu\n%%%%EOF\n",
+        previous, at);
+    l = rmr_limits_default();
+    l.maximum_elements = 5000;
+    out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
+    assert(rmr_pdf_rewrite((uint8_t *)sparse.bytes, sparse.n, &l, nullptr, nullptr, &out,
+                           nullptr) == RMR_ERR_LIMIT);
+    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    fixture certified = source(true);
+    assert(rmr_pdf_rewrite((uint8_t *)certified.bytes, certified.n, nullptr, nullptr, nullptr, &out,
+                           nullptr) == RMR_ERR_UNSUPPORTED);
+}
+static void select_check(void) {
+    fixture f = source(false);
+    const size_t order[] = {1, 0, 0};
+    rmr_buffer out = {0};
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, nullptr, nullptr, nullptr, &out,
+                                nullptr) == RMR_OK);
+    rmr_pdf_page_geometry g[3];
+    size_t count;
+    assert(rmr_pdf_pages(out.bytes, out.size, nullptr, g, 3, &count, nullptr) == RMR_OK);
+    assert(count == 3 && g[0].rotate == 90 && g[1].rotate == 0 && g[2].rotate == 0);
+    rmr_buffer_free(&out);
+    out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, nullptr, cancel_rewrite, nullptr,
+                                &out, nullptr) == RMR_ERR_CANCELLED);
+    const size_t invalid[] = {2};
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, invalid, 1, nullptr, nullptr, nullptr,
+                                &out, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+    rmr_limits limits = rmr_limits_default();
+    limits.maximum_draws = 2;
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, &limits, nullptr, nullptr, &out,
+                                nullptr) == RMR_ERR_LIMIT);
+    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    size_t allocations;
+    for (allocations = 0; allocations < 3000; allocations++) {
+        out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
+        rmr_test_fail_after(allocations);
+        rmr_status status = rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 3, nullptr,
+                                                 nullptr, nullptr, &out, nullptr);
+        rmr_test_fail_after(SIZE_MAX);
+        if (status == RMR_OK) {
+            rmr_buffer_free(&out);
+            break;
+        }
+        assert(status == RMR_ERR_OUT_OF_MEMORY);
+        assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    }
+    assert(allocations < 3000);
+}
 int main(void) {
+    select_check();
     fixture f = source(false), ov = overlay_fixture();
     rmr_pdf_overlay o = {.pdf = (uint8_t *)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
+    rewrite_check((uint8_t *)f.bytes, f.n, 2);
+    rewrite_failures(&f);
     rmr_buffer output = {0};
     assert(run(&f, &o, nullptr, &output) == RMR_OK);
     assert(output.size > f.n && !memcmp(output.bytes, f.bytes, f.n));
@@ -132,6 +231,7 @@ int main(void) {
         assert(rmr_pdf_incremental(output.bytes, output.size, &o, 1, nullptr, nullptr, nullptr,
                                    &again, nullptr, nullptr) == RMR_OK);
         assert(again.size > output.size && !memcmp(again.bytes, output.bytes, output.size));
+        rewrite_check(again.bytes, again.size, 1);
         rmr_buffer_free(&again);
         rmr_buffer_free(&output);
     }

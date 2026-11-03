@@ -46,6 +46,31 @@ typedef struct {
                                                      void *context, rmr_buffer *out,
                                                      rmr_pdf_incremental_report *report,
                                                      rmr_error *error);
+/* Write the current object graph into a new, single-revision PDF. Preserves
+ * annotations, AcroForm, attachments, metadata, navigation and signature
+ * dictionary contents, including unknown keys and stream bytes. Historical
+ * revisions are removed; this is NOT a sanitizer or a secure-redaction tool.
+ * Existing signatures become invalid because their signed bytes move. Use
+ * rmr_pdf_incremental instead when the original signed revision must survive.
+ * Compose incremental overlays first, then rewrite to obtain a fresh PDF with
+ * interactive objects intact, in the original page order and coordinates.
+ * Same bounded parser, refusals and transactional output contract as above. */
+[[nodiscard]] RMR_API rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size,
+                                                 const rmr_limits *limits, rmr_cancel_fn cancel,
+                                                 void *context, rmr_buffer *out, rmr_error *error);
+/* Fresh page selection in native PDF coordinates. Indices may reorder, omit or
+ * repeat source pages. Copies own their annotations; widget copies share the
+ * original field value. Removed-page widgets are pruned from AcroForm. Local
+ * destinations use the first retained copy; direct self-links use the current copy.
+ * Destinations to removed pages become inactive. Keeps document-level objects
+ * and unknown keys; this is not secure redaction. Existing signatures become
+ * invalid on rewrite. XFA forms are unsupported, as are the structures refused
+ * by rmr_pdf_incremental. Output is transactional and bounded by the same limits. */
+[[nodiscard]] RMR_API rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size,
+                                                      const size_t *indices, size_t count,
+                                                      const rmr_limits *limits,
+                                                      rmr_cancel_fn cancel, void *context,
+                                                      rmr_buffer *out, rmr_error *error);
 /* A source page as rmr_pdf_incremental resolves it: inherited MediaBox
  * (normalised to positive size) and /Rotate (0, 90, 180 or 270). */
 typedef struct {

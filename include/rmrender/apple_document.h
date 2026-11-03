@@ -27,4 +27,13 @@ rmr_apple_document_pdf(const rmr_archive_document *document, const rmr_page_reso
     const rmr_apple_fonts *fonts, rmr_paper paper, size_t maximum_pages, const rmr_limits *limits,
     rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_document_report *report,
     rmr_error *error);
+/* Fresh preserving export allowing source-page reorder/removal/duplication.
+ * Notebooks render fresh. Imported PDFs follow pdf_recompose's native-coordinate
+ * and form/signature contract. No silent fallback for unsupported page types.
+ * Link counters stay zero because original objects are copied, not enumerated. */
+[[nodiscard]] RMR_API rmr_status rmr_apple_document_pdf_recomposed(
+    const rmr_archive_document *document, const rmr_page_resources *resources,
+    const rmr_apple_fonts *fonts, rmr_paper paper, size_t maximum_pages, const rmr_limits *limits,
+    rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_document_report *report,
+    rmr_error *error);
 #endif

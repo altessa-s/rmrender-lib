@@ -526,3 +526,13 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_p
         rmr_buffer_free(&result);
     return s == RMR_OK ? s : rmr_linux_error(e, s, "PDF composition failed");
 }
+
+#define RMR_PDF_NATIVE(name) rmr_linux_##name
+#define RMR_PDF_BYTES(s) ((s)->data.bytes)
+#define RMR_PDF_SIZE(s) ((s)->data.size)
+#define RMR_PDF_FAIL rmr_linux_error
+#include "../common/rmr_pdf_recompose_impl.h"
+#undef RMR_PDF_NATIVE
+#undef RMR_PDF_BYTES
+#undef RMR_PDF_SIZE
+#undef RMR_PDF_FAIL
