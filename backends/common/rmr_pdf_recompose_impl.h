@@ -37,11 +37,18 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
         selected_pages[i] = pages[i];
         selected_pages[i].source_page = i;
     }
+    if (status != RMR_OK) {
+        free(indices);
+        free(selected_pages);
+        return RMR_PDF_FAIL(error, status,
+                            status == RMR_ERR_CANCELLED
+                                ? "PDF recomposition cancelled"
+                                : "PDF recomposition needs a visible source page on every page");
+    }
     rmr_buffer selected = {0}, painted = {0};
     RMR_PDF_NATIVE(pdf_source) *copy = nullptr;
-    if (status == RMR_OK)
-        status = rmr_pdf_select_pages(RMR_PDF_BYTES(source), RMR_PDF_SIZE(source), indices, count,
-                                      &limits, cancel, context, &selected, error);
+    status = rmr_pdf_select_pages(RMR_PDF_BYTES(source), RMR_PDF_SIZE(source), indices, count,
+                                  &limits, cancel, context, &selected, error);
     if (status == RMR_OK)
         status =
             RMR_PDF_NATIVE(pdf_source_create)(selected.bytes, selected.size, &limits, &copy, error);
@@ -55,5 +62,6 @@ rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * sour
     rmr_buffer_free(&painted);
     free(indices);
     free(selected_pages);
-    return status == RMR_OK ? RMR_OK : RMR_PDF_FAIL(error, status, "PDF recomposition failed");
+    /* Each step has already reported its own failure. */
+    return status;
 }
