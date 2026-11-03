@@ -23,7 +23,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update
       - if: runner.os == 'Linux'
-        run: sudo apt-get install -y clang-18 libclang-rt-18-dev cmake ninja-build pkg-config gperf make libpng-dev libjpeg-dev libbrotli-dev libexpat1-dev libffi-dev libpcre2-dev zlib1g-dev libgdk-pixbuf-2.0-dev poppler-utils
+        run: sudo apt-get install -y clang-19 libclang-rt-19-dev cmake ninja-build pkg-config gperf make libpng-dev libjpeg-dev libbrotli-dev libexpat1-dev libffi-dev libpcre2-dev zlib1g-dev libgdk-pixbuf-2.0-dev poppler-utils
       - if: runner.os == 'macOS'
         run: brew install llvm ninja pkg-config gperf gettext jpeg-turbo libpng brotli expat libffi pcre2 gdk-pixbuf poppler
       - run: python3 -m pip install meson==1.11.0
@@ -37,8 +37,8 @@ jobs:
             export CXXFLAGS="$CFLAGS"
             export LDFLAGS="-L$(brew --prefix gettext)/lib"
           else
-            export CC=clang-18
-            export CXX=clang++-18
+            export CC=clang-19
+            export CXX=clang++-19
           fi
           python3 scripts/build-render-stack.py --work "$RUNNER_TEMP/render-build" --prefix "$RUNNER_TEMP/render-sdk"
       - uses: actions/cache@v4
@@ -69,7 +69,7 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             export CC="$(brew --prefix llvm)/bin/clang"
           else
-            export CC=clang-18
+            export CC=clang-19
           fi
           export PKG_CONFIG_PATH="$RUNNER_TEMP/render-sdk/lib/pkgconfig"
           export LD_LIBRARY_PATH="$RUNNER_TEMP/render-sdk/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib"
