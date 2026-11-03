@@ -1,0 +1,108 @@
+# Copyright 2026 ALTESSA SOLUTIONS INC.
+# Use of this source code is governed by an MIT-style license that can be
+# found in the LICENSE file.
+
+# Pinned software renderer and patched PDFium, in addition to distro-SDK CI.
+name: Pinned renderer
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  render:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+          - os: macos-15
+            name: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y clang-18 libclang-rt-18-dev cmake ninja-build pkg-config gperf make libpng-dev libjpeg-dev libbrotli-dev libexpat1-dev libffi-dev libpcre2-dev zlib1g-dev libgdk-pixbuf-2.0-dev poppler-utils
+      - if: runner.os == 'macOS'
+        run: brew install llvm ninja pkg-config gperf gettext jpeg-turbo libpng brotli expat libffi pcre2 gdk-pixbuf poppler
+      - run: python3 -m pip install meson==1.11.0
+      - name: Build rendering stack
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            export CC="$(brew --prefix llvm)/bin/clang"
+            export CXX="$(brew --prefix llvm)/bin/clang++"
+            export CFLAGS="-I$(brew --prefix gettext)/include"
+            export CXXFLAGS="$CFLAGS"
+            export LDFLAGS="-L$(brew --prefix gettext)/lib"
+          else
+            export CC=clang-18
+            export CXX=clang++-18
+          fi
+          python3 scripts/build-render-stack.py --work "$RUNNER_TEMP/render-build" --prefix "$RUNNER_TEMP/render-sdk"
+      - uses: actions/cache@v4
+        id: pdfium
+        with:
+          path: .deps/pdfium
+          key: pdfium-patched-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-pdfium.py', 'patches/pdfium/*.patch') }}
+      - if: steps.pdfium.outputs.cache-hit != 'true'
+        run: python3 scripts/build-pdfium.py --work "$RUNNER_TEMP/pdfium-build" --output .deps/pdfium
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmlines-lib
+          ref: v1.0.1
+          path: .deps/rmlines
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmdoc-lib
+          ref: v1.0.0
+          path: .deps/rmdoc
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmmarks-lib
+          ref: v1.0.1
+          path: .deps/rmmarks
+      - name: Build and test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            export CC="$(brew --prefix llvm)/bin/clang"
+          else
+            export CC=clang-18
+          fi
+          export PKG_CONFIG_PATH="$RUNNER_TEMP/render-sdk/lib/pkgconfig"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/render-sdk/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib"
+          for name in rmlines rmdoc rmmarks; do
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/deps" -D"$(echo "$name" | tr '[:lower:]' '[:upper:]')_BUILD_TESTS"=OFF
+            cmake --build "build-$name" --target install
+          done
+          cmake -S . -B build -G Ninja -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build --target check -j4
+          mkdir -p artifacts
+          build/test_linux_emoji resources/fonts "artifacts/${{ matrix.name }}.png"
+          cp "$RUNNER_TEMP/render-sdk/rmrender-stack.json" artifacts/
+          cp .deps/pdfium/rmrender-pdfium.json artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-${{ matrix.name }}
+          path: artifacts/
+  compare:
+    needs: render
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: render-*
+          path: artifacts
+      - run: python3 -m pip install Pillow
+      - run: python3 scripts/compare-raster.py artifacts/render-mac/mac.png artifacts/render-linux/linux.png --difference artifacts/difference-x4.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-difference
+          path: artifacts/difference-x4.png

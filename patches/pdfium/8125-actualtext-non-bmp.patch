@@ -1,0 +1,21 @@
+--- a/core/fpdftext/cpdf_textpage.cpp
++++ b/core/fpdftext/cpdf_textpage.cpp
+@@ -1001,7 +1001,8 @@
+   bExist = false;
+   for (size_t i = 0; i < actual_text.GetLength(); ++i) {
+     wchar_t wc = actual_text[i];
+-    if ((wc > 0x80 && wc < 0xFFFD) || (wc <= 0x80 && isprint(wc))) {
++    if ((wc > 0x80 && wc < 0xFFFD) || (wc >= 0x10000 && wc <= 0x10FFFF) ||
++        (wc <= 0x80 && isprint(wc))) {
+       bExist = true;
+       break;
+     }
+@@ -1052,7 +1053,7 @@
+     if (wc <= 0x80 && !isprint(wc)) {
+       wc = 0x20;
+     }
+-    if (wc >= 0xFFFD) {
++    if ((wc >= 0xFFFD && wc < 0x10000) || wc > 0x10FFFF) {
+       continue;
+     }
+ 
