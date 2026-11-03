@@ -1,5 +1,3 @@
-#include "../../src/rmr_pdf_edit.h"
-
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
@@ -9,7 +7,9 @@
 #include <limits.h>
 #include <rmrender/linux_pdf.h>
 
+#include "../../src/rmr_pdf_edit.h"
 #include "rmr_linux_internal.h"
+#include "rmr_pdf_platform.h"
 
 struct rmr_linux_pdf_source {
   rmr_buffer data;
@@ -613,12 +613,10 @@ rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source* source,
   return s == RMR_OK ? s : rmr_linux_error(e, s, "PDF composition failed");
 }
 
-#define RMR_PDF_NATIVE(name) rmr_linux_##name
-#define RMR_PDF_BYTES(s) ((s)->data.bytes)
-#define RMR_PDF_SIZE(s) ((s)->data.size)
-#define RMR_PDF_FAIL rmr_linux_error
-#include "../common/rmr_pdf_recompose_impl.h"
-#undef RMR_PDF_NATIVE
-#undef RMR_PDF_BYTES
-#undef RMR_PDF_SIZE
-#undef RMR_PDF_FAIL
+const uint8_t* rmr_linux_pdf_source_data(const rmr_linux_pdf_source* s) {
+  return s->data.bytes;
+}
+
+size_t rmr_linux_pdf_source_length(const rmr_linux_pdf_source* s) {
+  return s->data.size;
+}

@@ -2,6 +2,17 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
 
+/* Highlight extraction and mark sheets, shared by the Apple and Cairo marks
+ * libraries. Each one compiles this file with its own rmr_marks_platform.h on
+ * the include path. */
+
+#include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "rmr_marks_platform.h"
+
 struct rmr_page_marks {
   rmm_marked_page page;
   rmm_mark_band* bands;
@@ -45,42 +56,42 @@ rmr_status mark_page_marks(const rm_page* page, rmr_point canvas,
       (!page->highlights && page->highlight_count) || !isfinite(frame.x) ||
       !isfinite(frame.y) || !isfinite(frame.width) || !isfinite(frame.height) ||
       frame.width <= 0 || frame.height <= 0)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid marks input");
+    return mark_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid marks input");
 
   rmr_limits l = given ? *given : rmr_limits_default();
   if (page->stroke_count > l.maximum_draws ||
       page->highlight_count > l.maximum_draws - page->stroke_count ||
       id.length >= l.maximum_plan_bytes)
-    return text_error(e, RMR_ERR_LIMIT, "marks count limit");
+    return mark_error(e, RMR_ERR_LIMIT, "marks count limit");
   size_t bytes = sizeof(rmr_page_marks), text_bytes = id.length + 1;
   if (bytes > l.maximum_plan_bytes ||
       page->stroke_count >
           (l.maximum_plan_bytes - bytes) / sizeof(rmm_mark_band))
-    return text_error(e, RMR_ERR_LIMIT, "marks storage limit");
+    return mark_error(e, RMR_ERR_LIMIT, "marks storage limit");
   bytes += page->stroke_count * sizeof(rmm_mark_band);
   if (page->highlight_count >
       (l.maximum_plan_bytes - bytes) / sizeof(rmm_marked_highlight))
-    return text_error(e, RMR_ERR_LIMIT, "marks storage limit");
+    return mark_error(e, RMR_ERR_LIMIT, "marks storage limit");
   bytes += page->highlight_count * sizeof(rmm_marked_highlight);
   size_t items = page->stroke_count + page->highlight_count;
   if (items > (l.maximum_plan_bytes - bytes) / 25)
-    return text_error(e, RMR_ERR_LIMIT, "marks ID limit");
+    return mark_error(e, RMR_ERR_LIMIT, "marks ID limit");
   bytes += items * 25;
   if (text_bytes > l.maximum_plan_bytes - bytes)
-    return text_error(e, RMR_ERR_LIMIT, "marks strings limit");
+    return mark_error(e, RMR_ERR_LIMIT, "marks strings limit");
 
   size_t rectangles = 0;
   for (size_t i = 0; i < page->highlight_count; i++) {
     const rm_highlight* h = &page->highlights[i];
     if ((!h->rectangles && h->rectangle_count) ||
         (!h->text.bytes && h->has_text && h->text.length))
-      return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid highlight data");
+      return mark_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid highlight data");
     if (h->rectangle_count > l.maximum_elements - rectangles)
-      return text_error(e, RMR_ERR_LIMIT, "highlight rectangle limit");
+      return mark_error(e, RMR_ERR_LIMIT, "highlight rectangle limit");
     rectangles += h->rectangle_count;
     if (h->has_text) {
       if (h->text.length >= l.maximum_plan_bytes - bytes - text_bytes)
-        return text_error(e, RMR_ERR_LIMIT, "highlight text limit");
+        return mark_error(e, RMR_ERR_LIMIT, "highlight text limit");
       text_bytes += h->text.length + 1;
     }
   }
@@ -192,7 +203,7 @@ done:
   mark_layout_free(layout);
   if (status != RMR_OK) {
     rmr_page_marks_free(m);
-    return text_error(e, status, "mark extraction failed");
+    return mark_error(e, status, "mark extraction failed");
   }
   *out = m;
   return RMR_OK;
@@ -219,7 +230,7 @@ rmr_status mark_mark_sheet(const rmr_bitmap* page, const rmm_page_box* blocks,
   if (!page || !out || (!blocks && count) || !page->pixels || !page->width ||
       !page->height || page->width > SIZE_MAX / 4 ||
       page->stride < page->width * 4)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid mark sheet input");
+    return mark_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid mark sheet input");
 
   rmr_limits l = given ? *given : rmr_limits_default();
   if (page->width > l.maximum_bitmap_side ||
@@ -227,17 +238,17 @@ rmr_status mark_mark_sheet(const rmr_bitmap* page, const rmm_page_box* blocks,
       page->stride > l.maximum_bitmap_bytes / page->height ||
       count > l.maximum_elements || margin > l.maximum_bitmap_side ||
       rule > l.maximum_bitmap_side)
-    return text_error(e, RMR_ERR_LIMIT, "mark sheet input limit");
+    return mark_error(e, RMR_ERR_LIMIT, "mark sheet input limit");
 
   typedef struct {
     size_t x, y, w, h, index;
   } cut;
   if (count > l.maximum_plan_bytes / (sizeof(cut) + sizeof(rmm_mark_strip)))
-    return text_error(e, RMR_ERR_LIMIT, "mark sheet storage limit");
+    return mark_error(e, RMR_ERR_LIMIT, "mark sheet storage limit");
 
   cut* cuts = count ? calloc(count, sizeof *cuts) : nullptr;
   if (count && !cuts)
-    return text_error(e, RMR_ERR_OUT_OF_MEMORY, "mark sheet allocation failed");
+    return mark_error(e, RMR_ERR_OUT_OF_MEMORY, "mark sheet allocation failed");
 
   size_t used = 0, width = 0, height = rule;
   rmr_status status = RMR_OK;
@@ -328,5 +339,5 @@ done:
   free(cuts);
   return status == RMR_OK
              ? RMR_OK
-             : text_error(e, status, "mark sheet construction failed");
+             : mark_error(e, status, "mark sheet construction failed");
 }

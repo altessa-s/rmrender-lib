@@ -24,10 +24,6 @@ struct rmr_linux_fonts {
   bool has_emoji;
 };
 
-static inline rmr_status text_error(rmr_error* e, rmr_status s,
-                                    const char* message) {
-  return rmr_linux_error(e, s, message);
-}
 
 PangoLayout* rmr_pango_layout(const rmr_linux_fonts* fonts, rm_str text,
                               double size, rmr_type_face face, bool bold,

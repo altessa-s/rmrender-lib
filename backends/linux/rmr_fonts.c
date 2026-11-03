@@ -6,6 +6,9 @@
 #include <hb-ot.h>
 #include <limits.h>
 #include <pango/pangofc-font.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "../common/rmr_font_calibration.h"
 #include "rmr_hvar.h"
@@ -46,16 +49,16 @@ static double calibrated_kern(uint32_t c, rmr_type_face face, bool bold,
   if (c > UINT16_MAX) return 0;
   uint16_t u = (uint16_t)c;
 
-  if (script >= 0) return script == 2 ? 0 : notoGlyphShare(u);
+  if (script >= 0) return script == 2 ? 0 : rmr_noto_glyph_share(u);
   if (face == RMR_FACE_SERIF)
-    return bold     ? serifBoldGlyphShare(u)
-           : italic ? serifItalicGlyphShare(u)
-                    : serifGlyphShare(u);
+    return bold     ? rmr_serif_bold_glyph_share(u)
+           : italic ? rmr_serif_italic_glyph_share(u)
+                    : rmr_serif_glyph_share(u);
   if (face == RMR_FACE_MEDIUM && !bold)
-    return italic ? 0 : sansMediumGlyphShare(u);
-  return bold     ? sansBoldGlyphShare(u)
-         : italic ? sansItalicGlyphShare(u)
-                  : sansGlyphShare(u);
+    return italic ? 0 : rmr_sans_medium_glyph_share(u);
+  return bold     ? rmr_sans_bold_glyph_share(u)
+         : italic ? rmr_sans_italic_glyph_share(u)
+                  : rmr_sans_glyph_share(u);
 }
 
 static void calibrated_pattern(FcPattern* pattern, void* context) {
@@ -84,11 +87,11 @@ static void calibrated_pattern(FcPattern* pattern, void* context) {
                                      italic != 0, script, size, key);
 
   double width = 1, nearest = INFINITY;
-  for (size_t i = 0; i < sizeof stretches / sizeof *stretches; i++) {
-    double distance = fabs(size - stretches[i].size);
-    if (!strcmp(name, stretches[i].key) && distance < nearest) {
+  for (size_t i = 0; i < rmr_stretch_count; i++) {
+    double distance = fabs(size - rmr_stretches[i].size);
+    if (!strcmp(name, rmr_stretches[i].key) && distance < nearest) {
       nearest = distance;
-      width = stretches[i].width;
+      width = rmr_stretches[i].width;
     }
   }
 
@@ -736,12 +739,12 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void* context,
                                   const rmr_limits* given,
                                   rmr_linux_fonts** out, rmr_error* e) {
   if (!resolve || !out)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT,
-                      "missing font resolver/output");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
+                           "missing font resolver/output");
 
   rmr_limits l = given ? *given : rmr_limits_default();
   rmr_linux_fonts* f = calloc(1, sizeof *f);
-  if (!f) return text_error(e, RMR_ERR_OUT_OF_MEMORY, "font allocation");
+  if (!f) return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "font allocation");
   atomic_init(&f->references, 1);
   for (size_t i = 0; i < sizeof names / sizeof *names; i++) f->fds[i] = -1;
 
@@ -845,7 +848,7 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void* context,
 
   if (s != RMR_OK) {
     rmr_linux_fonts_free(f);
-    return text_error(e, s, "font resources could not be loaded");
+    return rmr_linux_error(e, s, "font resources could not be loaded");
   }
 
   *out = f;
@@ -876,7 +879,8 @@ rmr_status rmr_linux_fonts_create_directory(const char* directory,
                                             rmr_linux_fonts** out,
                                             rmr_error* e) {
   if (!directory)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing font directory");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
+                           "missing font directory");
   directory_fonts d = {.directory = directory,
                        .maximum = l ? l->maximum_plan_bytes
                                     : rmr_limits_default().maximum_plan_bytes};

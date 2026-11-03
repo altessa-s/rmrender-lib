@@ -5,8 +5,7 @@
 /* Portable grain sampling: SplitMix64 lattice hashes and capsule pressure maps.
  */
 #include "rmr_internal.h"
-#include "rmr_marker_tiles.h"
-#include "rmr_pencil_tiles.h"
+#include "rmr_tiles.h"
 
 static uint64_t mix(uint64_t z) {
   z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
@@ -106,13 +105,13 @@ static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value,
   uint8_t mask = (uint8_t)(0x80u >> (bit & 7));
   if (grain == RMR_GRAIN_STAMP) {
     size_t family = p < .6 ? 0 : p < .85 ? 1 : 2;
-    return ((pencil_tiles[family * 4 + a][bit / 8] |
-             pencil_tiles[family * 4 + b][bit / 8]) &
+    return ((rmr_pencil_tiles[family * 4 + a][bit / 8] |
+             rmr_pencil_tiles[family * 4 + b][bit / 8]) &
             mask) != 0;
   }
 
   double share = (1 - smooth(.5, .85, p)) * (width > 3 ? 3 / width : 1);
-  return share <= 0 || (marker_tiles[a][bit / 8] & mask) ||
+  return share <= 0 || (rmr_marker_tiles[a][bit / 8] & mask) ||
          unit(x, y, salt) >= share;
 }
 

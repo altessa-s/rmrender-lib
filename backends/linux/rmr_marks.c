@@ -2,21 +2,13 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
 
-#include <rmrender/linux_marks.h>
+#include <math.h>
 
 #include "../../adapters/rmr_width.h"
-#include "rmr_typography_internal.h"
-#define mark_page_marks rmr_linux_page_marks
-#define mark_mark_sheet rmr_linux_mark_sheet
-#define mark_fonts rmr_linux_fonts
-#define mark_layout rmr_linux_layout
-#define mark_layout_create rmr_linux_layout_create
-#define mark_layout_bytes rmr_linux_layout_bytes
-#define mark_layout_anchors rmr_linux_layout_anchors
-#define mark_layout_free rmr_linux_layout_free
-static rmr_status mark_stroke_bounds(const rm_stroke* stroke,
-                                     const rmr_stroke_style* style,
-                                     rmr_rect* out) {
+#include "rmr_marks_platform.h"
+
+rmr_status mark_stroke_bounds(const rm_stroke* stroke,
+                              const rmr_stroke_style* style, rmr_rect* out) {
   double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY,
          widest = 0;
   cairo_surface_t* surface =
@@ -67,5 +59,3 @@ static rmr_status mark_stroke_bounds(const rm_stroke* stroke,
   if (status == RMR_OK) *out = (rmr_rect){x0, y0, x1 - x0, y1 - y0};
   return status;
 }
-
-#include "../common/rmr_marks_impl.h"

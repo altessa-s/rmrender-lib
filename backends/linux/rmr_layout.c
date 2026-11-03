@@ -560,19 +560,19 @@ rmr_status rmr_linux_layout_create(const rm_text_block* text, double page_width,
       !isfinite(text->origin_y) ||
       fabs(text->origin_x) > limits.maximum_coordinate ||
       fabs(text->origin_y) > limits.maximum_coordinate)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text layout");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text layout");
 
   double column = text->has_column_width ? text->column_width
                   : text->origin_x < 0   ? -2 * text->origin_x
                                          : page_width;
   if (!isfinite(column) || column <= 0 || column > 1000000)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text column");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text column");
 
   size_t count = text->paragraph_count, base = sizeof(rmr_linux_layout);
   if (base > limits.maximum_plan_bytes || count > limits.maximum_elements ||
       count > (limits.maximum_plan_bytes - base) /
                   (sizeof(paragraph) + sizeof(rmr_anchor_paragraph)))
-    return text_error(e, RMR_ERR_LIMIT, "paragraph limit");
+    return rmr_linux_error(e, RMR_ERR_LIMIT, "paragraph limit");
 
   rmr_linux_layout* l = calloc(1, sizeof *l);
   if (!l) return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY, "allocation failed");
@@ -816,7 +816,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block* text, double page_width,
 
   if (s != RMR_OK) {
     rmr_linux_layout_free(l);
-    return text_error(e, s, "paragraph layout failed");
+    return rmr_linux_error(e, s, "paragraph layout failed");
   }
 
   *out = l;
@@ -827,7 +827,7 @@ rmr_status rmr_linux_layout_line(const rmr_linux_layout* l, size_t pi,
                                  size_t li, rmr_text_line* out, rmr_error* e) {
   if (!l || !out || pi >= l->anchors.count ||
       li >= l->paragraphs[pi].line_count)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text line index");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text line index");
 
   const rmr_anchor_paragraph* p = &l->paragraphs[pi];
   rmr_anchor_line v = p->lines[li];
@@ -865,7 +865,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout* l, rmr_rect viewport,
                                  const rmr_limits* given, rmr_plan** out,
                                  rmr_error* e) {
   if (!l || !out)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing layout/output");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "missing layout/output");
 
   rmr_limits limits = given ? *given : rmr_limits_default();
   rmr_plan* valid = nullptr;
@@ -974,7 +974,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout* l, rmr_rect viewport,
   }
 
   rmr_buffer_free(&sink->data);
-  return s == RMR_OK ? s : text_error(e, s, "text PDF rendering failed");
+  return s == RMR_OK ? s : rmr_linux_error(e, s, "text PDF rendering failed");
 }
 
 rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face,
@@ -985,22 +985,22 @@ rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face,
   rmr_limits l = given ? *given : rmr_limits_default();
   if (!fonts || !out || (!text.bytes && text.length) || !isfinite(size) ||
       size <= 0 || size > 100000 || face > RMR_FACE_SERIF)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text measurement");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text measurement");
 
   if (text.length > INT_MAX || text.length > l.maximum_elements ||
       text.length > l.maximum_plan_bytes / 4)
-    return text_error(e, RMR_ERR_LIMIT, "text measurement limit");
+    return rmr_linux_error(e, RMR_ERR_LIMIT, "text measurement limit");
 
   if (!g_utf8_validate(text.bytes ? text.bytes : "", (gssize)text.length,
                        nullptr))
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid UTF-8");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid UTF-8");
 
   PangoLayout* p = rmr_pango_layout(fonts, text, size, face, bold, italic);
   pango_layout_set_single_paragraph_mode(p, TRUE);
   rmr_status status = rmr_pango_calibrate(p, &l);
   if (status != RMR_OK) {
     g_object_unref(p);
-    return text_error(e, status, "text calibration limit");
+    return rmr_linux_error(e, status, "text calibration limit");
   }
 
   PangoRectangle logical;

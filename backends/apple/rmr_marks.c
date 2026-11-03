@@ -2,21 +2,13 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
 
-#include <rmrender/apple_marks.h>
+#include <math.h>
 
 #include "../../adapters/rmr_width.h"
-#include "rmr_typography_internal.h"
-#define mark_page_marks rmr_apple_page_marks
-#define mark_mark_sheet rmr_apple_mark_sheet
-#define mark_fonts rmr_apple_fonts
-#define mark_layout rmr_apple_layout
-#define mark_layout_create rmr_apple_layout_create
-#define mark_layout_bytes rmr_apple_layout_bytes
-#define mark_layout_anchors rmr_apple_layout_anchors
-#define mark_layout_free rmr_apple_layout_free
-static rmr_status mark_stroke_bounds(const rm_stroke* stroke,
-                                     const rmr_stroke_style* style,
-                                     rmr_rect* out) {
+#include "rmr_marks_platform.h"
+
+rmr_status mark_stroke_bounds(const rm_stroke* stroke,
+                              const rmr_stroke_style* style, rmr_rect* out) {
   rmr_status status = RMR_OK;
   CGRect box = CGRectNull;
   CGMutablePathRef path = CGPathCreateMutable();
@@ -63,5 +55,3 @@ static rmr_status mark_stroke_bounds(const rm_stroke* stroke,
       (rmr_rect){box.origin.x, box.origin.y, box.size.width, box.size.height};
   return status;
 }
-
-#include "../common/rmr_marks_impl.h"

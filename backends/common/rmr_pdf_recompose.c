@@ -2,7 +2,15 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
 
-/* Included after the platform source representation and PDF entry points. */
+/* Page selection, overlays and a fresh rewrite in one call, shared by the Apple
+ * and Cairo backends. Each one compiles this file with its own
+ * rmr_pdf_platform.h on the include path. */
+
+#include <rmrender/pdf.h>
+#include <stdlib.h>
+
+#include "rmr_pdf_platform.h"
+
 rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) *
                                              source,
                                          const rmr_pdf_page* pages,

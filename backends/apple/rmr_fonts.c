@@ -3,8 +3,11 @@
  * found in the LICENSE file. */
 
 #include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "rmr_font_calibration.h"
+#include "../common/rmr_font_calibration.h"
 #include "rmr_typography_internal.h"
 
 static const char* const names[] = {"NotoSans-Regular",
@@ -36,12 +39,14 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void* context,
                                   const rmr_limits* given,
                                   rmr_apple_fonts** out, rmr_error* e) {
   if (!resolve || !out)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT,
-                      "missing font resolver/output");
+    return rmr_apple_text_error(e, RMR_ERR_INVALID_ARGUMENT,
+                                "missing font resolver/output");
 
   rmr_limits l = given ? *given : rmr_limits_default();
   rmr_apple_fonts* f = calloc(1, sizeof *f);
-  if (!f) return text_error(e, RMR_ERR_OUT_OF_MEMORY, "font allocation failed");
+  if (!f)
+    return rmr_apple_text_error(e, RMR_ERR_OUT_OF_MEMORY,
+                                "font allocation failed");
   size_t total = 0;
   rmr_status s = RMR_OK;
 
@@ -80,7 +85,7 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void* context,
 
   if (s != RMR_OK) {
     rmr_apple_fonts_free(f);
-    return text_error(e, s, "font resources could not be loaded");
+    return rmr_apple_text_error(e, s, "font resources could not be loaded");
   }
 
   *out = f;
@@ -139,12 +144,12 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts* fonts, double size,
   }
 
   double width = 1, nearest = INFINITY;
-  for (size_t i = 0; i < sizeof stretches / sizeof *stretches; i++) {
-    if (strcmp(key, stretches[i].key) != 0) continue;
-    double distance = fabs(size - stretches[i].size);
+  for (size_t i = 0; i < rmr_stretch_count; i++) {
+    if (strcmp(key, rmr_stretches[i].key) != 0) continue;
+    double distance = fabs(size - rmr_stretches[i].size);
     if (distance < nearest) {
       nearest = distance;
-      width = stretches[i].width;
+      width = rmr_stretches[i].width;
     }
   }
 
@@ -207,16 +212,16 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts* fonts, double size,
 
 double rmr_ct_kern(UniChar c, rmr_type_face face, bool bold, bool italic,
                    int script) {
-  if (script >= 0) return script == 2 ? 0 : notoGlyphShare(c);
+  if (script >= 0) return script == 2 ? 0 : rmr_noto_glyph_share(c);
   if (face == RMR_FACE_SERIF)
-    return bold     ? serifBoldGlyphShare(c)
-           : italic ? serifItalicGlyphShare(c)
-                    : serifGlyphShare(c);
+    return bold     ? rmr_serif_bold_glyph_share(c)
+           : italic ? rmr_serif_italic_glyph_share(c)
+                    : rmr_serif_glyph_share(c);
   if (face == RMR_FACE_MEDIUM && !bold)
-    return italic ? 0 : sansMediumGlyphShare(c);
-  return bold     ? sansBoldGlyphShare(c)
-         : italic ? sansItalicGlyphShare(c)
-                  : sansGlyphShare(c);
+    return italic ? 0 : rmr_sans_medium_glyph_share(c);
+  return bold     ? rmr_sans_bold_glyph_share(c)
+         : italic ? rmr_sans_italic_glyph_share(c)
+                  : rmr_sans_glyph_share(c);
 }
 
 #include "../../adapters/rmr_files.h"
@@ -243,7 +248,8 @@ rmr_status rmr_apple_fonts_create_directory(const char* directory,
                                             rmr_apple_fonts** out,
                                             rmr_error* e) {
   if (!directory)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing font directory");
+    return rmr_apple_text_error(e, RMR_ERR_INVALID_ARGUMENT,
+                                "missing font directory");
   font_directory d = {.directory = directory,
                       .maximum = limits
                                      ? limits->maximum_plan_bytes
@@ -252,4 +258,13 @@ rmr_status rmr_apple_fonts_create_directory(const char* directory,
       rmr_apple_fonts_create(directory_font, &d, limits, out, e);
   rmr_buffer_free(&d.current);
   return status;
+}
+
+rmr_status rmr_apple_text_error(rmr_error* e, rmr_status s,
+                                const char* message) {
+  if (e) {
+    *e = (rmr_error){.code = s};
+    snprintf(e->message, sizeof e->message, "%s", message);
+  }
+  return s;
 }

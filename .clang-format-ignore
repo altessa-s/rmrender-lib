@@ -1,7 +1,7 @@
 # Generated sources and data tables, checked byte for byte by their scripts
-backends/apple/rmr_alphabetic.h
-backends/common/rmr_font_calibration.h
-src/rmr_marker_tiles.h
-src/rmr_pencil_tiles.h
+backends/apple/rmr_alphabetic.c
+backends/common/rmr_font_calibration.c
+src/rmr_marker_tiles.c
+src/rmr_pencil_tiles.c
 tests/image_fixture.h
 tests/text_*_reference.h

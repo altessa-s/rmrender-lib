@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "rmr_apple_internal.h"
+#include "rmr_pdf_platform.h"
 
 struct rmr_apple_pdf_source {
   CFDataRef data;
@@ -871,12 +872,14 @@ rmr_status rmr_apple_pdf_incremental(
   return status;
 }
 
-#define RMR_PDF_NATIVE(name) rmr_apple_##name
-#define RMR_PDF_BYTES(s) CFDataGetBytePtr((s)->data)
-#define RMR_PDF_SIZE(s) ((size_t)CFDataGetLength((s)->data))
-#define RMR_PDF_FAIL fail
-#include "../common/rmr_pdf_recompose_impl.h"
-#undef RMR_PDF_NATIVE
-#undef RMR_PDF_BYTES
-#undef RMR_PDF_SIZE
-#undef RMR_PDF_FAIL
+const uint8_t* rmr_apple_pdf_source_data(const rmr_apple_pdf_source* s) {
+  return CFDataGetBytePtr(s->data);
+}
+
+size_t rmr_apple_pdf_source_length(const rmr_apple_pdf_source* s) {
+  return (size_t)CFDataGetLength(s->data);
+}
+
+rmr_status rmr_apple_pdf_fail(rmr_error* e, rmr_status s, const char* message) {
+  return fail(e, s, message);
+}

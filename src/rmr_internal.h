@@ -41,8 +41,6 @@ bool rmr_utf8_valid(const char* text, size_t size);
 bool rmr_point_valid(rmr_point p, double bound);
 bool rmr_color_valid(rmr_color color);
 
-static inline double rmr_clamp(double x, double low, double high) {
-  return fmin(fmax(x, low), high);
-}
+double rmr_clamp(double x, double low, double high);
 
 #endif

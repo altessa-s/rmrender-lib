@@ -17,7 +17,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
                                rmr_buffer* out, rmr_document_report* report,
                                rmr_error* e, pdf_output_mode mode) {
   if (!document || !out || paper > RMR_PAPER_TABLET)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT,
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
                       "invalid document render input");
 
   rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
@@ -41,7 +41,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
       count > limits.maximum_plan_bytes /
                   (sizeof(rm_page*) + sizeof(rmr_pdf_page))) {
     rmr_linux_pdf_source_free(source);
-    return text_error(e, count ? RMR_ERR_LIMIT : RMR_ERR_INVALID_ARGUMENT,
+    return rmr_linux_error(e, count ? RMR_ERR_LIMIT : RMR_ERR_INVALID_ARGUMENT,
                       "document page count invalid");
   }
 
@@ -51,7 +51,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
     free(parsed);
     free(pages);
     rmr_linux_pdf_source_free(source);
-    return text_error(e, RMR_ERR_OUT_OF_MEMORY,
+    return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY,
                       "document page allocation failed");
   }
   remaining.maximum_plan_bytes -= count * (sizeof *parsed + sizeof *pages);
@@ -187,7 +187,7 @@ done:
   rmr_linux_pdf_source_free(source);
   return status == RMR_OK || reported
              ? status
-             : text_error(e, status, "document render failed");
+             : rmr_linux_error(e, status, "document render failed");
 }
 
 rmr_status rmr_linux_document_pdf(

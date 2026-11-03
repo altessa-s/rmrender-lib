@@ -13,7 +13,7 @@ static rmr_status page_build(const rm_page* page, rmr_point canvas,
   if (!page || (!out && !measured) || !isfinite(canvas.x) ||
       !isfinite(canvas.y) || canvas.x <= 0 || canvas.y <= 0 ||
       canvas.x > 100000 || canvas.y > 100000)
-    return text_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid page input");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid page input");
 
   rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
   rmr_page_resources resources =
@@ -32,7 +32,7 @@ static rmr_status page_build(const rm_page* page, rmr_point canvas,
 
   if (page->has_text) {
     if (!fonts)
-      return text_error(e, RMR_ERR_UNSUPPORTED,
+      return rmr_linux_error(e, RMR_ERR_UNSUPPORTED,
                         "document font provider required");
     s = rmr_linux_layout_create(&page->text, canvas.x, fonts, &remaining,
                                 &layout, e);
@@ -117,17 +117,17 @@ static rmr_status page_build(const rm_page* page, rmr_point canvas,
   if (page->background_visible && page->has_template_name &&
       page->template_name.length) {
     if (!page->template_name.bytes) {
-      s = text_error(e, RMR_ERR_INVALID_ARGUMENT, "missing template name");
+      s = rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "missing template name");
       goto done;
     }
     if (!resources.template) {
-      s = text_error(e, RMR_ERR_UNSUPPORTED, "template resolver required");
+      s = rmr_linux_error(e, RMR_ERR_UNSUPPORTED, "template resolver required");
       goto done;
     }
     s = resources.template(resources.template_context, page->template_name,
                            &model);
     if (s != RMR_OK) {
-      text_error(e, s, "template resolver failed");
+      rmr_linux_error(e, s, "template resolver failed");
       goto done;
     }
   }
@@ -183,7 +183,7 @@ rmr_status rmr_linux_page_bounds(const rm_page* page, rmr_point canvas,
                                  const rmr_limits* limits, rmr_rect* out,
                                  rmr_error* error) {
   if (!out)
-    return text_error(error, RMR_ERR_INVALID_ARGUMENT, "missing bounds output");
+    return rmr_linux_error(error, RMR_ERR_INVALID_ARGUMENT, "missing bounds output");
 
   rmr_rect result;
   rmr_status status = page_build(page, canvas, edge, margin, nullptr, fonts,

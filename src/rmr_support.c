@@ -200,3 +200,7 @@ bool rmr_utf8_valid(const char* s, size_t n) {
 
   return true;
 }
+
+double rmr_clamp(double x, double low, double high) {
+  return fmin(fmax(x, low), high);
+}
