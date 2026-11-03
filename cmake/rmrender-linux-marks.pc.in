@@ -5,6 +5,7 @@ Name: rmrender-linux-marks
 Description: @PROJECT_DESCRIPTION@ (linux-marks)
 Version: @PROJECT_VERSION@
 Requires: rmrender-linux-text rmmarks
-Requires.private: cairo
+Requires.private: cairo pangoft2
 Libs: -L${libdir} -lrmrender_linux_marks
+Libs.private:
 Cflags: -I${includedir}

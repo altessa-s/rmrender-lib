@@ -8,7 +8,11 @@
 #include <hb-ot.h>
 #include <limits.h>
 #include <pango/pangofc-font.h>
+#ifdef __APPLE__
+#include <fcntl.h>
+#else
 #include <sys/mman.h>
+#endif
 #include <unistd.h>
 static const char *calibration_key(rmr_type_face face, bool bold, bool italic, int script,
                                    double size, char key[96]) {
@@ -311,8 +315,8 @@ static void emoji_clusters(PangoGlyphItem *run, const char *text) {
         gunichar c = g_utf8_get_char(text + run->item->offset + index);
         int base = rtl ? i + 1 : i - 1;
         if (run->glyphs->glyphs[i].glyph != PANGO_GLYPH_EMPTY ||
-            (c != 0xfe0e && c != 0xfe0f && c != 0x200d) ||
-            base < 0 || base >= run->glyphs->num_glyphs || run->glyphs->log_clusters[base] >= index)
+            (c != 0xfe0e && c != 0xfe0f && c != 0x200d) || base < 0 ||
+            base >= run->glyphs->num_glyphs || run->glyphs->log_clusters[base] >= index)
             continue;
         run->glyphs->log_clusters[i] = run->glyphs->log_clusters[base];
         run->glyphs->glyphs[i].attr.is_cluster_start = 0;
@@ -321,8 +325,9 @@ static void emoji_clusters(PangoGlyphItem *run, const char *text) {
         int next = rtl ? i - 1 : i + 1;
         if (c == 0x200d && next >= 0 && next < run->glyphs->num_glyphs) {
             int following = run->glyphs->log_clusters[next];
-            for (int g = next; g >= 0 && g < run->glyphs->num_glyphs &&
-                               run->glyphs->log_clusters[g] == following; g += rtl ? -1 : 1) {
+            for (int g = next;
+                 g >= 0 && g < run->glyphs->num_glyphs && run->glyphs->log_clusters[g] == following;
+                 g += rtl ? -1 : 1) {
                 run->glyphs->log_clusters[g] = run->glyphs->log_clusters[base];
                 run->glyphs->glyphs[g].attr.is_cluster_start = 0;
             }
@@ -619,9 +624,14 @@ void rmr_linux_fonts_free(rmr_linux_fonts *f) {
             FcCharSetDestroy(f->base_characters[i]);
     if (f->config)
         FcConfigDestroy(f->config);
-    for (size_t i = 0; i < sizeof names / sizeof *names; i++)
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
         if (f->fds[i] >= 0)
             close(f->fds[i]);
+#ifdef __APPLE__
+        if (f->paths[i][0])
+            unlink(f->paths[i]);
+#endif
+    }
     free(f);
 }
 rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
@@ -635,10 +645,8 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
     atomic_init(&f->references, 1);
     for (size_t i = 0; i < sizeof names / sizeof *names; i++)
         f->fds[i] = -1;
-    if (!FcInit()) {
-        rmr_linux_fonts_free(f);
-        return text_error(e, RMR_ERR_BACKEND, "Fontconfig initialization failed");
-    }
+    /* Private configuration: do not initialize or scan the process-global
+     * system font configuration. All matching uses this explicit config. */
     f->config = FcConfigCreate();
     rmr_status s = f->config ? RMR_OK : RMR_ERR_OUT_OF_MEMORY;
     size_t total = 0;
@@ -662,7 +670,20 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
             break;
         }
         total += v.size;
+#ifdef __APPLE__
+        /* Fontconfig reopens files lazily, so keep private named files alive
+         * until the font map is shut down. mkstemp creates mode 0600 files. */
+        snprintf(f->paths[i], sizeof f->paths[i], "/tmp/rmrender-font-XXXXXX");
+        f->fds[i] = mkstemp(f->paths[i]);
+        if (f->fds[i] < 0)
+            f->paths[i][0] = 0;
+        if (f->fds[i] >= 0 && fcntl(f->fds[i], F_SETFD, FD_CLOEXEC) < 0) {
+            s = RMR_ERR_BACKEND;
+            break;
+        }
+#else
         f->fds[i] = memfd_create(names[i], MFD_CLOEXEC);
+#endif
         if (f->fds[i] < 0) {
             s = RMR_ERR_BACKEND;
             break;
@@ -681,7 +702,11 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
         if (s != RMR_OK)
             break;
         char path[64];
+#ifdef __APPLE__
+        snprintf(path, sizeof path, "%s", f->paths[i]);
+#else
         snprintf(path, sizeof path, "/proc/self/fd/%d", f->fds[i]);
+#endif
         if (!FcConfigAppFontAddFile(f->config, (const FcChar8 *)path))
             s = RMR_ERR_BACKEND;
         else if (i < 5) {

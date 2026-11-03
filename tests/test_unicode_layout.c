@@ -4,7 +4,7 @@
 #include "test.h"
 #include <stdio.h>
 #include <string.h>
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
 #include <rmrender/apple_text.h>
 #define F rmr_apple_fonts
 #define create rmr_apple_fonts_create_directory
@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
             layout_free(layout);
         }
     release(fonts);
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     FcFini();
 #endif
     return 0;

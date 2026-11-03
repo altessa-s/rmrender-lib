@@ -4,7 +4,7 @@
 #include "test.h"
 #include "text_metrics_cases.h"
 #include "text_metrics_reference.h"
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
 #include "../backends/apple/rmr_typography_internal.h"
 #define Fonts rmr_apple_fonts
 #define create_fonts rmr_apple_fonts_create_directory
@@ -33,14 +33,14 @@ static const struct {
     {"कुं कूँ कें कैं", 2, -1},      {"กิ กุ ก่ ก้", 6, -1},   {"שָׁלוֹם", 1, -1},
     {"مَرْحَبًا", 3, -1},
 };
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_glyph_reference.h"
 #endif
 static size_t capture(Fonts *fonts, size_t sample_index, double size, bool bold, bool italic,
                       glyph_origin out[64], double *width) {
     const char *sample = glyph_cases[sample_index].text;
     size_t count = 0;
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
     CTFontRef font =
         rmr_ct_font(fonts, size, RMR_FACE_SANS, bold, italic, glyph_cases[sample_index].script);
     CHECK(font);
@@ -119,14 +119,14 @@ static size_t capture(Fonts *fonts, size_t sample_index, double size, bool bold,
 int main(int argc, char **argv) {
     CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
     bool dump = argc == 3;
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
     dump = true;
 #else
     CHECK(sizeof apple_glyph_cases / sizeof *apple_glyph_cases ==
           (sizeof glyph_cases / sizeof *glyph_cases) * 16);
 #endif
     if (dump) {
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
         printf("/* CoreText reference initializer: sample, size, bold, italic order. */\n");
 #else
         printf("/* Linux diagnostic values; not a reference initializer. */\n");
@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
                                         italic;
                         CHECK(fabs(width - apple_metric_widths[metric]) < .015);
                     }
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
                     size_t at = ((sample * 4 + size) * 2 + bold) * 2 + italic;
                     const glyph_case_reference *reference = &apple_glyph_cases[at];
                     CHECK(count == reference->count);
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
                     if (dump)
                         printf("{%.9f, %zu, {\n", width, count);
                     for (size_t i = 0; i < count; i++) {
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
                         glyph_origin expected = reference->glyphs[i];
                         CHECK(glyphs[i].glyph == expected.glyph);
                         /* Shapers can assign different character indices inside a cluster;
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
                         printf("}},\n");
                     free_fonts(fonts);
                 }
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     FcFini();
 #endif
     return 0;

@@ -46,8 +46,8 @@ static void shaping(rmr_linux_fonts *fonts) {
 }
 static void composite_cluster(rmr_linux_fonts *fonts) {
     const char *text = "👩‍😀";
-    PangoLayout *layout = rmr_pango_layout(fonts, (rm_str){text, strlen(text)}, 32,
-                                           RMR_FACE_SANS, false, false);
+    PangoLayout *layout =
+        rmr_pango_layout(fonts, (rm_str){text, strlen(text)}, 32, RMR_FACE_SANS, false, false);
     CHECK(layout);
     rmr_limits limits = rmr_limits_default();
     OK(rmr_pango_calibrate(layout, &limits));
@@ -83,7 +83,8 @@ static void emoji_limits(const rmr_linux_fonts *fonts) {
     rmr_linux_layout_free(layout);
 }
 static void pdf_roundtrip(const rmr_linux_fonts *fonts, const char *preview) {
-    const char *mixed[] = {"👍👍🏽👍🏿👍🏽", "👍🏽👍👍🏿👍", "🇫🇷🇩🇪🇫🇷", "A👍🏽B🇫🇷C", "A👩‍😀B", "x😀y❤️z", "A👍🏽B\nC🇫🇷D"};
+    const char *mixed[] = {"👍👍🏽👍🏿👍🏽", "👍🏽👍👍🏿👍", "🇫🇷🇩🇪🇫🇷",      "A👍🏽B🇫🇷C",
+                           "A👩‍😀B",  "x😀y❤️z",       "A👍🏽B\nC🇫🇷D"};
     size_t singles = sizeof samples / sizeof *samples;
     size_t cases = singles + sizeof mixed / sizeof *mixed;
     cairo_surface_t *sheet =
@@ -164,7 +165,7 @@ static void pdf_roundtrip(const rmr_linux_fonts *fonts, const char *preview) {
         FPDF_BITMAP bitmap = FPDFBitmap_Create(160, 100, 0);
         CHECK(bitmap);
         FPDFBitmap_FillRect(bitmap, 0, 0, 160, 100, 0xffffffff);
-        FPDF_RenderPageBitmap(bitmap, page, 0, 0, 160, 100, 0, 0);
+        FPDF_RenderPageBitmap(bitmap, page, 0, 0, 160, 100, 0, FPDF_NO_NATIVETEXT);
         unsigned char *bytes = FPDFBitmap_GetBuffer(bitmap);
         int stride = FPDFBitmap_GetStride(bitmap);
         size_t ink = 0;

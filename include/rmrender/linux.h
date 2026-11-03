@@ -6,7 +6,7 @@
 #include "grain.h"
 #include "output.h"
 #include "template.h"
-/* Cairo/PDFium bitmap rendering. See LINUX.md for dependency and threading contracts. */
+/* Cairo/PDFium bitmap rendering. PDFium calls are serialized process-wide; see README. */
 [[nodiscard]] RMR_API rmr_status rmr_linux_bitmap(const rmr_plan *plan, double scale,
                                                   rmr_color background, const rmr_limits *limits,
                                                   rmr_cancel_fn cancel, void *cancel_context,

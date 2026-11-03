@@ -4,7 +4,7 @@
 #include "test.h"
 #include <stdio.h>
 #include <string.h>
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
 #include <rmrender/apple_text.h>
 #define F rmr_apple_fonts
 #define create rmr_apple_fonts_create_directory
@@ -26,7 +26,7 @@
 #define line_get rmr_linux_layout_line
 #define layout_free rmr_linux_layout_free
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 static const char *samples[] = {"office ffi affine",
@@ -46,14 +46,14 @@ typedef struct {
     size_t case_id, line, index;
     double at_index, at_start;
 } caret_reference;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_caret_reference.h"
 #endif
 int main(int argc, char **argv) {
     CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
     bool dump = argc == 3;
     size_t mismatches = 0;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     size_t at = 0;
 #else
     dump = true;
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
                 L *layout = nullptr;
                 OK(layout_create(&block, columns[column], fonts, nullptr, &layout, nullptr));
                 const rmr_anchor_layout *a = anchors(layout);
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
                 CFStringRef text =
                     CFStringCreateWithCString(nullptr, samples[sample], kCFStringEncodingUTF8);
                 CHECK(text);
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
                 layout_free(layout);
             }
     release(fonts);
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
     CHECK(at == sizeof apple_carets / sizeof *apple_carets);
     FcFini();
 #endif

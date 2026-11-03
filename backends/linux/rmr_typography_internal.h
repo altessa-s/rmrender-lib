@@ -15,6 +15,9 @@ struct rmr_linux_fonts {
     FcCharSet *base_characters[5];
     PangoFontMap *map;
     int fds[14];
+#ifdef __APPLE__
+    char paths[14][64];
+#endif
     bool has_emoji;
 };
 static inline rmr_status text_error(rmr_error *e, rmr_status s, const char *message) {
