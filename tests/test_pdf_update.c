@@ -211,8 +211,87 @@ static void select_check(void) {
     }
     assert(allocations < 3000);
 }
+static bool squashed_contains(const rmr_buffer *b, const char *needle) {
+    char *text = malloc(b->size + 1);
+    assert(text);
+    size_t n = 0;
+    for (size_t i = 0; i < b->size; i++)
+        if (b->bytes[i] != ' ' && b->bytes[i] != '\n' && b->bytes[i] != '\r')
+            text[n++] = b->bytes[i] ? (char)b->bytes[i] : '.';
+    text[n] = 0;
+    bool found = strstr(text, needle) != nullptr;
+    free(text);
+    return found;
+}
+/* Page labels follow the selected pages: i, ii, 5 selected as 5, ii, i, ii. */
+static void select_labels_check(void) {
+    fixture f = {0};
+    add(&f, "%%PDF-1.7\n");
+    obj(&f, 1, 0,
+        "<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /S /r >> 2 6 0 R] >> >>");
+    obj(&f, 2, 0, "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 100 100] >>");
+    obj(&f, 3, 0, "<< /Type /Page /Parent 2 0 R >>");
+    obj(&f, 4, 0, "<< /Type /Page /Parent 2 0 R >>");
+    obj(&f, 5, 0, "<< /Type /Page /Parent 2 0 R >>");
+    obj(&f, 6, 0, "<< /S /D /St 5 >>");
+    size_t x = f.n;
+    add(&f, "xref\n0 7\n0000000000 65535 f \n");
+    for (unsigned i = 1; i < 7; i++)
+        add(&f, "%010zu %05u n \n", f.offsets[i], f.gen[i]);
+    add(&f, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", x);
+    const size_t order[] = {2, 1, 0, 1};
+    rmr_buffer out = {0};
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
+                                nullptr) == RMR_OK);
+    assert(squashed_contains(&out, "/PageLabels<</Nums[0<</S/D/St5>>1<</St2/S/r>>2<</St1/S/r>>]>>"));
+    size_t count;
+    assert(rmr_pdf_pages(out.bytes, out.size, nullptr, nullptr, 0, &count, nullptr) == RMR_OK);
+    assert(count == 4);
+    rmr_buffer_free(&out);
+    char *start = strstr(f.bytes, "/St 5 >>");
+    assert(start);
+    memcpy(start, "/St(5)>>", 8);
+    out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
+    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
+                                nullptr) == RMR_ERR_INVALID_ARGUMENT);
+    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+}
+/* Object 0 heads the free list and a catalog must be an indirect object; a
+ * fresh file keeps a well-formed declared version and normalizes any other. */
+static void reserved_check(void) {
+    rmr_buffer out = {(uint8_t *)(uintptr_t)1, 19};
+    fixture zero = overlay_fixture();
+    char *row = strstr(zero.bytes, "0000000000 65535 f ");
+    assert(row);
+    memcpy(row, "0000000009 00000 n ", 19);
+    assert(rmr_pdf_rewrite((uint8_t *)zero.bytes, zero.n, nullptr, nullptr, nullptr, &out,
+                           nullptr) == RMR_ERR_INVALID_ARGUMENT);
+    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    fixture direct = overlay_fixture();
+    char *trailer = strstr(direct.bytes, "trailer");
+    assert(trailer);
+    size_t x = lastxref(&direct);
+    direct.n = (size_t)(trailer - direct.bytes);
+    add(&direct,
+        "trailer\n<< /Size 6 /Root << /Type /Catalog /Pages 2 0 R >> >>\nstartxref\n%zu\n%%%%EOF\n",
+        x);
+    size_t count;
+    assert(rmr_pdf_pages((uint8_t *)direct.bytes, direct.n, nullptr, nullptr, 0, &count, nullptr) ==
+           RMR_ERR_INVALID_ARGUMENT);
+    const char *const headers[][2] = {{"%PDF-2.0", "%PDF-2.0\n"}, {"%PDF-x.7", "%PDF-1.7\n"}};
+    for (size_t i = 0; i < 2; i++) {
+        fixture f = overlay_fixture();
+        memcpy(f.bytes, headers[i][0], 8);
+        assert(rmr_pdf_rewrite((uint8_t *)f.bytes, f.n, nullptr, nullptr, nullptr, &out, nullptr) ==
+               RMR_OK);
+        assert(out.size > 9 && !memcmp(out.bytes, headers[i][1], 9));
+        rmr_buffer_free(&out);
+    }
+}
 int main(void) {
     select_check();
+    select_labels_check();
+    reserved_check();
     fixture f = source(false), ov = overlay_fixture();
     rmr_pdf_overlay o = {.pdf = (uint8_t *)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
     rewrite_check((uint8_t *)f.bytes, f.n, 2);

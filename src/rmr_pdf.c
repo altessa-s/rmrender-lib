@@ -807,6 +807,8 @@ static node *stream_section(file *f, size_t offset, bool fill, size_t *used, siz
                 for (uint64_t j = 0; j < widths[k]; j++)
                     fields[k] = (fields[k] << 8) | data[cursor++];
             entry e = {.number = (uint32_t)(first + i), .revision = revision};
+            if (fields[0] && !e.number)
+                goto bad;
             if (fields[0] == 0) {
                 if (fields[2] > 65535)
                     goto bad;
@@ -883,7 +885,8 @@ static bool sections(file *f, bool fill) {
                 bool live = word(&s, "n");
                 if (!live && !word(&s, "f"))
                     goto bad;
-                if (live && ((at == 0 && (!f->overlay || gen != 0)) || at >= f->size))
+                if (live && ((at == 0 && (!f->overlay || gen != 0)) || at >= f->size ||
+                             first + i == 0))
                     goto bad;
                 if (used == SIZE_MAX)
                     goto bad;
@@ -1087,7 +1090,8 @@ static bool open_file(file *f, job *j, const uint8_t *bytes, size_t size, bool o
     f->next_number = (size_t)declared;
     if (unique && f->entries[unique - 1].number >= f->next_number)
         f->next_number = (size_t)f->entries[unique - 1].number + 1;
-    f->root = resolve(f, get(f->trailer, "Root"), 0);
+    node *root = get(f->trailer, "Root");
+    f->root = root && root->type == REF ? resolve(f, root, 0) : nullptr;
     if (!f->root || f->root->type != DICT)
         goto bad;
     if (get(f->root, "Perms")) {
@@ -1220,6 +1224,10 @@ static uint32_t reserve(writer *w) {
 static void begin(writer *w, uint32_t id, uint32_t gen) {
     if (!tick(w->j))
         return;
+    if (!id) {
+        stop(w->j, RMR_ERR_INVALID_ARGUMENT, "PDF object number 0 is reserved");
+        return;
+    }
     update *u = take(w->j, sizeof *u);
     if (!u)
         return;
@@ -1929,6 +1937,22 @@ rmr_status rmr_pdf_navigation(const uint8_t *pdf, size_t size, const rmr_pdf_loc
 /* Rewriting keeps object identities and generations, but discards historical
  * revisions and expands packed objects. It is deliberately separate from the
  * incremental writer: rewriting can never preserve signed byte ranges. */
+/* A fresh file keeps the source's declared version, %PDF-<major>.<minor>,
+ * and falls back to 1.7 when the header is not in that form. */
+static void header(writer *w, const uint8_t *source, size_t size) {
+    size_t end = 5, major = 0, minor = 0;
+    while (end < size && end < 16 && source[end] >= '0' && source[end] <= '9')
+        end++, major++;
+    if (end < size && source[end] == '.')
+        for (end++; end < size && end < 16 && source[end] >= '0' && source[end] <= '9'; end++)
+            minor++;
+    bool valid = major && minor && (end == size || source[end] < '0' || source[end] > '9');
+    if (valid)
+        put(w, source, end);
+    else
+        text(w, "%PDF-1.7");
+    text(w, "\n%\342\343\317\323\n");
+}
 rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size, const rmr_limits *limits,
                            rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_error *error) {
     if (!source || !size || !out)
@@ -1939,9 +1963,7 @@ rmr_status rmr_pdf_rewrite(const uint8_t *source, size_t size, const rmr_limits 
     file f;
     if (tick(&j) && open_file(&f, &j, source, size, false)) {
         w.next_number = f.next_number;
-        /* Preserve the declared PDF version, including PDF 2.0 inputs. */
-        put(&w, source, 8);
-        text(&w, "\n%\342\343\317\323\n");
+        header(&w, source, size);
         for (size_t i = 0; i < f.count && tick(&j); i++) {
             entry *e = &f.entries[i];
             if (!e->live)
@@ -2173,6 +2195,86 @@ static node *select_fields(file *f, node *array, node **widgets, uint8_t *seen,
     }
     return result;
 }
+/* Page labels are keyed by page index. Each output page keeps the label its
+ * source page showed: it starts a range copied from the source range, with
+ * /St advanced to the source page's position in that range. */
+typedef struct label_range {
+    uint64_t key;
+    node *dict;
+    struct label_range *next;
+} label_range;
+static void select_label_ranges(file *f, node *tree, label_range **out, unsigned depth) {
+    tree = resolve(f, tree, 0);
+    if (!tree || !tick(f->j))
+        return;
+    if (depth >= 64 || tree->type != DICT) {
+        stop(f->j, depth >= 64 ? RMR_ERR_LIMIT : RMR_ERR_INVALID_ARGUMENT, "invalid page labels");
+        return;
+    }
+    node *nums = resolve(f, get(tree, "Nums"), 0), *kids = resolve(f, get(tree, "Kids"), 0);
+    if ((nums && nums->type != ARRAY) || (kids && kids->type != ARRAY)) {
+        stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid page labels");
+        return;
+    }
+    for (node *k = nums ? nums->child : nullptr; k && tick(f->j); k = k->next->next) {
+        uint64_t key;
+        node *d = k->next ? resolve(f, k->next, 0) : nullptr;
+        label_range *r = d && d->type == DICT && uint_value(k, &key) ? take(f->j, sizeof *r)
+                                                                     : nullptr;
+        if (!r) {
+            if (f->j->status == RMR_OK)
+                stop(f->j, RMR_ERR_INVALID_ARGUMENT, "invalid page labels");
+            return;
+        }
+        *r = (label_range){key, d, *out};
+        *out = r;
+    }
+    for (node *k = kids ? kids->child : nullptr; k && f->j->status == RMR_OK; k = k->next)
+        select_label_ranges(f, k, out, depth + 1);
+}
+static node *select_labels(file *f, const size_t *indices, size_t count) {
+    job *j = f->j;
+    label_range *ranges = nullptr;
+    select_label_ranges(f, get(f->root, "PageLabels"), &ranges, 0);
+    node *nums = select_array(j), *labels = take(j, sizeof *labels);
+    const label_range *previous = nullptr;
+    for (size_t i = 0; i < count && j->status == RMR_OK && tick(j); i++) {
+        const label_range *best = nullptr;
+        for (const label_range *r = ranges; r && tick(j); r = r->next)
+            if (r->key <= indices[i] && (!best || r->key > best->key))
+                best = r;
+        if (i && best == previous && indices[i] == indices[i - 1] + 1)
+            continue;
+        previous = best;
+        char raw[32];
+        snprintf(raw, sizeof raw, "%zu", i);
+        select_append(nums, select_token(j, SCALAR, raw));
+        if (!best) {
+            select_append(nums, select_token(j, DICT, ""));
+            continue;
+        }
+        uint64_t start = 1;
+        node *st = resolve(f, get(best->dict, "St"), 0);
+        if (st && !uint_value(st, &start)) {
+            stop(j, RMR_ERR_INVALID_ARGUMENT, "invalid page label start");
+            break;
+        }
+        start += indices[i] - best->key;
+        if (start > INT32_MAX) {
+            stop(j, RMR_ERR_LIMIT, "page label start limit");
+            break;
+        }
+        node *d = select_clone(j, best->dict, 0);
+        snprintf(raw, sizeof raw, "%llu", (unsigned long long)start);
+        select_set(j, d, "St", select_token(j, SCALAR, raw));
+        select_append(nums, d);
+    }
+    if (!labels || j->status != RMR_OK)
+        return nullptr;
+    *labels = (node){.type = DICT};
+    select_set(j, labels, "Nums", nums);
+    return labels;
+}
 rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t *indices,
                                 size_t count, const rmr_limits *limits, rmr_cancel_fn cancel,
                                 void *context, rmr_buffer *out, rmr_error *error) {
@@ -2313,10 +2415,11 @@ rmr_status rmr_pdf_select_pages(const uint8_t *source, size_t size, const size_t
         for (size_t i = 0; i < f.count && tick(&j); i++)
             if (widgets[i] && !seen[i])
                 stop(&j, RMR_ERR_INVALID_ARGUMENT, "widget missing from form field tree");
+        if (get(f.root, "PageLabels"))
+            select_set(&j, f.root, "PageLabels", select_labels(&f, indices, count));
         select_set(&j, f.root, "Pages", select_ref(&j, tree_id, 0));
         if (j.status == RMR_OK) {
-            put(&w, source, 8);
-            text(&w, "\n%\342\343\317\323\n");
+            header(&w, source, size);
             begin(&w, tree_id, 0);
             format(&w, "<< /Type /Pages /Count %zu /Kids ", count);
             value(&w, nullptr, kids, 0);
