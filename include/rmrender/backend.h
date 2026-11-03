@@ -24,33 +24,36 @@
  * colors/alphas. MITER means miter joins with limit 10 for stroked geometry.
  * IMAGE means PNG/JPEG decoding and affine placement through the path clip.
  * ERASE means ordered contour subtraction, including native stroked-outline
- * conversion when needed; GROUP means isolated transparency for contiguous tokens.
- * A backend must close active groups on end AND abort. Never advertise a capability
- * that is unavailable on the current runtime.
- * No native objects appear in this interface. Callbacks see borrowed immutable
- * commands only during the call. State lives in context, not global variables.
- * On ANY failure after begin is invoked, abort is called exactly once, including
- * a failed begin/end. No end after failed draw. Abort must tolerate partial init.
- * The backend is responsible for transactional output and releasing its resources.
+ * conversion when needed; GROUP means isolated transparency for contiguous
+ * tokens. A backend must close active groups on end AND abort. Never advertise
+ * a capability that is unavailable on the current runtime. No native objects
+ * appear in this interface. Callbacks see borrowed immutable commands only
+ * during the call. State lives in context, not global variables. On ANY failure
+ * after begin is invoked, abort is called exactly once, including a failed
+ * begin/end. No end after failed draw. Abort must tolerate partial init. The
+ * backend is responsible for transactional output and releasing its resources.
  * Callbacks return a status; execution identifies the failing draw in error. */
 typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    uint64_t capabilities;
-    void *context;
-    rmr_status (*begin)(void *context, rmr_rect viewport);
-    rmr_status (*draw)(void *context, const rmr_draw *draw);
-    rmr_status (*end)(void *context);
-    void (*abort)(void *context);
+  uint32_t abi_version;
+  size_t struct_size;
+  uint64_t capabilities;
+  void* context;
+  rmr_status (*begin)(void* context, rmr_rect viewport);
+  rmr_status (*draw)(void* context, const rmr_draw* draw);
+  rmr_status (*end)(void* context);
+  void (*abort)(void* context);
 } rmr_backend;
 
-typedef bool (*rmr_cancel_fn)(void *context);
+typedef bool (*rmr_cancel_fn)(void* context);
 
 /* Checks ABI and ALL required capabilities before touching the backend.
  * Cancellation is observed before begin, each draw, and end. Callbacks must not
- * destroy the plan or backend; nested use of the same backend is unsupported. */
-[[nodiscard]] RMR_API rmr_status rmr_plan_execute(const rmr_plan *plan, const rmr_backend *backend,
-                                                  rmr_cancel_fn cancel, void *cancel_context,
-                                                  rmr_error *error);
+ * destroy the plan or backend; nested use of the same backend is unsupported.
+ */
+[[nodiscard]] RMR_API rmr_status rmr_plan_execute(const rmr_plan* plan,
+                                                  const rmr_backend* backend,
+                                                  rmr_cancel_fn cancel,
+                                                  void* cancel_context,
+                                                  rmr_error* error);
 
 #endif

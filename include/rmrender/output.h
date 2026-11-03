@@ -7,11 +7,11 @@
 #include "backend.h"
 
 typedef struct {
-    uint8_t *pixels;
-    size_t width, height, stride;
+  uint8_t* pixels;
+  size_t width, height, stride;
 } rmr_bitmap;
 
 /* Premultiplied RGBA8, tightly packed, first row at top. */
-RMR_API void rmr_bitmap_free(rmr_bitmap *bitmap);
+RMR_API void rmr_bitmap_free(rmr_bitmap* bitmap);
 
 #endif

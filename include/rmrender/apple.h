@@ -17,19 +17,20 @@
  * and a fixed 64-million-pixel ceiling, checked before drawing. Corrupt data
  * returns BACKEND; oversize returns LIMIT. Output remains unchanged on failure.
  * Callers encode the returned bitmap pixels themselves. */
-[[nodiscard]] RMR_API rmr_status rmr_apple_bitmap(const rmr_plan *plan, double scale,
-                                                  rmr_color background, const rmr_limits *limits,
-                                                  rmr_cancel_fn cancel, void *cancel_context,
-                                                  rmr_bitmap *out, rmr_error *error);
+[[nodiscard]] RMR_API rmr_status
+rmr_apple_bitmap(const rmr_plan* plan, double scale, rmr_color background,
+                 const rmr_limits* limits, rmr_cancel_fn cancel,
+                 void* cancel_context, rmr_bitmap* out, rmr_error* error);
 
 /* Multi-page vector PDF. One viewport per plan; scale is points per .rm unit.
  * Bounded memory output; no file is created, overwritten or removed. */
-[[nodiscard]] RMR_API rmr_status rmr_apple_pdf(const rmr_plan *const *plans, size_t count,
-                                               double scale, const rmr_limits *limits,
-                                               rmr_cancel_fn cancel, void *cancel_context,
-                                               rmr_buffer *out, rmr_error *error);
+[[nodiscard]] RMR_API rmr_status
+rmr_apple_pdf(const rmr_plan* const* plans, size_t count, double scale,
+              const rmr_limits* limits, rmr_cancel_fn cancel,
+              void* cancel_context, rmr_buffer* out, rmr_error* error);
 
-/* Stateless CoreGraphics unit rasterizer. A fresh context is used for each map. */
+/* Stateless CoreGraphics unit rasterizer. A fresh context is used for each map.
+ */
 RMR_API rmr_unit_raster rmr_apple_unit_raster(void);
 
 /* Explicit sheet output: size/transform from rmr_sheet_create or paper_sheet.
@@ -39,14 +40,14 @@ RMR_API rmr_unit_raster rmr_apple_unit_raster(void);
  * Sheet transforms must have uniform positive scale, b=c=0, d=-a.
  * All sheets are validated before PDF output begins. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_bitmap_on_sheet(
-    const rmr_plan *plan, const rmr_sheet *sheet, rmr_color background, const rmr_limits *limits,
-    rmr_cancel_fn cancel, void *cancel_context, rmr_bitmap *out, rmr_error *error);
+    const rmr_plan* plan, const rmr_sheet* sheet, rmr_color background,
+    const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,
+    rmr_bitmap* out, rmr_error* error);
 
-[[nodiscard]] RMR_API rmr_status rmr_apple_pdf_sheets(const rmr_plan *const *plans,
-                                                      const rmr_sheet *sheets, size_t count,
-                                                      const rmr_limits *limits,
-                                                      rmr_cancel_fn cancel, void *cancel_context,
-                                                      rmr_buffer *out, rmr_error *error);
+[[nodiscard]] RMR_API rmr_status rmr_apple_pdf_sheets(
+    const rmr_plan* const* plans, const rmr_sheet* sheets, size_t count,
+    const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,
+    rmr_buffer* out, rmr_error* error);
 
 /* Stateless CoreText Helvetica metrics, matching Apple TEXT drawing. */
 RMR_API rmr_text_provider rmr_apple_text_provider(void);

@@ -7,8 +7,10 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
 
-rmr_status rmr_apple_draw_context(CGContextRef cg, const rmr_plan *plan, const rmr_sheet *sheet,
-                                  const rmr_limits *limits, rmr_cancel_fn cancel, void *context,
-                                  rmr_error *error);
+rmr_status rmr_apple_draw_context(CGContextRef cg, const rmr_plan* plan,
+                                  const rmr_sheet* sheet,
+                                  const rmr_limits* limits,
+                                  rmr_cancel_fn cancel, void* context,
+                                  rmr_error* error);
 
 #endif

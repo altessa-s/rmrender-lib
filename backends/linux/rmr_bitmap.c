@@ -5,9 +5,9 @@
 #include <rmrender/output.h>
 #include <stdlib.h>
 
-void rmr_bitmap_free(rmr_bitmap *b) {
-    if (b) {
-        free(b->pixels);
-        *b = (rmr_bitmap){0};
-    }
+void rmr_bitmap_free(rmr_bitmap* b) {
+  if (b) {
+    free(b->pixels);
+    *b = (rmr_bitmap){0};
+  }
 }
