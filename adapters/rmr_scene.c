@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <float.h>
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 static rmr_status fail(rmr_error *e, rmr_status s, size_t i, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s, .index = i};
@@ -13,6 +15,7 @@ static rmr_status fail(rmr_error *e, rmr_status s, size_t i, const char *message
     }
     return s;
 }
+
 /* The same three-corner affine solve as PageRenderer. Corner 2 contributes
  * only to clipping; no projective warp is inferred for non-parallelograms. */
 static bool transform(const rm_image_vertex *v, rmr_transform *t) {
@@ -29,6 +32,7 @@ static bool transform(const rm_image_vertex *v, rmr_transform *t) {
     t->ty = v[0].y - v[0].u * t->b - v[0].v * t->d;
     return true;
 }
+
 rmr_status rmr_lines_scene_plan(const rm_page *page, rmr_rect viewport,
                                 rmr_asset_resolve_fn resolve, void *context,
                                 const rmr_unit_raster *raster, const rmr_limits *given,

@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_GRAIN_H
 #define RMR_GRAIN_H
 #include "rmrender.h"
+
 typedef enum rmr_grain : uint32_t {
     RMR_GRAIN_SOLID,
     RMR_GRAIN_STAMP,
@@ -20,6 +22,7 @@ typedef struct {
     double width;
     float pressure, speed;
 } rmr_grain_point;
+
 /* One bit per pixel, MSB first, rows top down. 0 paints, 1 is paper.
  * Two pixels per page unit. Free with rmr_mask_free; views are borrowed. */
 typedef struct {
@@ -27,10 +30,13 @@ typedef struct {
     size_t width, height, stride;
     rmr_rect box;
 } rmr_mask;
+
 RMR_API void rmr_mask_free(rmr_mask *mask);
+
 [[nodiscard]] RMR_API rmr_status rmr_grain_box(const rmr_grain_point *points, size_t count,
                                                const rmr_limits *limits, rmr_rect *out,
                                                rmr_error *error);
+
 /* A backend rasterizes ordered opaque spans into a caller-owned gray map at
  * one pixel per page unit, without antialiasing. Page origin is box.x/y, rows
  * top-down. Replace covered bytes with span.value; leave other bytes untouched.
@@ -43,6 +49,7 @@ typedef struct {
     rmr_cap cap;
     uint8_t value;
 } rmr_unit_span;
+
 #define RMR_UNIT_RASTER_ABI 1u
 typedef struct {
     uint32_t abi_version;
@@ -51,9 +58,12 @@ typedef struct {
     rmr_status (*render)(void *context, const rmr_unit_span *spans, size_t count, rmr_rect box,
                          size_t width, size_t height, uint8_t *bytes, size_t stride);
 } rmr_unit_raster;
+
 RMR_API double rmr_grain_noise(int64_t x, int64_t y);
+
 /* Nonfinite or |coordinate| > 1e12 returns variant zero. */
 RMR_API unsigned int rmr_stamp_variant(float x, float y);
+
 /* Portable capsule sampling for every grain family. STREAK draws directional
  * hairs; SCRATCH selects procedural marker tiles by lattice hash and skips a
  * pressure/width-dependent share; STAMP selects procedural pencil tiles by
@@ -69,4 +79,5 @@ RMR_API unsigned int rmr_stamp_variant(float x, float y);
                                                 const rmr_unit_raster *raster,
                                                 const rmr_limits *limits, rmr_mask *out,
                                                 rmr_error *error);
+
 #endif

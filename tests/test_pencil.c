@@ -1,8 +1,10 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
+
 static rmr_status unused(void *c, const rmr_unit_span *s, size_t n, rmr_rect b, size_t w, size_t h,
                          uint8_t *p, size_t stride) {
     (void)c;
@@ -16,6 +18,7 @@ static rmr_status unused(void *c, const rmr_unit_span *s, size_t n, rmr_rect b, 
     CHECK(false); /* Current capsules are portable and never call the backend. */
     return RMR_ERR_BACKEND;
 }
+
 int main(void) {
     rmr_grain_point points[] = {{-128, 32, 128, 0, 0}, {128, 32, 128, 0, 0}};
     rmr_rect box = {0, 0, 64, 64};

@@ -1,16 +1,18 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
-#include <limits.h>
-#include <rmrender/apple_context.h>
+
 #include "rmr_apple_internal.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#include <limits.h>
 #include <math.h>
 #include <rmrender/apple.h>
+#include <rmrender/apple_context.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 static rmr_status error(rmr_error *e, rmr_status code, const char *message) {
     if (e) {
         *e = (rmr_error){.code = code};
@@ -18,6 +20,7 @@ static rmr_status error(rmr_error *e, rmr_status code, const char *message) {
     }
     return code;
 }
+
 typedef struct {
     CGContextRef cg;
     double scale;
@@ -27,6 +30,7 @@ typedef struct {
     const rmr_sheet *sheet;
     bool unclipped;
 } apple_context;
+
 static rmr_status begin(void *context, rmr_rect viewport) {
     apple_context *a = context;
     rmr_transform t;
@@ -47,6 +51,7 @@ static rmr_status begin(void *context, rmr_rect viewport) {
                             CGRectMake(viewport.x, viewport.y, viewport.width, viewport.height));
     return RMR_OK;
 }
+
 static void close_group(apple_context *a) {
     if (a->group) {
         CGContextEndTransparencyLayer(a->cg);
@@ -54,21 +59,25 @@ static void close_group(apple_context *a) {
         a->group = 0;
     }
 }
+
 static CGBlendMode blend(rmr_blend b) {
     return b == RMR_BLEND_DARKEN     ? kCGBlendModeDarken
            : b == RMR_BLEND_MULTIPLY ? kCGBlendModeMultiply
                                      : kCGBlendModeNormal;
 }
+
 static CGLineCap line_cap(rmr_cap c) {
     return c == RMR_CAP_ROUND    ? kCGLineCapRound
            : c == RMR_CAP_SQUARE ? kCGLineCapSquare
                                  : kCGLineCapButt;
 }
+
 static CGLineJoin line_join(rmr_join j) {
     return j == RMR_JOIN_ROUND   ? kCGLineJoinRound
            : j == RMR_JOIN_MITER ? kCGLineJoinMiter
                                  : kCGLineJoinBevel;
 }
+
 static void restore(void *context) {
     apple_context *a = context;
     close_group(a);
@@ -77,10 +86,12 @@ static void restore(void *context) {
         a->saved = false;
     }
 }
+
 static rmr_status end(void *context) {
     restore(context);
     return RMR_OK;
 }
+
 static CGPathRef make_path(rmr_path_view view) {
     CGMutablePathRef path = CGPathCreateMutable();
     if (!path)
@@ -105,6 +116,7 @@ static CGPathRef make_path(rmr_path_view view) {
     }
     return path;
 }
+
 /* PDF contexts may retain images/pages until close, beyond plan execution.
  * Give the native provider its own storage rather than a borrowed plan buffer. */
 static CGDataProviderRef owned_provider(const uint8_t *bytes, size_t size) {
@@ -117,6 +129,7 @@ static CGDataProviderRef owned_provider(const uint8_t *bytes, size_t size) {
     CFRelease(data);
     return provider;
 }
+
 static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
     const rmr_image_view *im = &d->image;
     CGDataProviderRef provider = owned_provider(im->bytes, im->size);
@@ -159,6 +172,7 @@ static rmr_status draw_image(apple_context *a, const rmr_draw *d) {
     CGImageRelease(image);
     return RMR_OK;
 }
+
 static rmr_status draw_pdf(apple_context *a, const rmr_draw *d) {
     if (d->image.size > a->limits.maximum_pdf_bytes || d->pdf_page == SIZE_MAX)
         return RMR_ERR_LIMIT;
@@ -206,6 +220,7 @@ static rmr_status draw_pdf(apple_context *a, const rmr_draw *d) {
     CGPDFDocumentRelease(document);
     return RMR_OK;
 }
+
 static rmr_status text_line(const char *utf8, size_t size, double font_size, rmr_color color,
                             CTLineRef *out) {
     if ((!utf8 && size) || !isfinite(font_size) || font_size <= 0 || font_size > 1e6)
@@ -243,6 +258,7 @@ static rmr_status text_line(const char *utf8, size_t size, double font_size, rmr
     *out = line;
     return RMR_OK;
 }
+
 static rmr_status measure_text(void *context, const char *utf8, size_t size, double font_size,
                                rmr_text_metrics *out) {
     (void)context;
@@ -264,10 +280,12 @@ static rmr_status measure_text(void *context, const char *utf8, size_t size, dou
     *out = metrics;
     return RMR_OK;
 }
+
 rmr_text_provider rmr_apple_text_provider(void) {
     return (rmr_text_provider){RMR_TEXT_PROVIDER_ABI, sizeof(rmr_text_provider), nullptr,
                                measure_text};
 }
+
 static rmr_status draw_text(apple_context *a, const rmr_draw *d) {
     CTLineRef line = nullptr;
     rmr_status s = text_line(d->text.utf8, d->text.size, d->text.font_size, d->color, &line);
@@ -285,6 +303,7 @@ static rmr_status draw_text(apple_context *a, const rmr_draw *d) {
     CFRelease(line);
     return RMR_OK;
 }
+
 static rmr_status draw(void *context, const rmr_draw *d) {
     apple_context *a = context;
     if (a->group != d->group) {
@@ -390,6 +409,7 @@ static rmr_status draw(void *context, const rmr_draw *d) {
     CGContextRestoreGState(a->cg);
     return RMR_OK;
 }
+
 static rmr_backend backend(apple_context *context) {
     uint64_t capabilities = RMR_CAP_FILL | RMR_CAP_STROKE | RMR_CAP_DARKEN | RMR_CAP_MULTIPLY |
                             RMR_CAP_MASK | RMR_CAP_GROUP | RMR_CAP_IMAGE | RMR_CAP_FILL_STROKE |
@@ -406,6 +426,7 @@ void rmr_bitmap_free(rmr_bitmap *b) {
         *b = (rmr_bitmap){0};
     }
 }
+
 static bool valid_sheet(const rmr_sheet *s, bool pixels) {
     if (!s || !isfinite(s->width) || !isfinite(s->height) || s->width <= 0 || s->height <= 0 ||
         (pixels && (floor(s->width) != s->width || floor(s->height) != s->height)))
@@ -414,6 +435,7 @@ static bool valid_sheet(const rmr_sheet *s, bool pixels) {
     return isfinite(t.a) && t.a > 0 && t.b == 0 && t.c == 0 && t.d == -t.a && isfinite(t.tx) &&
            isfinite(t.ty);
 }
+
 static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_sheet *sheet,
                               rmr_color background, const rmr_limits *given, rmr_cancel_fn cancel,
                               void *context, rmr_bitmap *out, rmr_error *e) {
@@ -467,11 +489,13 @@ static rmr_status bitmap_impl(const rmr_plan *plan, double scale, const rmr_shee
     *out = (rmr_bitmap){pixels, w, h, stride};
     return RMR_OK;
 }
+
 typedef struct {
     rmr_buffer buffer;
     size_t capacity, maximum;
     rmr_status status;
 } pdf_sink;
+
 static size_t write_pdf(void *info, const void *bytes, size_t n) {
     pdf_sink *s = info;
     if (s->status != RMR_OK)
@@ -505,6 +529,7 @@ static size_t write_pdf(void *info, const void *bytes, size_t n) {
     s->buffer.size += n;
     return n;
 }
+
 static rmr_status pdf_impl(const rmr_plan *const *plans, const rmr_sheet *sheets, size_t count,
                            double scale, const rmr_limits *given, rmr_cancel_fn cancel,
                            void *context, rmr_buffer *out, rmr_error *e) {
@@ -587,6 +612,7 @@ rmr_status rmr_apple_bitmap(const rmr_plan *plan, double scale, rmr_color backgr
                             rmr_bitmap *out, rmr_error *e) {
     return bitmap_impl(plan, scale, nullptr, background, limits, cancel, context, out, e);
 }
+
 rmr_status rmr_apple_bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet,
                                      rmr_color background, const rmr_limits *limits,
                                      rmr_cancel_fn cancel, void *context, rmr_bitmap *out,
@@ -595,11 +621,13 @@ rmr_status rmr_apple_bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *shee
         return error(e, RMR_ERR_INVALID_ARGUMENT, "missing bitmap sheet");
     return bitmap_impl(plan, 1, sheet, background, limits, cancel, context, out, e);
 }
+
 rmr_status rmr_apple_pdf(const rmr_plan *const *plans, size_t count, double scale,
                          const rmr_limits *limits, rmr_cancel_fn cancel, void *context,
                          rmr_buffer *out, rmr_error *e) {
     return pdf_impl(plans, nullptr, count, scale, limits, cancel, context, out, e);
 }
+
 rmr_status rmr_apple_pdf_sheets(const rmr_plan *const *plans, const rmr_sheet *sheets, size_t count,
                                 const rmr_limits *limits, rmr_cancel_fn cancel, void *context,
                                 rmr_buffer *out, rmr_error *e) {

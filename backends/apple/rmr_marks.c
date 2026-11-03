@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "../../adapters/rmr_width.h"
 #include "rmr_typography_internal.h"
 #include <rmrender/apple_marks.h>
@@ -55,4 +56,5 @@ static rmr_status mark_stroke_bounds(const rm_stroke *stroke, const rmr_stroke_s
     *out = (rmr_rect){box.origin.x, box.origin.y, box.size.width, box.size.height};
     return status;
 }
+
 #include "../common/rmr_marks_impl.h"

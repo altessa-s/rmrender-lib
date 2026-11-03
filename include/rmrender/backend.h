@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_BACKEND_H
 #define RMR_BACKEND_H
 #include "rmrender.h"
@@ -42,11 +43,14 @@ typedef struct {
     rmr_status (*end)(void *context);
     void (*abort)(void *context);
 } rmr_backend;
+
 typedef bool (*rmr_cancel_fn)(void *context);
+
 /* Checks ABI and ALL required capabilities before touching the backend.
  * Cancellation is observed before begin, each draw, and end. Callbacks must not
  * destroy the plan or backend; nested use of the same backend is unsupported. */
 [[nodiscard]] RMR_API rmr_status rmr_plan_execute(const rmr_plan *plan, const rmr_backend *backend,
                                                   rmr_cancel_fn cancel, void *cancel_context,
                                                   rmr_error *error);
+
 #endif

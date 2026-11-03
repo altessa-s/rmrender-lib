@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMRENDER_EXPORT_H
 #define RMRENDER_EXPORT_H
 #if defined(__GNUC__) || defined(__clang__)
@@ -8,4 +9,5 @@
 #else
 #define RMR_API
 #endif
+
 #endif

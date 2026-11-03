@@ -9,12 +9,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 static void check(rmr_status status) {
     if (status != RMR_OK) {
         fprintf(stderr, "%s\n", rmr_status_string(status));
         exit(1);
     }
 }
+
 static void save(const char *path, const void *bytes, size_t size) {
     FILE *file = fopen(path, "wb");
     if (!file) {
@@ -26,6 +28,7 @@ static void save(const char *path, const void *bytes, size_t size) {
         exit(1);
     }
 }
+
 int main(int argc, char **argv) {
     if (argc != 3 && argc != 4) {
         fprintf(stderr, "usage: %s output.ppm output.pdf [streak|scratch|stamp|noise|bristle]\n",

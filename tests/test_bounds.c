@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
 #ifdef RMRENDER_TEST_APPLE
@@ -11,10 +12,12 @@ static rmr_rect bounds(rm_page *p, rmr_ink_edge edge, double margin) {
     OK(rmr_lines_content_bounds(p, 100, 200, edge, margin, nullptr, &b, nullptr));
     return b;
 }
+
 static void equal(rmr_rect b, double x, double y, double w, double h) {
     CHECK(fabs(b.x - x) < 1e-8 && fabs(b.y - y) < 1e-8 && fabs(b.width - w) < 1e-8 &&
           fabs(b.height - h) < 1e-8);
 }
+
 int main(void) {
     rm_page page = {0};
     equal(bounds(&page, RMR_EDGE_RIBBON, 0), -50, 0, 100, 200);

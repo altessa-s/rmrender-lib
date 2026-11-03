@@ -1,23 +1,29 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
+
 static rmr_status begin(void *context, rmr_rect v) {
     (void)v;
     ++*(int *)context;
     return RMR_OK;
 }
+
 static rmr_status draw(void *c, const rmr_draw *d) {
     (void)c;
     (void)d;
     return RMR_OK;
 }
+
 static rmr_status end(void *c) {
     (void)c;
     return RMR_OK;
 }
+
 static void abort_draw(void *c) { (void)c; }
+
 int main(void) {
     rmr_plan *base = rectangle((rmr_color){0, 0, 0, 1}, RMR_BLEND_NORMAL);
     rmr_draw d = *rmr_plan_draw(base, 0);

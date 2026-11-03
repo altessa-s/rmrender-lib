@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
+
 typedef struct {
     size_t calls;
     rmr_point pen;
     rmr_status status;
 } state;
+
 static rmr_status resolve(void *context, const rm_text_anchor *anchor, rmr_point *out) {
     state *s = context;
     s->calls++;
@@ -15,6 +18,7 @@ static rmr_status resolve(void *context, const rm_text_anchor *anchor, rmr_point
     *out = s->pen;
     return s->status;
 }
+
 int main(void) {
     rm_stroke_point points[] = {{.x = 1, .y = 2, .width = 8, .pressure = .5f, .speed = 31},
                                 {.x = 2, .y = 3, .width = 12, .pressure = .8f, .speed = 32}};

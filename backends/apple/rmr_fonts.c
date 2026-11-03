@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_font_calibration.h"
 #include "rmr_typography_internal.h"
 #include <limits.h>
+
 static const char *const names[] = {"NotoSans-Regular",
                                     "NotoSans-Bold",
                                     "NotoSans-Italic",
@@ -17,9 +19,11 @@ static const char *const names[] = {"NotoSans-Regular",
                                     "NotoSansKR-Variable",
                                     "NotoSansJP-Variable",
                                     "NotoSansThaiLooped-Variable"};
+
 struct rmr_apple_fonts {
     CTFontDescriptorRef descriptors[13];
 };
+
 void rmr_apple_fonts_free(rmr_apple_fonts *f) {
     if (!f)
         return;
@@ -28,6 +32,7 @@ void rmr_apple_fonts_free(rmr_apple_fonts *f) {
             CFRelease(f->descriptors[i]);
     free(f);
 }
+
 rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
                                   const rmr_limits *given, rmr_apple_fonts **out, rmr_error *e) {
     if (!resolve || !out)
@@ -75,6 +80,7 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void *context,
     *out = f;
     return RMR_OK;
 }
+
 static CTFontDescriptorRef weighted(CTFontDescriptorRef d, double weight) {
     int axis = 0x77676874;
     CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &axis);
@@ -84,6 +90,7 @@ static CTFontDescriptorRef weighted(CTFontDescriptorRef d, double weight) {
     CFRelease(key);
     return result;
 }
+
 CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face face, bool bold,
                       bool italic, int script) {
     unsigned file;
@@ -175,6 +182,7 @@ CTFontRef rmr_ct_font(const rmr_apple_fonts *fonts, double size, rmr_type_face f
     CFRelease(descriptor);
     return font;
 }
+
 double rmr_ct_kern(UniChar c, rmr_type_face face, bool bold, bool italic, int script) {
     if (script >= 0)
         return script == 2 ? 0 : notoGlyphShare(c);
@@ -186,12 +194,15 @@ double rmr_ct_kern(UniChar c, rmr_type_face face, bool bold, bool italic, int sc
         return italic ? 0 : sansMediumGlyphShare(c);
     return bold ? sansBoldGlyphShare(c) : italic ? sansItalicGlyphShare(c) : sansGlyphShare(c);
 }
+
 #include "../../adapters/rmr_files.h"
+
 typedef struct {
     const char *directory;
     rmr_buffer current;
     size_t maximum;
 } font_directory;
+
 static rmr_status directory_font(void *context, const char *name, rmr_asset_view *out) {
     font_directory *d = context;
     rmr_buffer_free(&d->current);
@@ -201,6 +212,7 @@ static rmr_status directory_font(void *context, const char *name, rmr_asset_view
         *out = (rmr_asset_view){d->current.bytes, d->current.size};
     return status;
 }
+
 rmr_status rmr_apple_fonts_create_directory(const char *directory, const rmr_limits *limits,
                                             rmr_apple_fonts **out, rmr_error *e) {
     if (!directory)

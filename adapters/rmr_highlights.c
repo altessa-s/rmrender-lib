@@ -1,10 +1,12 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 static rmr_status fail(rmr_error *e, rmr_status s) {
     if (e) {
         *e = (rmr_error){.code = s};
@@ -12,6 +14,7 @@ static rmr_status fail(rmr_error *e, rmr_status s) {
     }
     return s;
 }
+
 rmr_status rmr_lines_highlight_color(const rm_highlight *h, rmr_color *out, rmr_error *e) {
     if (!h || !out)
         return fail(e, RMR_ERR_INVALID_ARGUMENT);
@@ -29,6 +32,7 @@ rmr_status rmr_lines_highlight_color(const rm_highlight *h, rmr_color *out, rmr_
     *out = color;
     return RMR_OK;
 }
+
 rmr_status rmr_lines_highlight_plan(const rm_highlight *highlights, size_t count, rmr_rect viewport,
                                     const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!out || (!highlights && count))

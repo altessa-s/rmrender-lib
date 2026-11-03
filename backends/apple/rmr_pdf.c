@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_apple_internal.h"
 #include <limits.h>
 #include <math.h>
@@ -8,10 +9,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 struct rmr_apple_pdf_source {
     CFDataRef data;
     CGPDFDocumentRef document;
 };
+
 static rmr_status fail(rmr_error *e, rmr_status s, const char *m) {
     if (e) {
         *e = (rmr_error){.code = s};
@@ -19,6 +22,7 @@ static rmr_status fail(rmr_error *e, rmr_status s, const char *m) {
     }
     return s;
 }
+
 void rmr_apple_pdf_source_free(rmr_apple_pdf_source *s) {
     if (s) {
         if (s->document)
@@ -28,6 +32,7 @@ void rmr_apple_pdf_source_free(rmr_apple_pdf_source *s) {
         free(s);
     }
 }
+
 rmr_status rmr_apple_pdf_source_create(const uint8_t *bytes, size_t size, const rmr_limits *given,
                                        rmr_apple_pdf_source **out, rmr_error *e) {
     if (!bytes || !size || !out)
@@ -67,9 +72,11 @@ rmr_status rmr_apple_pdf_source_create(const uint8_t *bytes, size_t size, const 
     *out = s;
     return RMR_OK;
 }
+
 size_t rmr_apple_pdf_source_count(const rmr_apple_pdf_source *s) {
     return s ? CGPDFDocumentGetNumberOfPages(s->document) : 0;
 }
+
 rmr_status rmr_apple_pdf_source_size(const rmr_apple_pdf_source *s, size_t page, rmr_point *out,
                                      rmr_error *e) {
     if (!s || !out || page >= rmr_apple_pdf_source_count(s))
@@ -84,11 +91,13 @@ rmr_status rmr_apple_pdf_source_size(const rmr_apple_pdf_source *s, size_t page,
                     : (rmr_point){r.size.width, r.size.height};
     return RMR_OK;
 }
+
 typedef struct {
     rmr_buffer bytes;
     size_t capacity, limit;
     rmr_status status;
 } sink;
+
 static size_t put(void *context, const void *bytes, size_t size) {
     sink *s = context;
     if (s->status != RMR_OK)
@@ -115,6 +124,7 @@ static size_t put(void *context, const void *bytes, size_t size) {
     s->bytes.size = need;
     return size;
 }
+
 static CGAffineTransform transform(const rmr_apple_pdf_source *s, const rmr_pdf_page *p) {
     CGPDFPageRef page = CGPDFDocumentGetPage(s->document, p->source_page + 1);
     CGAffineTransform native =
@@ -125,9 +135,11 @@ static CGAffineTransform transform(const rmr_apple_pdf_source *s, const rmr_pdf_
     return CGAffineTransformConcat(CGAffineTransformConcat(native, rm),
                                    CGAffineTransformMake(t.a, t.b, t.c, t.d, t.tx, t.ty));
 }
+
 static CFStringRef destination_name(size_t page) {
     return CFStringCreateWithFormat(kCFAllocatorDefault, nullptr, CFSTR("rmrender-page-%zu"), page);
 }
+
 static bool array_rect(CGPDFArrayRef a, CGRect *out) {
     CGPDFReal v[4];
     if (!a || CGPDFArrayGetCount(a) < 4)
@@ -138,6 +150,7 @@ static bool array_rect(CGPDFArrayRef a, CGRect *out) {
     *out = CGRectMake(fmin(v[0], v[2]), fmin(v[1], v[3]), fabs(v[2] - v[0]), fabs(v[3] - v[1]));
     return true;
 }
+
 static CFStringRef pdf_name(CGPDFObjectRef object) {
     CGPDFStringRef string = nullptr;
     const char *name = nullptr;
@@ -147,6 +160,7 @@ static CFStringRef pdf_name(CGPDFObjectRef object) {
         return CFStringCreateWithCString(kCFAllocatorDefault, name, kCFStringEncodingUTF8);
     return nullptr;
 }
+
 static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name, size_t *work,
                                  size_t maximum, unsigned depth) {
     if (depth > 64 || *work >= maximum)
@@ -186,6 +200,7 @@ static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name, size
     }
     return nullptr;
 }
+
 static CGPDFArrayRef destination_array(const rmr_apple_pdf_source *s, CGPDFObjectRef object,
                                        size_t *work, size_t maximum, unsigned depth) {
     if (!object || depth > 16 || *work >= maximum)
@@ -218,18 +233,22 @@ static CGPDFArrayRef destination_array(const rmr_apple_pdf_source *s, CGPDFObjec
     CFRelease(name);
     return found ? destination_array(s, found, work, maximum, depth + 1) : nullptr;
 }
+
 typedef struct {
     size_t page, origin, annotation;
     CGPoint point;
 } local_destination;
+
 typedef struct {
     local_destination *items;
     size_t count, capacity, maximum;
 } local_destinations;
+
 static CFStringRef local_name(size_t origin, size_t annotation) {
     return CFStringCreateWithFormat(kCFAllocatorDefault, nullptr, CFSTR("rmrender-link-%zu-%zu"),
                                     origin, annotation);
 }
+
 static rmr_status destination_append(local_destinations *list, local_destination item) {
     if (list->count == list->maximum)
         return RMR_ERR_LIMIT;
@@ -246,10 +265,12 @@ static rmr_status destination_append(local_destinations *list, local_destination
     list->items[list->count++] = item;
     return RMR_OK;
 }
+
 static int destination_order(const void *a, const void *b) {
     const local_destination *x = a, *y = b;
     return x->page < y->page ? -1 : x->page > y->page ? 1 : 0;
 }
+
 static size_t explicit_destination(const rmr_apple_pdf_source *s, CGPDFObjectRef object,
                                    const rmr_pdf_page *pages, size_t count, size_t *work,
                                    size_t maximum, CGPoint *point) {
@@ -287,6 +308,7 @@ static size_t explicit_destination(const rmr_apple_pdf_source *s, CGPDFObjectRef
     }
     return SIZE_MAX;
 }
+
 static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rmr_pdf_page *pages,
                         size_t count, size_t index, size_t *work, size_t maximum,
                         rmr_pdf_report *report, local_destinations *collect) {
@@ -364,6 +386,7 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source *s, const rm
     }
     return RMR_OK;
 }
+
 static rmr_status outline_children(const rmr_apple_pdf_source *s, CFArrayRef input,
                                    CFMutableArrayRef output, const rmr_pdf_page *pages,
                                    size_t count, size_t *work, size_t maximum, unsigned depth) {
@@ -449,6 +472,7 @@ static rmr_status outline_children(const rmr_apple_pdf_source *s, CFArrayRef inp
     }
     return RMR_OK;
 }
+
 rmr_status rmr_apple_pdf_overlay(const rmr_apple_pdf_source *source, const rmr_pdf_page *pages,
                                  size_t count, const rmr_limits *given, rmr_cancel_fn cancel,
                                  void *context, rmr_buffer *out, rmr_pdf_report *report,
@@ -658,6 +682,7 @@ static rmr_status agree(const rmr_apple_pdf_source *source, rmr_pdf_page_geometr
     }
     return RMR_OK;
 }
+
 rmr_status rmr_apple_pdf_incremental(const rmr_apple_pdf_source *source, const rmr_pdf_page *pages,
                                      size_t count, const rmr_limits *given, rmr_cancel_fn cancel,
                                      void *context, rmr_buffer *out,

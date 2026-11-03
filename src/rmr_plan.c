@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
+
 static void include(rmr_point p, double *x0, double *y0, double *x1, double *y1) {
     *x0 = fmin(*x0, p.x);
     *y0 = fmin(*y0, p.y);
     *x1 = fmax(*x1, p.x);
     *y1 = fmax(*y1, p.y);
 }
+
 static rmr_status validate_path(rmr_path_view path, rmr_limits l, size_t index, rmr_error *e) {
     if (!path.elements && path.count)
         return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, index, "missing path elements");
@@ -29,6 +32,7 @@ static rmr_status validate_path(rmr_path_view path, rmr_limits l, size_t index, 
     }
     return RMR_OK;
 }
+
 rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewport,
                            const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     rmr_limits l = given ? *given : rmr_limits_default();
@@ -267,6 +271,7 @@ rmr_status rmr_plan_create(const rmr_draw *draws, size_t count, rmr_rect viewpor
     *out = p;
     return RMR_OK;
 }
+
 void rmr_plan_free(rmr_plan *p) {
     if (p) {
         free(p->draws);
@@ -276,13 +281,19 @@ void rmr_plan_free(rmr_plan *p) {
         free(p);
     }
 }
+
 size_t rmr_plan_bytes(const rmr_plan *p) { return p ? p->bytes : 0; }
+
 size_t rmr_plan_count(const rmr_plan *p) { return p ? p->count : 0; }
+
 rmr_rect rmr_plan_viewport(const rmr_plan *p) { return p ? p->viewport : (rmr_rect){0}; }
+
 rmr_rect rmr_plan_bounds(const rmr_plan *p) { return p ? p->bounds : (rmr_rect){0}; }
+
 const rmr_draw *rmr_plan_draw(const rmr_plan *p, size_t i) {
     return p && i < p->count ? &p->draws[i] : nullptr;
 }
+
 rmr_status rmr_plan_execute(const rmr_plan *p, const rmr_backend *b, rmr_cancel_fn cancel,
                             void *context, rmr_error *e) {
     if (!p || !b || b->abi_version != RMR_BACKEND_ABI || b->struct_size < sizeof *b || !b->begin ||

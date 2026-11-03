@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 /* CoreGraphics supplies page sizes and transforms while the portable writer
  * edits the page tree it parses: both must agree, or the update is refused. */
 #ifdef NDEBUG
@@ -18,6 +19,7 @@ typedef struct {
     char b[16384];
     size_t n, off[16];
 } buf;
+
 static void add(buf *f, const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
@@ -26,15 +28,18 @@ static void add(buf *f, const char *fmt, ...) {
     assert(n >= 0 && (size_t)n < sizeof f->b - f->n);
     f->n += (size_t)n;
 }
+
 static void raw(buf *f, const void *p, size_t n) {
     assert(f->n + n < sizeof f->b);
     memcpy(f->b + f->n, p, n);
     f->n += n;
 }
+
 static void obj(buf *f, unsigned id, const char *body) {
     f->off[id] = f->n;
     add(f, "%u 0 obj\n%s\nendobj\n", id, body);
 }
+
 static void xref(buf *f, unsigned count, const char *extra) {
     size_t x = f->n;
     add(f, "xref\n0 %u\n0000000000 65535 f \n", count);
@@ -42,6 +47,7 @@ static void xref(buf *f, unsigned count, const char *extra) {
         add(f, "%010zu 00000 %c \n", f->off[i], f->off[i] ? 'n' : 'f');
     add(f, "trailer\n<< /Size %u /Root 1 0 R %s >>\nstartxref\n%zu\n%%%%EOF\n", count, extra, x);
 }
+
 static CGPDFDocumentRef doc(const void *bytes, size_t n) {
     CFDataRef d = CFDataCreate(nullptr, bytes, (CFIndex)n);
     CGDataProviderRef p = CGDataProviderCreateWithCFData(d);
@@ -50,11 +56,13 @@ static CGPDFDocumentRef doc(const void *bytes, size_t n) {
     CFRelease(d);
     return r;
 }
+
 typedef struct {
     size_t pages;
     CGRect media;
     bool shadow;
 } view;
+
 /* What CoreGraphics shows for the first page. */
 static view describe(const void *bytes, size_t n) {
     CGPDFDocumentRef d = doc(bytes, n);
@@ -68,6 +76,7 @@ static view describe(const void *bytes, size_t n) {
     CGPDFDocumentRelease(d);
     return v;
 }
+
 static rmr_plan *mark(void) {
     rmr_element path[] = {{.kind = RMR_MOVE, .end = {-50, 50}},
                           {.kind = RMR_LINE, .end = {50, 50}},
@@ -79,6 +88,7 @@ static rmr_plan *mark(void) {
            RMR_OK);
     return p;
 }
+
 /* End to end through the public Apple API used by rmr_apple_document_pdf_preserving. */
 static rmr_status incremental(const void *bytes, size_t n, rmr_buffer *out, rmr_error *e) {
     rmr_apple_pdf_source *src = nullptr;
@@ -100,6 +110,7 @@ static rmr_status incremental(const void *bytes, size_t n, rmr_buffer *out, rmr_
     rmr_apple_pdf_source_free(src);
     return s;
 }
+
 int main(void) {
     /* Hybrid file: the classic table maps object 3 to the visible page, the
      * /XRefStm companion to a shadow page. The table is authoritative. */

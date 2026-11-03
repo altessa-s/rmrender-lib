@@ -1,7 +1,9 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_typography_internal.h"
+
 static rmr_status page_build(const rm_page *page, rmr_point canvas, rmr_ink_edge edge,
                              double margin, const rmr_page_resources *given_resources,
                              const rmr_apple_fonts *fonts, const rmr_limits *given, bool ink_only,
@@ -147,12 +149,14 @@ rmr_status rmr_apple_page_plan(const rm_page *page, rmr_point canvas, rmr_ink_ed
     return page_build(page, canvas, edge, margin, resources, fonts, limits, false, nullptr, out,
                       error);
 }
+
 rmr_status rmr_apple_page_ink_plan(const rm_page *page, rmr_point canvas, rmr_ink_edge edge,
                                    double margin, const rmr_apple_fonts *fonts,
                                    const rmr_limits *limits, rmr_plan **out, rmr_error *error) {
     return page_build(page, canvas, edge, margin, nullptr, fonts, limits, true, nullptr, out,
                       error);
 }
+
 rmr_status rmr_apple_page_bounds(const rm_page *page, rmr_point canvas, rmr_ink_edge edge,
                                  double margin, const rmr_apple_fonts *fonts,
                                  const rmr_limits *limits, rmr_rect *out, rmr_error *error) {

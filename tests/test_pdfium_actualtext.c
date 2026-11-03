@@ -1,10 +1,12 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "pdf_fixture.h"
 #include "test.h"
 #include <fpdf_text.h>
 #include <fpdfview.h>
+
 /* Standalone process: this test owns PDFium initialization. Extraction uses
  * Unicode scalars; FPDFText_GetText's legacy UCS-2 API cannot represent these. */
 static const struct {
@@ -19,6 +21,7 @@ static const struct {
     {"FEFF2708FE0F", {0x2708, 0xfe0f}, 2},
     {"FEFFD83DDE00", {0x1f600}, 1},
 };
+
 static fixture actual_text(const char *hex) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -39,6 +42,7 @@ static fixture actual_text(const char *hex) {
     add(&f, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", x);
     return f;
 }
+
 int main(void) {
     (void)source;
     FPDF_InitLibrary();

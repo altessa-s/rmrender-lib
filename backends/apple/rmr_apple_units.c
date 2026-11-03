@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <CoreGraphics/CoreGraphics.h>
 #include <math.h>
 #include <rmrender/apple.h>
+
 static rmr_status units(void *context, const rmr_unit_span *spans, size_t count, rmr_rect box,
                         size_t width, size_t height, uint8_t *bytes, size_t stride) {
     (void)context;
@@ -45,6 +47,7 @@ static rmr_status units(void *context, const rmr_unit_span *spans, size_t count,
     CGContextRelease(cg);
     return RMR_OK;
 }
+
 rmr_unit_raster rmr_apple_unit_raster(void) {
     return (rmr_unit_raster){RMR_UNIT_RASTER_ABI, sizeof(rmr_unit_raster), nullptr, units};
 }

@@ -1,15 +1,18 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 struct rmr_page_marks {
     rmm_marked_page page;
     rmm_mark_band *bands;
     rmm_marked_highlight *highlights;
     char *strings;
 };
+
 const rmm_marked_page *rmr_page_marks_view(const rmr_page_marks *m) {
     return m ? &m->page : nullptr;
 }
+
 void rmr_page_marks_free(rmr_page_marks *m) {
     if (m) {
         free(m->bands);
@@ -18,16 +21,20 @@ void rmr_page_marks_free(rmr_page_marks *m) {
         free(m);
     }
 }
+
 static double held(double x) { return fmin(fmax(x, 0), 1); }
+
 static rmm_page_box normalized(rmr_rect r, rmr_rect frame) {
     return (rmm_page_box){held((r.x - frame.x) / frame.width), held((r.y - frame.y) / frame.height),
                           held(((r.x + r.width) - frame.x) / frame.width),
                           held(((r.y + r.height) - frame.y) / frame.height)};
 }
+
 static uint32_t rgb(rmr_color c) {
     return (uint32_t)(c.red * 255) << 16 | (uint32_t)(c.green * 255) << 8 |
            (uint32_t)(c.blue * 255);
 }
+
 rmr_status mark_page_marks(const rm_page *page, rmr_point canvas, rmr_rect frame, rm_str id,
                            const mark_fonts *fonts, const rmr_limits *given, rmr_page_marks **out,
                            rmr_error *e) {
@@ -175,11 +182,13 @@ done:
     *out = m;
     return RMR_OK;
 }
+
 rmm_page_box rmr_mark_around(rmm_page_box b, double margin) {
     double air = (b.y1 - b.y0) * margin;
     return (rmm_page_box){fmax(0, b.x0 - air * 2), fmax(0, b.y0 - air), fmin(1, b.x1 + air * 2),
                           fmin(1, b.y1 + air)};
 }
+
 void rmr_mark_sheet_free(rmr_mark_sheet *sheet) {
     if (sheet) {
         rmr_bitmap_free(&sheet->bitmap);
@@ -187,6 +196,7 @@ void rmr_mark_sheet_free(rmr_mark_sheet *sheet) {
         *sheet = (rmr_mark_sheet){0};
     }
 }
+
 rmr_status mark_mark_sheet(const rmr_bitmap *page, const rmm_page_box *blocks, size_t count,
                            size_t margin, size_t rule, const rmr_limits *given, rmr_mark_sheet *out,
                            rmr_error *e) {

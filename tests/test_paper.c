@@ -1,8 +1,10 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <float.h>
+
 int main(void) {
     rmr_point size;
     OK(rmr_paper_points(RMR_PAPER_A4, 1404, 1872, &size, nullptr));

@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMRENDER_H
 #define RMRENDER_H
 #include "export.h"
@@ -10,6 +11,7 @@
 #define RMRENDER_VERSION_MINOR 1
 #define RMRENDER_VERSION_PATCH 0
 constexpr double RMR_POINTS_PER_UNIT = 0.317180616;
+
 typedef enum rmr_status : uint32_t {
     RMR_OK,
     RMR_ERR_INVALID_ARGUMENT,
@@ -19,60 +21,74 @@ typedef enum rmr_status : uint32_t {
     RMR_ERR_BACKEND,
     RMR_ERR_CANCELLED
 } rmr_status;
+
 typedef struct {
     rmr_status code;
     size_t index;
     char message[192];
 } rmr_error;
+
 typedef struct {
     double x, y;
 } rmr_point;
+
 typedef struct {
     double x, y, width, height;
 } rmr_rect;
+
 typedef struct {
     double a, b, c, d, tx, ty;
 } rmr_transform;
+
 typedef struct {
     double red, green, blue, alpha;
 } rmr_color;
+
 typedef enum rmr_cap : uint32_t { RMR_CAP_ROUND, RMR_CAP_SQUARE, RMR_CAP_BUTT } rmr_cap;
 typedef enum rmr_join : uint32_t { RMR_JOIN_ROUND, RMR_JOIN_BEVEL, RMR_JOIN_MITER } rmr_join;
+
 typedef enum rmr_blend : uint32_t {
     RMR_BLEND_NORMAL,
     RMR_BLEND_DARKEN,
     RMR_BLEND_MULTIPLY
 } rmr_blend;
+
 typedef enum rmr_element_kind : uint32_t {
     RMR_MOVE,
     RMR_LINE,
     RMR_CURVE,
     RMR_CLOSE
 } rmr_element_kind;
+
 typedef struct {
     rmr_element_kind kind;
     rmr_point end, control1, control2;
 } rmr_element;
+
 typedef struct {
     const rmr_element *elements;
     size_t count;
 } rmr_path_view;
+
 typedef struct {
     rmr_element *elements;
     size_t count;
 } rmr_path;
+
 /* Width is already calibrated, in page units; coordinates are .rm coordinates
  * (x from page centre, y down). Outline does NOT apply pressure or raw-width scaling. */
 typedef struct {
     rmr_point position;
     double width;
 } rmr_sample;
+
 typedef struct {
     size_t maximum_points, maximum_elements, maximum_draws, maximum_plan_bytes;
     size_t maximum_bitmap_bytes, maximum_pdf_bytes;
     uint32_t maximum_bitmap_side;
     double maximum_coordinate, maximum_width;
 } rmr_limits;
+
 typedef enum rmr_draw_mode : uint32_t {
     RMR_FILL,
     RMR_STROKE,
@@ -81,6 +97,7 @@ typedef enum rmr_draw_mode : uint32_t {
     RMR_TEXT,
     RMR_PDF
 } rmr_draw_mode;
+
 /* Optional one-bit image mask: MSB first, row zero at top, 0 paints, 1 is
  * paper. A zero-initialized view disables masking. Nonempty masks are supported
  * only for RMR_FILL, clipped to its path, and deep-copied into the plan. */
@@ -89,6 +106,7 @@ typedef struct {
     size_t width, height, stride;
     rmr_rect box;
 } rmr_mask_view;
+
 /* Encoded PNG/JPEG, copied into the plan. Transform maps top-down normalized
  * image coordinates (u,v) to page coordinates. RMR_IMAGE uses path as its
  * nonzero clip, color.alpha and blend as paint; RGB is ignored. Images cannot
@@ -99,6 +117,7 @@ typedef struct {
     size_t size;
     rmr_transform transform;
 } rmr_image_view;
+
 /* One UTF-8 Helvetica line, font fallback/shaping supplied by the platform.
  * Baseline origin and relative ink/typographic bounds are y-down page units.
  * At most 65,536 UTF-8 bytes; plans deep-copy bytes (no terminator required).
@@ -111,6 +130,7 @@ typedef struct {
     rmr_point origin;
     rmr_rect bounds;
 } rmr_text_view;
+
 typedef struct {
     rmr_path_view path;
     rmr_draw_mode mode;
@@ -146,11 +166,14 @@ typedef struct {
     /* Zero selects the backend default 10; explicit values must be >= 1. */
     double miter_limit;
 } rmr_draw;
+
 typedef struct rmr_plan rmr_plan;
+
 typedef struct {
     uint8_t *bytes;
     size_t size;
 } rmr_buffer;
+
 /* One render call owns its context. Immutable plans may be shared between calls.
  * All output arguments are unchanged on failure. Error is optional and unchanged
  * on success. Owning results must not be copied; free before reusing an output. */
@@ -159,14 +182,17 @@ RMR_API const char *rmr_status_string(rmr_status status);
 RMR_API rmr_limits rmr_limits_default(void);
 RMR_API void rmr_path_free(rmr_path *path);
 RMR_API void rmr_buffer_free(rmr_buffer *buffer);
+
 [[nodiscard]] RMR_API rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap cap,
                                              rmr_join join, const rmr_limits *limits, rmr_path *out,
                                              rmr_error *error);
+
 /* Deep copies commands and paths. Viewport crops; geometry is never silently
  * rescaled to fit it. Draw order is caller supplied. No automatic layer grouping. */
 [[nodiscard]] RMR_API rmr_status rmr_plan_create(const rmr_draw *draws, size_t count,
                                                  rmr_rect viewport, const rmr_limits *limits,
                                                  rmr_plan **out, rmr_error *error);
+
 /* Concatenate borrowed plans in order into an independent owned plan.
  * The caller accounts for borrowed input memory; scratch/result share limits.
  * Group tokens are kept distinct across plan boundaries. */
@@ -174,16 +200,20 @@ RMR_API void rmr_buffer_free(rmr_buffer *buffer);
                                                  rmr_rect viewport, const rmr_limits *limits,
                                                  rmr_plan **out, rmr_error *error);
 RMR_API void rmr_plan_free(rmr_plan *plan);
+
 /* Accounted owned heap bytes; excludes allocator/native framework overhead. */
 RMR_API size_t rmr_plan_bytes(const rmr_plan *plan);
 RMR_API size_t rmr_plan_count(const rmr_plan *plan);
 RMR_API rmr_rect rmr_plan_viewport(const rmr_plan *plan);
 RMR_API const rmr_draw *rmr_plan_draw(const rmr_plan *plan, size_t index);
+
 /* Bounds conservatively include curve control points and stroked caps/joins. */
 RMR_API rmr_rect rmr_plan_bounds(const rmr_plan *plan);
+
 [[nodiscard]] RMR_API rmr_status rmr_page_to_pdf(rmr_rect viewport, double points_per_unit,
                                                  rmr_transform *out, rmr_error *error);
 RMR_API rmr_point rmr_transform_point(rmr_transform transform, rmr_point point);
+
 /* Rounded output sheet and .rm -> bottom-left, y-up output transform.
  * Width/height are output units (PDF points, or pixels for a bitmap).
  * No native handles; constructing this value allocates nothing. */
@@ -191,11 +221,14 @@ typedef struct {
     double width, height;
     rmr_transform transform;
 } rmr_sheet;
+
 typedef enum rmr_paper : uint32_t { RMR_PAPER_A4, RMR_PAPER_LETTER, RMR_PAPER_TABLET } rmr_paper;
+
 /* A4/Letter turn with a landscape canvas; TABLET uses POINTS_PER_UNIT. */
 [[nodiscard]] RMR_API rmr_status rmr_paper_points(rmr_paper paper, double canvas_width,
                                                   double canvas_height, rmr_point *out,
                                                   rmr_error *error);
+
 /* Round max(floor, bounds.size*scale) to whole units, ties away from zero.
  * Centre horizontally and align the content's top; do not rescale after
  * rounding. bounds is in .rm coordinates (y down).
@@ -203,8 +236,10 @@ typedef enum rmr_paper : uint32_t { RMR_PAPER_A4, RMR_PAPER_LETTER, RMR_PAPER_TA
 [[nodiscard]] RMR_API rmr_status rmr_sheet_create(rmr_rect bounds, double floor_width,
                                                   double floor_height, double scale, rmr_sheet *out,
                                                   rmr_error *error);
+
 /* Paper floor with the fixed width-derived scale, for a measured page. */
 [[nodiscard]] RMR_API rmr_status rmr_paper_sheet(rmr_paper paper, double canvas_width,
                                                  double canvas_height, rmr_rect bounds,
                                                  rmr_sheet *out, rmr_error *error);
+
 #endif

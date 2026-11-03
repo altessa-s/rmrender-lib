@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_HVAR_H
 #define RMR_HVAR_H
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
 /* Bounded OpenType HVAR reader. Keep interpolation fractional until scaling;
  * HarfBuzz's public advance API rounds variation deltas in design units.
  * https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats */
@@ -13,22 +15,27 @@ typedef struct {
     const uint8_t *data;
     size_t size;
 } rmr_ot_bytes;
+
 static inline bool rmr_ot_has(rmr_ot_bytes b, size_t at, size_t n) {
     return at <= b.size && n <= b.size - at;
 }
+
 static inline uint32_t rmr_ot_uint(rmr_ot_bytes b, size_t at, unsigned n) {
     uint32_t value = 0;
     for (unsigned i = 0; i < n; i++)
         value = (value << 8) | b.data[at + i];
     return value;
 }
+
 static inline int32_t rmr_ot_int(rmr_ot_bytes b, size_t at, unsigned n) {
     uint32_t value = rmr_ot_uint(b, at, n);
     return (int32_t)(value << (32 - n * 8)) >> (32 - n * 8);
 }
+
 static inline rmr_ot_bytes rmr_ot_tail(rmr_ot_bytes b, size_t at) {
     return at <= b.size ? (rmr_ot_bytes){b.data + at, b.size - at} : (rmr_ot_bytes){0};
 }
+
 static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coords, unsigned count,
                                   double *result) {
     if (!rmr_ot_has(b, 0, 20) || rmr_ot_uint(b, 0, 4) != 0x10000)
@@ -107,4 +114,5 @@ static inline bool rmr_hvar_delta(rmr_ot_bytes b, uint32_t glyph, const int *coo
     *result = delta;
     return true;
 }
+
 #endif

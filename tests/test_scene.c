@@ -1,19 +1,23 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
 #ifdef RMRENDER_TEST_APPLE
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
+
 static rmr_bitmap render(rmr_plan *p, rmr_color background) {
     rmr_bitmap b = {0};
     OK(rmr_apple_bitmap(p, 1, background, nullptr, nullptr, nullptr, &b, nullptr));
     return b;
 }
+
 static unsigned int alpha(rmr_bitmap b, size_t x, size_t y) {
     return b.pixels[y * b.stride + x * 4 + 3];
 }
+
 static unsigned int pdf_alpha(rmr_plan *p) {
     const rmr_plan *pages[] = {p};
     rmr_buffer pdf = {0};
@@ -38,6 +42,7 @@ static unsigned int pdf_alpha(rmr_plan *p) {
     rmr_buffer_free(&pdf);
     return value;
 }
+
 static bool cancel_group(void *context) { return ++*(unsigned int *)context == 3; }
 #endif
 static rmr_plan *plan_for(rm_stroke *strokes, size_t count) {
@@ -45,6 +50,7 @@ static rmr_plan *plan_for(rm_stroke *strokes, size_t count) {
     OK(rmr_lines_plan(strokes, count, (rmr_rect){-32, 0, 64, 64}, nullptr, &p, nullptr));
     return p;
 }
+
 int main(void) {
     rm_stroke_point horizontal[] = {{.x = -20, .y = 20, .width = 40, .pressure = 128},
                                     {.x = 20, .y = 20, .width = 40, .pressure = 128}};

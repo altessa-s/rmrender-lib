@@ -1,8 +1,10 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_typography_internal.h"
 #include <limits.h>
+
 typedef struct {
     PangoLayout *layout, *marker;
     PangoLayout **lines;
@@ -10,6 +12,7 @@ typedef struct {
     rm_list_family family;
     rm_checkbox_state checkbox;
 } paragraph;
+
 struct rmr_linux_layout {
     rmr_anchor_layout anchors;
     rmr_caret_provider caret;
@@ -19,6 +22,7 @@ struct rmr_linux_layout {
     size_t bytes;
     double bottom;
 };
+
 static size_t units(const char *text, size_t bytes) {
     size_t n = 0;
     const char *end = text + bytes;
@@ -28,6 +32,7 @@ static size_t units(const char *text, size_t bytes) {
     }
     return n;
 }
+
 static size_t offset(const char *text, size_t bytes, size_t u) {
     size_t at = 0, used = 0;
     while (at < bytes && used < u) {
@@ -36,6 +41,7 @@ static size_t offset(const char *text, size_t bytes, size_t u) {
     }
     return used == u ? at : SIZE_MAX;
 }
+
 /* CoreText places trailing whitespace before the origin of an RTL line.
  * Pango includes it at the visual left; keep geometry and drawing in sync. */
 static double rtl_trailing_width(PangoLayoutLine *line) {
@@ -55,6 +61,7 @@ static double rtl_trailing_width(PangoLayoutLine *line) {
     pango_layout_line_index_to_x(line, (int)(tail - text), FALSE, &x);
     return (double)x / PANGO_SCALE;
 }
+
 static bool rtl_logical_end(PangoLayoutLine *line) {
     if (!line->length)
         return false;
@@ -62,6 +69,7 @@ static bool rtl_logical_end(PangoLayoutLine *line) {
     const char *last = g_utf8_prev_char(text + line->start_index + line->length);
     return pango_layout_get_direction(line->layout, (int)(last - text)) == PANGO_DIRECTION_RTL;
 }
+
 static int line_index_x(PangoLayoutLine *line, size_t index) {
     int x = 0;
     const char *text = pango_layout_get_text(line->layout);
@@ -72,6 +80,7 @@ static int line_index_x(PangoLayoutLine *line, size_t index) {
         pango_layout_line_index_to_x(line, (int)index, FALSE, &x);
     return x;
 }
+
 /* A leading LTR segment in an RTL line shares the explicit gap with the
  * adjacent RTL segment. CoreText includes that half-gap in its start caret. */
 static double start_adjustment(PangoLayoutLine *line) {
@@ -102,6 +111,7 @@ static double start_adjustment(PangoLayoutLine *line) {
     }
     return 0;
 }
+
 static double interior_adjustment(PangoLayoutLine *line, size_t index, int *x) {
     const char *text = pango_layout_get_text(line->layout);
     size_t previous = (size_t)(g_utf8_prev_char(text + index) - text);
@@ -157,6 +167,7 @@ static double interior_adjustment(PangoLayoutLine *line, size_t index, int *x) {
         }
     return 0;
 }
+
 /* Paragraph shaping retains pair spacing across a soft wrap. CoreText's
  * terminal caret excludes that pair adjustment, while glyphs keep it. */
 static double end_pair_adjustment(PangoLayoutLine *line) {
@@ -181,6 +192,7 @@ static double end_pair_adjustment(PangoLayoutLine *line) {
     }
     return 0;
 }
+
 static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret_offsets *out) {
     rmr_linux_layout *l = ctx;
     if (!l || !out || pi >= l->anchors.count || li >= l->paragraphs[pi].line_count)
@@ -220,6 +232,7 @@ static rmr_status caret(void *ctx, size_t pi, size_t li, size_t index, rmr_caret
                                (double)start / PANGO_SCALE - trailing + leading};
     return RMR_OK;
 }
+
 void rmr_linux_layout_free(rmr_linux_layout *l) {
     if (!l)
         return;
@@ -242,21 +255,26 @@ void rmr_linux_layout_free(rmr_linux_layout *l) {
     rmr_linux_fonts_free(l->fonts);
     free(l);
 }
+
 size_t rmr_linux_layout_bytes(const rmr_linux_layout *l) { return l ? l->bytes : 0; }
+
 const rmr_anchor_layout *rmr_linux_layout_anchors(const rmr_linux_layout *l) {
     return l ? &l->anchors : nullptr;
 }
+
 bool rmr_linux_layout_bottom(const rmr_linux_layout *l, double *out) {
     if (!l || !l->anchors.count || !out)
         return false;
     *out = l->bottom;
     return true;
 }
+
 static void attr(PangoAttrList *list, PangoAttribute *a, size_t start, size_t end) {
     a->start_index = (guint)start;
     a->end_index = (guint)end;
     pango_attr_list_change(list, a);
 }
+
 static PangoLayout *marker(const rmr_linux_fonts *fonts, rmr_type_metrics m, rm_list_family family,
                            size_t ordinal, int level) {
     char label[128];
@@ -292,6 +310,7 @@ static PangoLayout *marker(const rmr_linux_fonts *fonts, rmr_type_metrics m, rm_
         snprintf(label, sizeof label, "%zu.", ordinal);
     return rmr_pango_layout(fonts, (rm_str){label, strlen(label)}, m.size, m.face, false, false);
 }
+
 /* Pango clusters are monotone within a directional glyph run. Binary searches
  * avoid rescanning an entire long paragraph for each narrow output line. */
 static int glyph_boundary(const PangoGlyphItem *run, size_t byte) {
@@ -307,6 +326,7 @@ static int glyph_boundary(const PangoGlyphItem *run, size_t byte) {
     }
     return lo;
 }
+
 /* Preserve paragraph shaping across soft wraps. Re-shaping an Arabic slice
  * changes joining forms and pair spacing at its edges. Only reuse compatible
  * font/bidi runs and complete clusters selected by line_breaks. */
@@ -357,6 +377,7 @@ static rmr_status paragraph_glyphs(PangoLayout *paragraph_layout, PangoLayout *l
     }
     return RMR_OK;
 }
+
 /* Choose breaks using the same calibrated advances later drawn and measured. */
 static rmr_status line_breaks(PangoLayout *layout, double column, const rmr_limits *limits,
                               size_t **ends_out, size_t *count_out) {
@@ -478,6 +499,7 @@ done:
     free(ends);
     return status;
 }
+
 rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
                                    const rmr_linux_fonts *fonts, const rmr_limits *given,
                                    rmr_linux_layout **out, rmr_error *e) {
@@ -714,6 +736,7 @@ rmr_status rmr_linux_layout_create(const rm_text_block *text, double page_width,
     *out = l;
     return RMR_OK;
 }
+
 rmr_status rmr_linux_layout_line(const rmr_linux_layout *l, size_t pi, size_t li,
                                  rmr_text_line *out, rmr_error *e) {
     if (!l || !out || pi >= l->anchors.count || li >= l->paragraphs[pi].line_count)
@@ -731,10 +754,12 @@ rmr_status rmr_linux_layout_line(const rmr_linux_layout *l, size_t pi, size_t li
     *out = (rmr_text_line){pi, v.location, v.location + v.length, v.baseline, x, x + width};
     return RMR_OK;
 }
+
 typedef struct {
     rmr_sink sink;
     bool discard;
 } layout_sink;
+
 static cairo_status_t layout_write(void *closure, const unsigned char *data, unsigned int length) {
     layout_sink *output = closure;
     if (!output->discard)
@@ -743,6 +768,7 @@ static cairo_status_t layout_write(void *closure, const unsigned char *data, uns
      * Cairo's PDF error path can leak when a stream rejects finalization. */
     return CAIRO_STATUS_SUCCESS;
 }
+
 rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
                                  const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!l || !out)
@@ -848,6 +874,7 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout *l, rmr_rect viewport,
     rmr_buffer_free(&sink->data);
     return s == RMR_OK ? s : text_error(e, s, "text PDF rendering failed");
 }
+
 rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face, bool bold,
                                 bool italic, bool less_rightmost, const rmr_linux_fonts *fonts,
                                 const rmr_limits *given, double *out, rmr_error *e) {

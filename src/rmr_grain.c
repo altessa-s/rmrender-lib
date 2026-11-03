@@ -5,6 +5,7 @@
 /* Grain input validation, mask bounds and mask storage. */
 #include "rmr_internal.h"
 #include <rmrender/grain.h>
+
 rmr_status rmr_grain_validate(const rmr_grain_point *p, size_t n, rmr_limits l, rmr_error *e) {
     if ((!p && n) || !isfinite(l.maximum_coordinate) || l.maximum_coordinate <= 0 ||
         l.maximum_coordinate > 1e12 || !isfinite(l.maximum_width) || l.maximum_width <= 0 ||
@@ -18,6 +19,7 @@ rmr_status rmr_grain_validate(const rmr_grain_point *p, size_t n, rmr_limits l, 
             return rmr_fail(e, RMR_ERR_INVALID_ARGUMENT, i, "invalid grain point");
     return RMR_OK;
 }
+
 rmr_status rmr_grain_box(const rmr_grain_point *p, size_t n, const rmr_limits *given, rmr_rect *out,
                          rmr_error *e) {
     rmr_limits l = given ? *given : rmr_limits_default();
@@ -37,12 +39,14 @@ rmr_status rmr_grain_box(const rmr_grain_point *p, size_t n, const rmr_limits *g
     *out = (rmr_rect){floor(x0), floor(y0), ceil(x1) - floor(x0), ceil(y1) - floor(y0)};
     return RMR_OK;
 }
+
 void rmr_mask_free(rmr_mask *m) {
     if (m) {
         free(m->bytes);
         *m = (rmr_mask){0};
     }
 }
+
 rmr_status rmr_mask_layout(rmr_rect box, rmr_limits l, rmr_mask *out, rmr_error *e) {
     if (!out || !rmr_point_valid((rmr_point){box.x, box.y}, l.maximum_coordinate) ||
         floor(box.x) != box.x || floor(box.y) != box.y || !isfinite(box.width) ||

@@ -1,10 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_typography_internal.h"
 #include <rmlines/parser.h>
 #include <rmrender/apple_document.h>
+
 typedef enum { PDF_FRESH, PDF_INCREMENTAL, PDF_RECOMPOSED } pdf_output_mode;
+
 static rmr_status document_pdf(const rmr_archive_document *document,
                                const rmr_page_resources *given_resources,
                                const rmr_apple_fonts *fonts, rmr_paper paper, size_t maximum_pages,
@@ -166,6 +169,7 @@ rmr_status rmr_apple_document_pdf(const rmr_archive_document *document,
     return document_pdf(document, resources, fonts, paper, maximum_pages, limits, cancel, context,
                         out, report, error, PDF_FRESH);
 }
+
 rmr_status rmr_apple_document_pdf_preserving(const rmr_archive_document *document,
                                              const rmr_page_resources *resources,
                                              const rmr_apple_fonts *fonts, rmr_paper paper,

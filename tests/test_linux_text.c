@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "image_fixture.h"
 #include "test.h"
 #include "text_metrics_cases.h"
@@ -10,6 +11,7 @@
 #include <fpdfview.h>
 #include <rmlines/writer.h>
 #include <rmrender/linux_document.h>
+
 static void archive_text(const rmr_linux_fonts *fonts) {
     const char *doc = "11111111-1111-1111-1111-111111111111",
                *id = "22222222-2222-2222-2222-222222222222";
@@ -59,6 +61,7 @@ static void archive_text(const rmr_linux_fonts *fonts) {
     rmr_archive_document_free(document);
     rm_bytes_free(bytes);
 }
+
 /* Independent measurements from the Apple backend using the same open fonts. */
 static void calibrated_metrics(const rmr_linux_fonts *fonts) {
     static const double hello[2][2][2] = {{{164.9420192, 164.0710272}, {172.6564096, 172.6564096}},
@@ -167,6 +170,7 @@ static void calibrated_metrics(const rmr_linux_fonts *fonts) {
                                fonts, &limits, &untouched, nullptr) == RMR_ERR_LIMIT);
     CHECK(untouched == 123);
 }
+
 static void multilingual_metrics(const rmr_linux_fonts *fonts) {
     const size_t count = sizeof apple_metric_widths / sizeof *apple_metric_widths;
     CHECK(count == 432);
@@ -188,6 +192,7 @@ static void multilingual_metrics(const rmr_linux_fonts *fonts) {
             CHECK(fabs(measured - apple_metric_widths[i]) < tolerance);
         }
 }
+
 static void synthetic_pdf_positions(const rmr_linux_fonts *fonts) {
     rm_face_run face = {.start = 0, .end = 6, .bold = true, .italic = true};
     rm_paragraph paragraph = {.text = {"AVATAR", 6}, .faces = &face, .face_count = 1};
@@ -220,6 +225,7 @@ static void synthetic_pdf_positions(const rmr_linux_fonts *fonts) {
     rmr_plan_free(plan);
     rmr_linux_layout_free(layout);
 }
+
 static void rtl_pdf_positions(const rmr_linux_fonts *fonts) {
     const char *sample = "שלום ";
     rm_paragraph paragraph = {.text = {sample, strlen(sample)}};
@@ -262,6 +268,7 @@ static void rtl_pdf_positions(const rmr_linux_fonts *fonts) {
     rmr_plan_free(plan);
     rmr_linux_layout_free(layout);
 }
+
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     rmr_linux_fonts *fonts = nullptr;

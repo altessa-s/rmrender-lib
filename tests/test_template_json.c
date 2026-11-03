@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
 #include <rmrender/template.h>
+
 static const char fixture[] =
     "{\"name\":\"Own \\u041b\\u0438\\u043d\\u0438\\u0438 \\ud83d\\udcd3\","
     "\"orientation\":\"landscape\",\"categories\":[\"Lines\",\"Own\"],"
@@ -11,14 +13,17 @@ static const char fixture[] =
     "\"items\":[{\"type\":\"group\",\"boundingBox\":{\"x\":10,\"y\":5,\"height\":\"step\"},"
     "\"repeat\":{\"rows\":\"down\"},\"children\":[{\"type\":\"path\","
     "\"data\":[\"M\",0,0,\"L\",\"w\",0],\"strokeWidth\":1,\"strokeColor\":\"#12345680\"}]}]}";
+
 static rmr_status decode(const char *s, rmr_template_document **d) {
     return rmr_template_document_decode(s, strlen(s), nullptr, d, nullptr);
 }
+
 static void reject(const char *s, rmr_status status) {
     rmr_template_document *sentinel = (rmr_template_document *)(uintptr_t)1;
     CHECK(decode(s, &sentinel) == status);
     CHECK(sentinel == (rmr_template_document *)(uintptr_t)1);
 }
+
 int main(void) {
     rmr_template_document *d = nullptr;
     char borrowed[sizeof fixture];
@@ -74,7 +79,8 @@ int main(void) {
         "{\"name\":\"x\",\"items\":[{\"type\":\"path\",\"data\":[\"M\",\"1 +\",0]}]}"};
     for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++)
         reject(invalid[i], RMR_ERR_INVALID_ARGUMENT);
-    reject("{\"name\":\"x\",\"items\":[{\"type\":\"unknown\",\"text\":\"x\"}]}", RMR_ERR_UNSUPPORTED);
+    reject("{\"name\":\"x\",\"items\":[{\"type\":\"unknown\",\"text\":\"x\"}]}",
+           RMR_ERR_UNSUPPORTED);
     reject("{\"name\":\"x\",\"items\":[{\"type\":\"path\",\"data\":[\"m\",0,0]}]}",
            RMR_ERR_UNSUPPORTED);
     /* Every truncated prefix must fail and preserve the output. */

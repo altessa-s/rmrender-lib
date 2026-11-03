@@ -1,14 +1,17 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_WIDTH_H
 #define RMR_WIDTH_H
 #include <math.h>
 #include <rmlines/types.h>
+
 static inline double rmr_line_width(double raw) {
     double w = raw / 4;
     return isfinite(w) ? fmin(fmax(w, 0.7), 200) : 0.7;
 }
+
 static inline float rmr_drawn_width(rm_pen_tool tool, rm_stroke_point p) {
     double scale = 1;
     if (tool == RM_TOOL_MARKER_2)
@@ -31,4 +34,5 @@ static inline float rmr_drawn_width(rm_pen_tool tool, rm_stroke_point p) {
     }
     return scale == 1 ? p.width : p.width * (float)scale;
 }
+
 #endif

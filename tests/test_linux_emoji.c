@@ -1,15 +1,18 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "../adapters/rmr_files.h"
 #include "../backends/linux/rmr_typography_internal.h"
 #include "test.h"
 #include <fpdf_edit.h>
 #include <fpdf_text.h>
 #include <fpdfview.h>
+
 static const char *samples[] = {
     "😀", "👍🏽", "🇫🇷", "👩‍💻", "👨‍👩‍👧‍👦", "❤️", "1️⃣", "🏳️‍🌈",
     "#⃣",  "*️⃣",    "9️⃣"};
+
 static void shaping(rmr_linux_fonts *fonts) {
     const double sizes[] = {16, 32, 64};
     const char *contexts[] = {"%s", "x %s", "ש %s"};
@@ -44,6 +47,7 @@ static void shaping(rmr_linux_fonts *fonts) {
                     g_object_unref(layout);
                 }
 }
+
 static void composite_cluster(rmr_linux_fonts *fonts) {
     const char *text = "👩‍😀";
     PangoLayout *layout =
@@ -62,6 +66,7 @@ static void composite_cluster(rmr_linux_fonts *fonts) {
     CHECK(visible == 2);
     g_object_unref(layout);
 }
+
 static void emoji_limits(const rmr_linux_fonts *fonts) {
     const char *sample = "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀";
     rm_paragraph p = {.text = {sample, strlen(sample)}};
@@ -82,6 +87,7 @@ static void emoji_limits(const rmr_linux_fonts *fonts) {
     CHECK(!out);
     rmr_linux_layout_free(layout);
 }
+
 static void pdf_roundtrip(const rmr_linux_fonts *fonts, const char *preview) {
     const char *mixed[] = {"👍👍🏽👍🏿👍🏽", "👍🏽👍👍🏿👍", "🇫🇷🇩🇪🇫🇷",      "A👍🏽B🇫🇷C",
                            "A👩‍😀B",  "x😀y❤️z",       "A👍🏽B\nC🇫🇷D"};
@@ -189,11 +195,13 @@ static void pdf_roundtrip(const rmr_linux_fonts *fonts, const char *preview) {
     cairo_destroy(cr);
     cairo_surface_destroy(sheet);
 }
+
 typedef struct {
     const char *directory;
     unsigned mode;
     rmr_buffer bytes;
 } resolver;
+
 static rmr_status resolve(void *context, const char *name, rmr_asset_view *out) {
     resolver *r = context;
     rmr_buffer_free(&r->bytes);
@@ -220,6 +228,7 @@ static rmr_status resolve(void *context, const char *name, rmr_asset_view *out) 
         *out = (rmr_asset_view){r->bytes.bytes, r->bytes.size};
     return s;
 }
+
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
     rmr_linux_fonts *fonts = nullptr;

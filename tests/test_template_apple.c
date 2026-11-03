@@ -1,10 +1,12 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
 #include <rmrender/template.h>
+
 int main(void) {
     rmr_element ink[] = {{.kind = RMR_MOVE, .end = {-20, 20}},
                          {.kind = RMR_LINE, .end = {20, 20}},

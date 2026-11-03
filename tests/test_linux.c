@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "image_fixture.h"
 #include "image_jpeg_fixture.h"
 #include "pdf_fixture.h"
@@ -14,10 +15,12 @@
 #include <fpdf_text.h>
 #include <fpdfview.h>
 #include <rmrender/linux_pdf.h>
+
 static bool cancelled(void *ctx) {
     (void)ctx;
     return true;
 }
+
 static void graphics(void) {
     rmr_element shape[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                            {.kind = RMR_LINE, .end = {3, 0}},
@@ -126,6 +129,7 @@ static void graphics(void) {
     rmr_bitmap_free(&bitmap);
     rmr_plan_free(plan);
 }
+
 static void preserved_objects(FPDF_DOCUMENT doc) {
     CHECK(FPDF_GetPageCount(doc) == 2);
     CHECK(FPDFDoc_GetAttachmentCount(doc) == 1);
@@ -154,6 +158,7 @@ static void preserved_objects(FPDF_DOCUMENT doc) {
     FPDF_ClosePage(page);
     CHECK(FPDFBookmark_GetFirstChild(doc, nullptr));
 }
+
 static bool has_actual_text(FPDF_PAGEOBJECT object, unsigned depth) {
     CHECK(depth < 16);
     const unsigned char expected[] = {0xfe, 0xff, 0xd8, 0x3d, 0xdc, 0x4d, 0xd8, 0x3c, 0xdf, 0xfd};
@@ -171,6 +176,7 @@ static bool has_actual_text(FPDF_PAGEOBJECT object, unsigned depth) {
                 return true;
     return false;
 }
+
 static void imported_actual_text(const char *preview) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -240,6 +246,7 @@ static void imported_actual_text(const char *preview) {
     rmr_plan_free(plan);
     rmr_linux_pdf_source_free(src);
 }
+
 static fixture split_widget_source(void) {
     fixture f = source(false);
     char *last = strstr(f.bytes, "startxref");
@@ -260,6 +267,7 @@ static fixture split_widget_source(void) {
     add(&f, "trailer\n<< /Size 19 /Prev %zu >>\nstartxref\n%zu\n%%%%EOF\n", previous, x);
     return f;
 }
+
 static void selected_objects_case(bool split) {
     fixture f = split ? split_widget_source() : source(false);
     const size_t indices[] = {1, 0, 0};
@@ -325,6 +333,7 @@ static void selected_objects_case(bool split) {
     FPDF_CloseDocument(doc);
     rmr_buffer_free(&output);
 }
+
 static void selected_annotations(void) {
     fixture f = source(false);
     size_t previous = (size_t)strtoull(strstr(f.bytes, "startxref") + 9, nullptr, 10);
@@ -395,6 +404,7 @@ static void selected_annotations(void) {
     FPDF_CloseDocument(doc);
     rmr_buffer_free(&output);
 }
+
 static void pdf_source(void) {
     fixture f = source(false);
     rmr_linux_pdf_source *src = nullptr;
@@ -448,6 +458,7 @@ static void pdf_source(void) {
     rmr_plan_free(plan);
     rmr_linux_pdf_source_free(src);
 }
+
 static void images(void) {
     rmr_element clip[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                           {.kind = RMR_LINE, .end = {8, 0}},
@@ -492,6 +503,7 @@ static void images(void) {
         rmr_plan_free(p);
     }
 }
+
 static fixture rotated(int rotate, bool crop) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -514,6 +526,7 @@ static fixture rotated(int rotate, bool crop) {
     add(&f, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", start);
     return f;
 }
+
 static void rotations(void) {
     for (int rotation = 0; rotation < 360; rotation += 90)
         for (int crop = 0; crop < 2; crop++) {
@@ -565,6 +578,7 @@ static void rotations(void) {
             rmr_linux_pdf_source_free(source_pdf);
         }
 }
+
 static fixture navigation_fixture(void) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -592,6 +606,7 @@ static fixture navigation_fixture(void) {
     add(&f, "trailer\n<< /Size 11 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", start);
     return f;
 }
+
 static void navigation_test(void) {
     fixture f = navigation_fixture();
     rmr_linux_pdf_source *src = nullptr;
@@ -651,6 +666,7 @@ static void navigation_test(void) {
     rmr_plan_free(empty);
     rmr_linux_pdf_source_free(src);
 }
+
 static void contour_test(void) {
     fixture f = rotated(0, false);
     rmr_element clip[] = {
@@ -693,6 +709,7 @@ static void contour_test(void) {
     rmr_buffer_free(&pdf);
     rmr_plan_free(plan);
 }
+
 int main(int argc, char **argv) {
     CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
     graphics();

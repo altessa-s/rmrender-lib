@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 /* Hostile source PDFs for rmr_pdf_incremental: resource bounds, xref
  * precedence, object streams and byte-exact copying. Run under ASan/UBSan too. */
 #ifdef NDEBUG
@@ -22,6 +23,7 @@ typedef struct {
     size_t off[8192];
     unsigned gen[8192];
 } buf;
+
 static void addv(buf *f, const char *fmt, va_list a) {
     va_list c;
     va_copy(c, a);
@@ -39,12 +41,14 @@ static void addv(buf *f, const char *fmt, va_list a) {
     vsnprintf(f->b + f->n, (size_t)n + 1, fmt, a);
     f->n += (size_t)n;
 }
+
 static void add(buf *f, const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
     addv(f, fmt, a);
     va_end(a);
 }
+
 static void raw(buf *f, const void *p, size_t n) {
     if (f->n + n + 1 > f->cap) {
         size_t cap = f->cap ? f->cap : 65536;
@@ -57,6 +61,7 @@ static void raw(buf *f, const void *p, size_t n) {
     memcpy(f->b + f->n, p, n);
     f->n += n;
 }
+
 static void obj(buf *f, unsigned id, const char *fmt, ...) {
     f->off[id] = f->n;
     add(f, "%u 0 obj\n", id);
@@ -66,6 +71,7 @@ static void obj(buf *f, unsigned id, const char *fmt, ...) {
     va_end(a);
     add(f, "\nendobj\n");
 }
+
 static void xref(buf *f, unsigned count, const char *extra) {
     size_t x = f->n;
     add(f, "xref\n0 %u\n0000000000 65535 f \n", count);
@@ -73,6 +79,7 @@ static void xref(buf *f, unsigned count, const char *extra) {
         add(f, "%010zu %05u %c \n", f->off[i], f->gen[i], f->off[i] ? 'n' : 'f');
     add(f, "trailer\n<< /Size %u /Root 1 0 R %s >>\nstartxref\n%zu\n%%%%EOF\n", count, extra, x);
 }
+
 /* Minimal trusted overlay (single page, one content stream). */
 static buf overlay_pdf(void) {
     buf f = {0};
@@ -85,6 +92,7 @@ static buf overlay_pdf(void) {
     xref(&f, 5, "");
     return f;
 }
+
 static const char *name(rmr_status s) {
     switch (s) {
     case RMR_OK:
@@ -101,11 +109,13 @@ static const char *name(rmr_status s) {
         return "other";
     }
 }
+
 static double now(void) {
     struct timespec t;
     timespec_get(&t, TIME_UTC);
     return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
 }
+
 /* Whether the n bytes at hay contain the len bytes of needle. */
 static bool found(const void *hay, size_t n, const char *needle, size_t len) {
     const unsigned char *h = hay;
@@ -114,6 +124,7 @@ static bool found(const void *hay, size_t n, const char *needle, size_t len) {
             return true;
     return false;
 }
+
 static rmr_status run(buf *f, size_t page, rmr_limits *l, rmr_buffer *out, rmr_error *e,
                       bool replace_box) {
     static buf ov;
@@ -128,6 +139,7 @@ static rmr_status run(buf *f, size_t page, rmr_limits *l, rmr_buffer *out, rmr_e
     *out = (rmr_buffer){0};
     return rmr_pdf_incremental((uint8_t *)f->b, f->n, &o, 1, l, nullptr, nullptr, out, nullptr, e);
 }
+
 static void report(const char *probe, rmr_status s, rmr_error *e, double secs) {
     printf("%s: %s (%s) %.3fs\n", probe, name(s), s == RMR_OK ? "" : e->message, secs);
 }
@@ -513,6 +525,7 @@ static buf simple_source(void) {
     xref(&f, 4, "");
     return f;
 }
+
 /* A row listed twice inside one classic section stays invalid. */
 static void hostile_duplicate_row(void) {
     buf f = {0};
@@ -533,6 +546,7 @@ static void hostile_duplicate_row(void) {
     assert(s == RMR_ERR_INVALID_ARGUMENT);
     free(f.b);
 }
+
 /* Overlay objects packed in an object stream are imported; the container and
  * the xref stream are not copied. */
 static void hostile_packed_overlay(void) {
@@ -586,6 +600,7 @@ static void hostile_packed_overlay(void) {
     free(ov.b);
     free(rows.b);
 }
+
 /* rmr_pdf_pages reports what the updater parses: count, inherited box, rotation. */
 static void hostile_pages(void) {
     buf f = {0};
@@ -603,6 +618,7 @@ static void hostile_pages(void) {
     assert(g[1].media.x == 10 && g[1].media.y == 20 && g[1].media.width == 40 && g[1].rotate == 0);
     free(f.b);
 }
+
 int main(void) {
     hostile_c1();
     /* Object streams decode once per file: 64 pages packed with ~2 MiB of

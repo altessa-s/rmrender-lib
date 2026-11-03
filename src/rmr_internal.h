@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_INTERNAL_H
 #define RMR_INTERNAL_H
 #include <math.h>
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 struct rmr_plan {
     rmr_draw *draws;
     rmr_element *elements;
@@ -18,6 +20,7 @@ struct rmr_plan {
     rmr_rect viewport, bounds;
     uint64_t caps;
 };
+
 rmr_status rmr_grain_validate(const rmr_grain_point *points, size_t count, rmr_limits limits,
                               rmr_error *error);
 rmr_status rmr_mask_layout(rmr_rect box, rmr_limits limits, rmr_mask *out, rmr_error *error);
@@ -35,7 +38,9 @@ rmr_status rmr_fail(rmr_error *e, rmr_status code, size_t index, const char *mes
 bool rmr_utf8_valid(const char *text, size_t size);
 bool rmr_point_valid(rmr_point p, double bound);
 bool rmr_color_valid(rmr_color color);
+
 static inline double rmr_clamp(double x, double low, double high) {
     return fmin(fmax(x, low), high);
 }
+
 #endif

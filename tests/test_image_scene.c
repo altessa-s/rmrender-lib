@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "image_fixture.h"
 #include "test.h"
 #include <rmrender/rmlines.h>
@@ -9,17 +10,20 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
 #include <rmrender/apple_context.h>
+
 static rmr_bitmap render(rmr_plan *p) {
     rmr_bitmap b = {0};
     OK(rmr_apple_bitmap(p, 1, (rmr_color){0}, nullptr, nullptr, nullptr, &b, nullptr));
     return b;
 }
+
 static void pixel(rmr_bitmap b, size_t x, size_t y, unsigned r, unsigned g, unsigned blue,
                   unsigned a) {
     const uint8_t *p = b.pixels + y * b.stride + x * 4;
     CHECK(abs((int)p[0] - (int)r) <= 1 && abs((int)p[1] - (int)g) <= 1 &&
           abs((int)p[2] - (int)blue) <= 1 && abs((int)p[3] - (int)a) <= 1);
 }
+
 static void pdf_check(rmr_plan *p, bool release_before_close) {
     const rmr_plan *pages[] = {p};
     rmr_buffer pdf = {0};
@@ -75,18 +79,21 @@ static rmr_status resolve(void *context, rm_str file, rmr_asset_view *out) {
     *out = context ? *(rmr_asset_view *)context : (rmr_asset_view){image_png, sizeof image_png};
     return RMR_OK;
 }
+
 static rmr_status refused(void *c, rm_str f, rmr_asset_view *out) {
     (void)c;
     (void)f;
     (void)out;
     return RMR_ERR_CANCELLED;
 }
+
 static rmr_plan *plan(rm_page *page, void *context) {
     rmr_plan *p = nullptr;
     OK(rmr_lines_scene_plan(page, (rmr_rect){-32, 0, 64, 64}, resolve, context, nullptr, nullptr,
                             &p, nullptr));
     return p;
 }
+
 int main(void) {
     rm_page_image image = {
         .vertices = {{-32, 0, 0, 0}, {32, 0, 1, 0}, {32, 64, 1, 1}, {-32, 64, 0, 1}}};

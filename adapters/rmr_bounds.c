@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_width.h"
 #include <rmrender/rmlines.h>
 #include <stdio.h>
+
 static rmr_status fail(rmr_error *e, rmr_status s, size_t i, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s, .index = i};
@@ -11,6 +13,7 @@ static rmr_status fail(rmr_error *e, rmr_status s, size_t i, const char *message
     }
     return s;
 }
+
 /* Preserve CGRect's origin/size union arithmetic, including rounding at the
  * sheet edges; storing only min/max changes centreline margin decisions. */
 static void include(rmr_rect *b, double x, double y, double half) {
@@ -19,6 +22,7 @@ static void include(rmr_rect *b, double x, double y, double half) {
     double top = fmax(b->y + b->height, (y - half) + half * 2);
     *b = (rmr_rect){left, bottom, right - left, top - bottom};
 }
+
 rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, double h,
                                               rmr_ink_edge edge, double margin,
                                               const rmr_text_extent *text, const rmr_limits *given,
@@ -164,6 +168,7 @@ rmr_status rmr_lines_content_bounds_with_text(const rm_page *page, double w, dou
     *out = result;
     return RMR_OK;
 }
+
 rmr_status rmr_lines_content_bounds(const rm_page *page, double w, double h, rmr_ink_edge edge,
                                     double margin, const rmr_limits *limits, rmr_rect *out,
                                     rmr_error *e) {
@@ -171,6 +176,7 @@ rmr_status rmr_lines_content_bounds(const rm_page *page, double w, double h, rmr
         return fail(e, RMR_ERR_UNSUPPORTED, 0, "text/highlights require bounds providers");
     return rmr_lines_content_bounds_with_text(page, w, h, edge, margin, nullptr, limits, out, e);
 }
+
 rmr_status rmr_lines_page_plan(const rm_page *page, double w, double h, rmr_ink_edge edge,
                                double margin, rmr_asset_resolve_fn resolve, void *context,
                                const rmr_unit_raster *raster, const rmr_limits *limits,

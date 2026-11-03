@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
+
 static bool cancelled(void *context) {
     (void)context;
     return true;
 }
+
 int main(void) {
     rmr_plan *p = rectangle((rmr_color){1, 0, 0, 1}, RMR_BLEND_NORMAL);
     rmr_sheet sheets[2];

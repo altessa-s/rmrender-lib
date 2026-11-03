@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
 #ifdef RMRENDER_TEST_APPLE
@@ -11,6 +12,7 @@ typedef struct {
     size_t calls;
     rmr_status status;
 } templates;
+
 static rmr_status resolve_template(void *context, rm_str name, const rmr_template **out) {
     templates *t = context;
     t->calls++;
@@ -18,12 +20,14 @@ static rmr_status resolve_template(void *context, rm_str name, const rmr_templat
     *out = t->model;
     return t->status;
 }
+
 static rmr_status missing_image(void *context, rm_str name, rmr_asset_view *out) {
     (void)name;
     ++*(size_t *)context;
     *out = (rmr_asset_view){0};
     return RMR_OK;
 }
+
 static void canvas_checks(void) {
     rmr_point out = {0};
     rm_page a = {0}, b = {.has_paper_size = true, .paper_size = {100, 200}};
@@ -71,6 +75,7 @@ static void canvas_checks(void) {
     CHECK(rmr_template_page_extent((rmr_point){100, 200}, (rmr_rect){-40, 0, 100, 200}, &out,
                                    nullptr) == RMR_ERR_INVALID_ARGUMENT);
 }
+
 int main(void) {
     canvas_checks();
     const char json[] =

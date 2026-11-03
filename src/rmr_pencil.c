@@ -6,18 +6,23 @@
 #include "rmr_internal.h"
 #include "rmr_marker_tiles.h"
 #include "rmr_pencil_tiles.h"
+
 static uint64_t mix(uint64_t z) {
     z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
     z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
     return z ^ (z >> 31);
 }
+
 static uint64_t hash(int64_t x, int64_t y, uint64_t salt) {
     return mix(mix((uint64_t)x + salt) ^ (uint64_t)y);
 }
+
 static double unit(int64_t x, int64_t y, uint64_t salt) {
     return (double)(hash(x, y, salt) >> 11) * 0x1p-53;
 }
+
 double rmr_grain_noise(int64_t x, int64_t y) { return unit(x, y, UINT64_C(0x6772617068697465)); }
+
 unsigned int rmr_stamp_variant(float x, float y) {
     if (!isfinite(x) || !isfinite(y) || fabs((double)x) > 1e12 || fabs((double)y) > 1e12)
         return 0;
@@ -26,7 +31,9 @@ unsigned int rmr_stamp_variant(float x, float y) {
     bits = (bits ^ (bits >> 27)) * UINT64_C(0x94D049BB133111EB);
     return (unsigned int)((bits ^ (bits >> 31)) & 3);
 }
+
 static double pressure(float p) { return isfinite(p) ? rmr_clamp((double)p / 255, 0, 1) : 0; }
+
 static double density(rmr_grain grain, double p) {
     static const double pencil[][2] = {
         {0, .010},   {.09, .020}, {.16, .060}, {.22, .090}, {.28, .200}, {.34, .230},
@@ -50,7 +57,9 @@ static double smooth(double a, double b, double x) {
     double u = rmr_clamp((x - a) / (b - a), 0, 1);
     return u * u * (3 - 2 * u);
 }
+
 static int64_t cell(double x) { return (int64_t)rmr_clamp(floor(x), -0x1p62, 0x1p62); }
+
 static double hair(double s, double t) {
     const uint64_t salt = UINT64_C(0x686169726C696E65);
     int64_t track = cell(t);
@@ -60,6 +69,7 @@ static double hair(double s, double t) {
     double a = unit(track, i, salt), b = unit(track, i + 1, salt);
     return a + (b - a) * g;
 }
+
 static bool cells(double low, double high, size_t count, size_t *first, size_t *last) {
     double a = fmax(ceil(low - .5), 0), b = fmin(floor(high - .5), (double)count - 1);
     if (!isfinite(a) || !isfinite(b) || a > b)
@@ -68,6 +78,7 @@ static bool cells(double low, double high, size_t count, size_t *first, size_t *
     *last = (size_t)b;
     return true;
 }
+
 static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value, double width) {
     double p = (double)(value - 1) / 253;
     if (grain == RMR_GRAIN_NOISE || grain == RMR_GRAIN_BRISTLE)
@@ -86,6 +97,7 @@ static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value, double
     double share = (1 - smooth(.5, .85, p)) * (width > 3 ? 3 / width : 1);
     return share <= 0 || (marker_tiles[a][bit / 8] & mask) || unit(x, y, salt) >= share;
 }
+
 rmr_status rmr_grain_mask(const rmr_grain_point *points, size_t count, rmr_grain grain,
                           rmr_rect box, const rmr_unit_raster *raster, const rmr_limits *given,
                           rmr_mask *out, rmr_error *error) {

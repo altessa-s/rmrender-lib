@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -14,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 static CGPDFDocumentRef document(const uint8_t *bytes, size_t n) {
     CFDataRef data = CFDataCreate(nullptr, bytes, (CFIndex)n);
     assert(data);
@@ -25,6 +27,7 @@ static CGPDFDocumentRef document(const uint8_t *bytes, size_t n) {
     assert(doc);
     return doc;
 }
+
 static void preserved(CGPDFDocumentRef doc) {
     assert(CGPDFDocumentGetNumberOfPages(doc) == 2);
     CGPDFDictionaryRef cat = CGPDFDocumentGetCatalog(doc), form, field, sig, names;
@@ -44,6 +47,7 @@ static void preserved(CGPDFDocumentRef doc) {
            CGPDFArrayGetCount(annotations) == 2);
     assert(CGPDFPageGetRotationAngle(CGPDFDocumentGetPage(doc, 2)) == 90);
 }
+
 static rmr_plan *plan(void) {
     rmr_element path[] = {{.kind = RMR_MOVE, .end = {-50, 50}},
                           {.kind = RMR_LINE, .end = {50, 50}},
@@ -85,10 +89,12 @@ static rmr_plan *plan(void) {
                            nullptr, &p, nullptr) == RMR_OK);
     return p;
 }
+
 static bool cancelled(void *ctx) {
     (void)ctx;
     return true;
 }
+
 static void pixels(CGPDFDocumentRef doc, size_t index) {
     uint8_t bytes[200 * 200 * 4];
     memset(bytes, 0, sizeof bytes);
@@ -106,6 +112,7 @@ static void pixels(CGPDFDocumentRef doc, size_t index) {
     assert(bytes[center] > 240 && bytes[center + 2] < 20);
     assert(bytes[corner + 2] > 240 && bytes[corner] < 20);
 }
+
 static void raster(CGPDFDocumentRef doc, size_t page, uint8_t *bytes) {
     memset(bytes, 0, 200 * 200 * 4);
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
@@ -119,6 +126,7 @@ static void raster(CGPDFDocumentRef doc, size_t page, uint8_t *bytes) {
     CGContextDrawPDFPage(cg, p);
     CGContextRelease(cg);
 }
+
 static void compare_fresh(const rmr_apple_pdf_source *source, const rmr_pdf_page *pages,
                           CGPDFDocumentRef actual) {
     rmr_buffer pdf = {0};
@@ -143,6 +151,7 @@ static void compare_fresh(const rmr_apple_pdf_source *source, const rmr_pdf_page
     CGPDFDocumentRelease(expected);
     rmr_buffer_free(&pdf);
 }
+
 static int update_file(const char *input, const char *output) {
     FILE *f = fopen(input, "rb");
     assert(f);
@@ -181,6 +190,7 @@ static int update_file(const char *input, const char *output) {
     rmr_plan_free(p);
     return 0;
 }
+
 int main(int argc, char **argv) {
     if (argc == 3)
         return update_file(argv[1], argv[2]);

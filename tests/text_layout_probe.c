@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <stdio.h>
 #include <string.h>
@@ -38,15 +39,18 @@ static const char *samples[] = {"office ffi affine",
                                 "one   two  three",
                                 "日本語 日本語 日本語"};
 static const double columns[] = {40, 100, 200, 500};
+
 typedef struct {
     size_t from, to;
     double start, end, baseline;
     rmr_caret_offsets begin, finish;
 } line_reference;
+
 typedef struct {
     size_t count;
     line_reference lines[32];
 } layout_reference;
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_layout_reference.h"
 #endif

@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_typography_internal.h"
+
 /* Each shaped cluster becomes one PDF glyph with its original Unicode text.
  * This also supports clusters composed of several positioned native outlines. */
 typedef struct {
     int first, count;
     double advance;
 } emoji_alias;
+
 typedef struct {
     cairo_scaled_font_t *native;
     cairo_matrix_t inverse;
@@ -15,10 +18,13 @@ typedef struct {
     emoji_alias *aliases;
     cairo_glyph_t *glyphs;
 } emoji_font;
+
 static const cairo_user_data_key_t emoji_key;
+
 static emoji_font *font_data(cairo_scaled_font_t *font) {
     return cairo_font_face_get_user_data(cairo_scaled_font_get_font_face(font), &emoji_key);
 }
+
 static void font_free(void *data) {
     emoji_font *font = data;
     cairo_scaled_font_destroy(font->native);
@@ -26,6 +32,7 @@ static void font_free(void *data) {
     free(font->glyphs);
     free(font);
 }
+
 static cairo_status_t font_init(cairo_scaled_font_t *font, cairo_t *cr,
                                 cairo_font_extents_t *extents) {
     (void)cr;
@@ -46,6 +53,7 @@ static cairo_status_t font_init(cairo_scaled_font_t *font, cairo_t *cr,
                                     &extents->max_y_advance);
     return cairo_scaled_font_status(data->native);
 }
+
 static cairo_status_t font_render(cairo_scaled_font_t *font, unsigned long index, cairo_t *cr,
                                   cairo_text_extents_t *extents) {
     emoji_font *data = font_data(font);
@@ -79,6 +87,7 @@ static cairo_status_t font_render(cairo_scaled_font_t *font, unsigned long index
     cairo_fill(cr);
     return cairo_status(cr);
 }
+
 static cairo_status_t no_unicode(cairo_scaled_font_t *font, unsigned long unicode,
                                  unsigned long *glyph) {
     (void)font;
@@ -86,12 +95,14 @@ static cairo_status_t no_unicode(cairo_scaled_font_t *font, unsigned long unicod
     *glyph = 0;
     return CAIRO_STATUS_SUCCESS;
 }
+
 static bool is_emoji(PangoGlyphItem *run) {
     PangoFontDescription *description = pango_font_describe(run->item->analysis.font);
     bool result = !strcmp(pango_font_description_get_family(description), "Noto Emoji");
     pango_font_description_free(description);
     return result;
 }
+
 static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
                              const rmr_limits *limits, size_t *retained) {
     bool rtl = (run->item->analysis.level & 1) != 0;
@@ -205,8 +216,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
             if (run->glyphs->glyphs[g].glyph == PANGO_GLYPH_EMPTY)
                 continue;
             data->glyphs[low + written++] = (cairo_glyph_t){
-                run->glyphs->glyphs[g].glyph, positions[g].x - output.x,
-                positions[g].y - output.y};
+                run->glyphs->glyphs[g].glyph, positions[g].x - output.x, positions[g].y - output.y};
         }
         data->aliases[data->count++] = (emoji_alias){low, written, width};
         output.index = (unsigned long)data->count;
@@ -224,6 +234,7 @@ static rmr_status show_emoji(cairo_t *cr, const char *text, PangoGlyphItem *run,
            : cs == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY
                                           : RMR_ERR_BACKEND;
 }
+
 rmr_status rmr_pango_show_line(cairo_t *cr, PangoLayoutLine *line, const rmr_limits *limits,
                                size_t *retained) {
     bool emoji = false;

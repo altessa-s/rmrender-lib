@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_alphabetic.h"
 #include "rmr_typography_internal.h"
 #include <limits.h>
+
 typedef struct {
     CTTypesetterRef typesetter;
     CTLineRef *lines, marker;
@@ -11,6 +13,7 @@ typedef struct {
     rm_checkbox_state checkbox;
     rm_list_family family;
 } native_paragraph;
+
 struct rmr_apple_layout {
     rmr_anchor_layout anchors;
     rmr_caret_provider caret;
@@ -19,10 +22,12 @@ struct rmr_apple_layout {
     double bottom;
     size_t bytes, work;
 };
+
 typedef struct {
     const rmr_apple_fonts *source;
     CTFontRef fonts[4][3][2][2][8];
 } font_cache;
+
 static CTFontRef cached_font(font_cache *cache, double size, rmr_type_face face, bool bold,
                              bool italic, int script) {
     size_t index = size == 32 ? 0 : size == 36 ? 1 : size == 46 ? 2 : 3;
@@ -31,6 +36,7 @@ static CTFontRef cached_font(font_cache *cache, double size, rmr_type_face face,
         *slot = rmr_ct_font(cache->source, size, face, bold, italic, script);
     return *slot ? (CTFontRef)CFRetain(*slot) : nullptr;
 }
+
 static void clear_fonts(font_cache *cache) {
     for (size_t s = 0; s < 4; s++)
         for (size_t f = 0; f < 3; f++)
@@ -40,11 +46,14 @@ static void clear_fonts(font_cache *cache) {
                         if (cache->fonts[s][f][b][i][c])
                             CFRelease(cache->fonts[s][f][b][i][c]);
 }
+
 static bool between(uint32_t c, uint32_t a, uint32_t b) { return c >= a && c <= b; }
+
 static bool latin(uint32_t c) {
     return between(c, 65, 90) || between(c, 97, 122) || between(c, 0xc0, 0x24f) ||
            between(c, 0x1e00, 0x1eff);
 }
+
 static int script_of(uint32_t c) {
     if (between(c, 0x590, 0x5ff) || between(c, 0xfb1d, 0xfb4f))
         return 1;
@@ -60,6 +69,7 @@ static int script_of(uint32_t c) {
         return 6;
     return 0;
 }
+
 static bool rtl(const UniChar *u, size_t n) {
     for (size_t i = 0; i < n; i++) {
         uint32_t c = u[i];
@@ -72,6 +82,7 @@ static bool rtl(const UniChar *u, size_t n) {
     }
     return false;
 }
+
 static size_t scalar_index(const UniChar *u, size_t n, size_t count) {
     size_t i = 0;
     while (i < n && count) {
@@ -81,9 +92,11 @@ static size_t scalar_index(const UniChar *u, size_t n, size_t count) {
     }
     return count ? SIZE_MAX : i;
 }
+
 static bool hangul(UniChar c) {
     return between(c, 0xac00, 0xd7a3) || between(c, 0x1100, 0x11ff) || between(c, 0x3130, 0x318f);
 }
+
 /* Apply one face range, then contextual Noto script runs. */
 static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u, size_t start,
                              size_t end, rmr_type_metrics m, bool bold, bool italic,
@@ -165,6 +178,7 @@ static rmr_status attributes(CFMutableAttributedStringRef text, const UniChar *u
     }
     return RMR_OK;
 }
+
 /* Paragraph text was validated on layout creation. Check UTF-16 scalar
  * boundaries without allocating a CFString for each anchor query. */
 static bool scalar_boundary(rm_str text, size_t index) {
@@ -176,6 +190,7 @@ static bool scalar_boundary(rm_str text, size_t index) {
     }
     return units == index;
 }
+
 static rmr_status caret(void *context, size_t paragraph, size_t line, size_t index,
                         rmr_caret_offsets *out) {
     rmr_apple_layout *l = context;
@@ -193,6 +208,7 @@ static rmr_status caret(void *context, size_t paragraph, size_t line, size_t ind
                                CTLineGetOffsetForStringIndex(native, r.location, nullptr)};
     return RMR_OK;
 }
+
 void rmr_apple_layout_free(rmr_apple_layout *l) {
     if (!l)
         return;
@@ -215,16 +231,20 @@ void rmr_apple_layout_free(rmr_apple_layout *l) {
     free(l->native);
     free(l);
 }
+
 size_t rmr_apple_layout_bytes(const rmr_apple_layout *l) { return l ? l->bytes : 0; }
+
 const rmr_anchor_layout *rmr_apple_layout_anchors(const rmr_apple_layout *l) {
     return l ? &l->anchors : nullptr;
 }
+
 bool rmr_apple_layout_bottom(const rmr_apple_layout *l, double *out) {
     if (!l || !l->anchors.count || !out)
         return false;
     *out = l->bottom;
     return true;
 }
+
 static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family family,
                         size_t ordinal, int level) {
     size_t label_size = ordinal / 1000 + 64;
@@ -290,6 +310,7 @@ static CTLineRef marker(font_cache *fonts, rmr_type_metrics m, rm_list_family fa
         CFRelease(string);
     return line;
 }
+
 rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
                                    const rmr_apple_fonts *fonts, const rmr_limits *given,
                                    rmr_apple_layout **out, rmr_error *e) {
@@ -560,11 +581,13 @@ rmr_status rmr_apple_layout_create(const rm_text_block *text, double page_width,
     *out = l;
     return RMR_OK;
 }
+
 typedef struct {
     rmr_buffer buffer;
     size_t capacity, maximum;
     rmr_status status;
 } pdf_bytes;
+
 static size_t put_pdf(void *context, const void *bytes, size_t size) {
     pdf_bytes *p = context;
     if (p->status != RMR_OK)
@@ -590,6 +613,7 @@ static size_t put_pdf(void *context, const void *bytes, size_t size) {
     p->buffer.size = need;
     return size;
 }
+
 static void checkbox(CGContextRef cg, rm_checkbox_state state, double x, double y) {
     CGRect box = CGRectMake(x, y - 1.74, 26.67, 26.67);
     CGContextSaveGState(cg);
@@ -613,6 +637,7 @@ static void checkbox(CGContextRef cg, rm_checkbox_state state, double x, double 
     }
     CGContextRestoreGState(cg);
 }
+
 rmr_status rmr_apple_layout_plan(const rmr_apple_layout *l, rmr_rect viewport,
                                  const rmr_limits *given, rmr_plan **out, rmr_error *e) {
     if (!l || !out)
@@ -721,6 +746,7 @@ rmr_status rmr_apple_layout_line(const rmr_apple_layout *l, size_t paragraph, si
                            start + CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr)};
     return RMR_OK;
 }
+
 rmr_status rmr_apple_text_width(rm_str text, double size, rmr_type_face face, bool bold,
                                 bool italic, bool less_rightmost, const rmr_apple_fonts *fonts,
                                 const rmr_limits *given, double *out, rmr_error *e) {

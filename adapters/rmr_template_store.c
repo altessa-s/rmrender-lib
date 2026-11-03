@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_files.h"
+
 struct rmr_template_store {
     char **directories;
     size_t count;
     rmr_template_document *document;
     rmr_limits limits;
 };
+
 void rmr_template_store_free(rmr_template_store *s) {
     if (s) {
         for (size_t i = 0; i < s->count; i++)
@@ -17,6 +20,7 @@ void rmr_template_store_free(rmr_template_store *s) {
         free(s);
     }
 }
+
 rmr_status rmr_template_store_create_layered(const char *const *directories, size_t count,
                                              const rmr_limits *given, rmr_template_store **out,
                                              rmr_error *error) {
@@ -70,10 +74,12 @@ rmr_status rmr_template_store_create_layered(const char *const *directories, siz
     }
     return status;
 }
+
 rmr_status rmr_template_store_create(const char *directory, const rmr_limits *given,
                                      rmr_template_store **out, rmr_error *error) {
     return rmr_template_store_create_layered(&directory, 1, given, out, error);
 }
+
 rmr_status rmr_template_store_resolve(void *context, rm_str name, const rmr_template **out) {
     rmr_template_store *s = context;
     if (!s || !out || !name.bytes || !name.length || name.bytes[0] == '.' ||

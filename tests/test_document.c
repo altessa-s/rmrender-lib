@@ -1,8 +1,10 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/document.h>
+
 int main(void) {
     const char json[] = "{\"orientation\":{\"value\":\"landscape\"},\"customZoomPageWidth\":1404,"
                         "\"customZoomPageHeight\":1872,\"cPages\":{\"pages\":["

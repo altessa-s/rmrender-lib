@@ -1,12 +1,14 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "../../src/rmr_pdf_edit.h"
 #include "rmr_linux_internal.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <limits.h>
 #include <pango/pangocairo.h>
 #include <rmrender/pdf.h>
+
 typedef struct {
     cairo_t *cr;
     cairo_surface_t *surface;
@@ -20,14 +22,17 @@ typedef struct {
     FPDF_PAGE page;
     bool dirty, clip_viewport;
 } drawing;
+
 static cairo_operator_t blend(rmr_blend b) {
     return b == RMR_BLEND_DARKEN     ? CAIRO_OPERATOR_DARKEN
            : b == RMR_BLEND_MULTIPLY ? CAIRO_OPERATOR_MULTIPLY
                                      : CAIRO_OPERATOR_OVER;
 }
+
 static void color(cairo_t *cr, rmr_color c) {
     cairo_set_source_rgba(cr, c.red, c.green, c.blue, c.alpha);
 }
+
 static void path(cairo_t *cr, rmr_path_view p) {
     cairo_new_path(cr);
     for (size_t i = 0; i < p.count; i++) {
@@ -49,6 +54,7 @@ static void path(cairo_t *cr, rmr_path_view p) {
         }
     }
 }
+
 static rmr_status dimensions(double w, double h, const rmr_limits *l, size_t *width,
                              size_t *height) {
     if (!isfinite(w) || !isfinite(h) || w <= 0 || h <= 0)
@@ -61,6 +67,7 @@ static rmr_status dimensions(double w, double h, const rmr_limits *l, size_t *wi
         return RMR_ERR_LIMIT;
     return RMR_OK;
 }
+
 static void group_end(drawing *c) {
     if (!c->group)
         return;
@@ -69,12 +76,14 @@ static void group_end(drawing *c) {
     cairo_paint_with_alpha(c->cr, c->alpha);
     c->group = 0;
 }
+
 static void setup(drawing *c) {
     cairo_matrix_t m = {c->sheet.transform.a,  -c->sheet.transform.b,
                         c->sheet.transform.c,  -c->sheet.transform.d,
                         c->sheet.transform.tx, c->sheet.height - c->sheet.transform.ty};
     cairo_transform(c->cr, &m);
 }
+
 static void segment_start(drawing *c) {
     c->sink = (rmr_sink){.maximum = c->limits.maximum_pdf_bytes};
     c->surface = cairo_pdf_surface_create_for_stream(rmr_linux_write, &c->sink, c->sheet.width,
@@ -83,6 +92,7 @@ static void segment_start(drawing *c) {
     setup(c);
     c->dirty = false;
 }
+
 static rmr_status segment_end(drawing *c) {
     group_end(c);
     cairo_show_page(c->cr);
@@ -107,6 +117,7 @@ static rmr_status segment_end(drawing *c) {
     rmr_buffer_free(&c->sink.data);
     return s;
 }
+
 static PangoLayout *label(cairo_t *cr, const char *text, size_t size, double font_size) {
     PangoLayout *p = pango_cairo_create_layout(cr);
     PangoFontDescription *f = pango_font_description_new();
@@ -118,6 +129,7 @@ static PangoLayout *label(cairo_t *cr, const char *text, size_t size, double fon
     pango_layout_set_single_paragraph_mode(p, TRUE);
     return p;
 }
+
 static rmr_status measure(void *ctx, const char *text, size_t size, double font_size,
                           rmr_text_metrics *out) {
     (void)ctx;
@@ -141,13 +153,16 @@ static rmr_status measure(void *ctx, const char *text, size_t size, double font_
     cairo_surface_destroy(s);
     return RMR_OK;
 }
+
 rmr_text_provider rmr_linux_text_provider(void) {
     return (rmr_text_provider){RMR_TEXT_PROVIDER_ABI, sizeof(rmr_text_provider), nullptr, measure};
 }
+
 typedef struct {
     const rmr_limits *limits;
     rmr_status status;
 } image_size;
+
 static void prepared(GdkPixbufLoader *loader, int w, int h, void *data) {
     image_size *s = data;
     size_t x, y;
@@ -155,6 +170,7 @@ static void prepared(GdkPixbufLoader *loader, int w, int h, void *data) {
     if (s->status != RMR_OK)
         gdk_pixbuf_loader_set_size(loader, 1, 1);
 }
+
 static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
                                 cairo_surface_t **out) {
     const char *type = im->size >= 8 && !memcmp(im->bytes, "\x89PNG\r\n\x1a\n", 8)   ? "png"
@@ -202,6 +218,7 @@ static rmr_status image_surface(const rmr_image_view *im, const rmr_limits *l,
     g_object_unref(loader);
     return status;
 }
+
 static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
     if (d->image.size > c->limits.maximum_pdf_bytes || d->pdf_page > INT_MAX)
         return RMR_ERR_LIMIT;
@@ -428,12 +445,14 @@ static rmr_status paint_pdf_locked(drawing *c, const rmr_draw *d) {
     FPDF_CloseDocument(doc);
     return s;
 }
+
 static rmr_status paint_pdf(drawing *c, const rmr_draw *d) {
     rmr_pdfium_lock();
     rmr_status s = paint_pdf_locked(c, d);
     rmr_pdfium_unlock();
     return s;
 }
+
 static rmr_status begin(void *ctx, rmr_rect viewport) {
     drawing *c = ctx;
     if (c->clip_viewport) {
@@ -442,6 +461,7 @@ static rmr_status begin(void *ctx, rmr_rect viewport) {
     }
     return RMR_OK;
 }
+
 static rmr_status draw(void *ctx, const rmr_draw *d) {
     drawing *c = ctx;
     if (c->group != d->group) {
@@ -560,17 +580,21 @@ static rmr_status draw(void *ctx, const rmr_draw *d) {
         s = RMR_ERR_BACKEND;
     return s;
 }
+
 static rmr_status end(void *ctx) {
     drawing *c = ctx;
     group_end(c);
     return cairo_status(c->cr) == CAIRO_STATUS_SUCCESS ? RMR_OK : RMR_ERR_BACKEND;
 }
+
 static void abort_draw(void *ctx) { group_end(ctx); }
+
 static rmr_backend backend(drawing *c) {
     return (rmr_backend){
         RMR_BACKEND_ABI, sizeof(rmr_backend), (UINT64_C(1) << 12) - 1, c, begin, draw, end,
         abort_draw};
 }
+
 static bool sheet_valid(const rmr_sheet *s) {
     if (!s || !isfinite(s->width) || !isfinite(s->height) || s->width <= 0 || s->height <= 0 ||
         s->width > 1000000 || s->height > 1000000)
@@ -579,6 +603,7 @@ static bool sheet_valid(const rmr_sheet *s) {
     return isfinite(t.a) && t.a > 0 && t.a <= 1e6 && t.b == 0 && t.c == 0 && t.d == -t.a &&
            isfinite(t.tx) && isfinite(t.ty) && fabs(t.tx) <= 1e12 && fabs(t.ty) <= 1e12;
 }
+
 static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, bool clip,
                                   rmr_color bg, const rmr_limits *given, rmr_cancel_fn cancel,
                                   void *ctx, rmr_bitmap *out, rmr_error *e) {
@@ -597,10 +622,9 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
     cairo_status_t created = cairo_surface_status(c.surface);
     if (created != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(c.surface);
-        return rmr_linux_error(e,
-                               created == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY
-                                                                 : RMR_ERR_BACKEND,
-                               "bitmap allocation failed");
+        return rmr_linux_error(
+            e, created == CAIRO_STATUS_NO_MEMORY ? RMR_ERR_OUT_OF_MEMORY : RMR_ERR_BACKEND,
+            "bitmap allocation failed");
     }
     c.cr = cairo_create(c.surface);
     color(c.cr, bg);
@@ -633,11 +657,13 @@ static rmr_status bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, 
     cairo_surface_destroy(c.surface);
     return s == RMR_OK ? s : rmr_linux_error(e, s, "Linux bitmap rendering failed");
 }
+
 rmr_status rmr_linux_bitmap_on_sheet(const rmr_plan *plan, const rmr_sheet *sheet, rmr_color bg,
                                      const rmr_limits *given, rmr_cancel_fn cancel, void *ctx,
                                      rmr_bitmap *out, rmr_error *e) {
     return bitmap_on_sheet(plan, sheet, false, bg, given, cancel, ctx, out, e);
 }
+
 rmr_status rmr_linux_bitmap(const rmr_plan *plan, double scale, rmr_color bg,
                             const rmr_limits *limits, rmr_cancel_fn cancel, void *ctx,
                             rmr_bitmap *out, rmr_error *e) {
@@ -650,6 +676,7 @@ rmr_status rmr_linux_bitmap(const rmr_plan *plan, double scale, rmr_color bg,
         .transform = {scale, 0, 0, -scale, -v.x * scale, ceil(v.height * scale) + v.y * scale}};
     return bitmap_on_sheet(plan, &sh, true, bg, limits, cancel, ctx, out, e);
 }
+
 rmr_status rmr_linux_render_pdf(const rmr_plan *const *plans, const rmr_sheet *sheets, size_t count,
                                 const rmr_limits *limits, rmr_cancel_fn cancel, void *ctx,
                                 rmr_buffer *out, rmr_error *e) {
@@ -692,6 +719,7 @@ rmr_status rmr_linux_render_pdf(const rmr_plan *const *plans, const rmr_sheet *s
     FPDF_CloseDocument(doc);
     return s == RMR_OK ? s : rmr_linux_error(e, s, "Linux PDF rendering failed");
 }
+
 rmr_status rmr_linux_pdf_sheets(const rmr_plan *const *plans, const rmr_sheet *sheets, size_t count,
                                 const rmr_limits *given, rmr_cancel_fn cancel, void *ctx,
                                 rmr_buffer *out, rmr_error *e) {
@@ -701,6 +729,7 @@ rmr_status rmr_linux_pdf_sheets(const rmr_plan *const *plans, const rmr_sheet *s
     rmr_pdfium_unlock();
     return s;
 }
+
 rmr_status rmr_linux_pdf(const rmr_plan *const *plans, size_t count, double scale,
                          const rmr_limits *given, rmr_cancel_fn cancel, void *ctx, rmr_buffer *out,
                          rmr_error *e) {

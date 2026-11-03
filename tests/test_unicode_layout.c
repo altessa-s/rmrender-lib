@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <stdio.h>
 #include <string.h>
@@ -42,6 +43,7 @@ static const struct {
                 {"👨‍👩‍👧‍👦", 11, 2925},
                 {"❤️", 2, 7},
                 {"1️⃣", 3, 15}};
+
 static void invalid(const rmr_caret_provider *provider, size_t paragraph, size_t line,
                     size_t index) {
     rmr_caret_offsets out = {123, 456};
@@ -49,6 +51,7 @@ static void invalid(const rmr_caret_provider *provider, size_t paragraph, size_t
           RMR_ERR_INVALID_ARGUMENT);
     CHECK(out.at_index == 123 && out.at_start == 456);
 }
+
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     F *fonts = nullptr;

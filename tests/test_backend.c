@@ -1,32 +1,40 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
+
 typedef struct {
     int began, drawn, ended, aborted, cancel_calls, fail, cancel_at;
 } calls;
+
 static rmr_status begin(void *ctx, rmr_rect v) {
     calls *c = ctx;
     CHECK(v.width == 64);
     c->began++;
     return c->fail == 1 ? RMR_ERR_BACKEND : RMR_OK;
 }
+
 static rmr_status draw(void *ctx, const rmr_draw *d) {
     calls *c = ctx;
     CHECK(d->path.count == 5);
     c->drawn++;
     return c->fail == 2 ? RMR_ERR_BACKEND : RMR_OK;
 }
+
 static rmr_status end(void *ctx) {
     calls *c = ctx;
     c->ended++;
     return c->fail == 3 ? RMR_ERR_BACKEND : RMR_OK;
 }
+
 static void abort_draw(void *ctx) { ((calls *)ctx)->aborted++; }
+
 static bool cancel(void *ctx) {
     calls *c = ctx;
     return ++c->cancel_calls == c->cancel_at;
 }
+
 int main(void) {
     rmr_plan *plan = rectangle((rmr_color){1, 0, 0, 1}, RMR_BLEND_MULTIPLY);
     calls c = {0};

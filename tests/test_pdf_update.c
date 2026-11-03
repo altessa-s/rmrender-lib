@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -8,6 +9,7 @@
 #include "rmr_internal.h"
 #include <rmrender/pdf.h>
 #include <zlib.h>
+
 static fixture overlay_fixture(void) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -27,6 +29,7 @@ static fixture overlay_fixture(void) {
     add(&f, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", x);
     return f;
 }
+
 static size_t lastxref(fixture *f) {
     char *last = nullptr, *p = f->bytes;
     while ((p = strstr(p, "startxref"))) {
@@ -36,15 +39,18 @@ static size_t lastxref(fixture *f) {
     assert(last);
     return (size_t)strtoull(last + 9, nullptr, 10);
 }
+
 static void revision(fixture *f, const char *rows, const char *extra) {
     size_t prev = lastxref(f), offset = f->n;
     add(f, "xref\n%s\ntrailer\n<< /Size 17 /Prev %zu %s >>\nstartxref\n%zu\n%%%%EOF\n", rows, prev,
         extra, offset);
 }
+
 static rmr_status run(fixture *f, rmr_pdf_overlay *o, rmr_limits *limits, rmr_buffer *out) {
     return rmr_pdf_incremental((uint8_t *)f->bytes, f->n, o, o ? 1 : 0, limits, nullptr, nullptr,
                                out, nullptr, nullptr);
 }
+
 static fixture stream_fixture(bool packed, bool compressed, bool predictor, bool hybrid, bool bad) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -119,6 +125,7 @@ static bool cancel_rewrite(void *context) {
     (void)context;
     return true;
 }
+
 static void rewrite_check(const uint8_t *bytes, size_t size, size_t expected_pages) {
     rmr_buffer fresh = {0};
     assert(rmr_pdf_rewrite(bytes, size, nullptr, nullptr, nullptr, &fresh, nullptr) == RMR_OK);
@@ -134,6 +141,7 @@ static void rewrite_check(const uint8_t *bytes, size_t size, size_t expected_pag
     rmr_buffer_free(&next);
     rmr_buffer_free(&fresh);
 }
+
 static void rewrite_failures(fixture *f) {
     rmr_buffer out = {(uint8_t *)(uintptr_t)1, 19};
     assert(rmr_pdf_rewrite((uint8_t *)f->bytes, f->n, nullptr, cancel_rewrite, nullptr, &out,
@@ -173,6 +181,7 @@ static void rewrite_failures(fixture *f) {
     assert(rmr_pdf_rewrite((uint8_t *)certified.bytes, certified.n, nullptr, nullptr, nullptr, &out,
                            nullptr) == RMR_ERR_UNSUPPORTED);
 }
+
 static void select_check(void) {
     fixture f = source(false);
     const size_t order[] = {1, 0, 0};
@@ -211,6 +220,7 @@ static void select_check(void) {
     }
     assert(allocations < 3000);
 }
+
 static bool squashed_contains(const rmr_buffer *b, const char *needle) {
     char *text = malloc(b->size + 1);
     assert(text);
@@ -223,6 +233,7 @@ static bool squashed_contains(const rmr_buffer *b, const char *needle) {
     free(text);
     return found;
 }
+
 /* Page labels follow the selected pages: i, ii, 5 selected as 5, ii, i, ii. */
 static void select_labels_check(void) {
     fixture f = {0};
@@ -243,7 +254,8 @@ static void select_labels_check(void) {
     rmr_buffer out = {0};
     assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
                                 nullptr) == RMR_OK);
-    assert(squashed_contains(&out, "/PageLabels<</Nums[0<</S/D/St5>>1<</St2/S/r>>2<</St1/S/r>>]>>"));
+    assert(
+        squashed_contains(&out, "/PageLabels<</Nums[0<</S/D/St5>>1<</St2/S/r>>2<</St1/S/r>>]>>"));
     size_t count;
     assert(rmr_pdf_pages(out.bytes, out.size, nullptr, nullptr, 0, &count, nullptr) == RMR_OK);
     assert(count == 4);
@@ -264,6 +276,7 @@ static void select_labels_check(void) {
         assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
     }
 }
+
 /* Object 0 heads the free list and a catalog must be an indirect object; a
  * fresh file keeps a well-formed declared version and normalizes any other. */
 static void reserved_check(void) {
@@ -298,6 +311,7 @@ static void reserved_check(void) {
         rmr_buffer_free(&out);
     }
 }
+
 int main(void) {
     select_check();
     select_labels_check();

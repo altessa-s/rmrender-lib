@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #define _GNU_SOURCE
 #include "rmr_internal.h"
 #include <locale.h>
@@ -13,11 +14,14 @@ typedef struct block {
     struct block *next;
     max_align_t alignment;
 } block;
+
 typedef struct program {
     struct program *next;
     rmr_expression *expression;
 } program;
+
 typedef enum { OBJECT, ARRAY, STRING, NUMBER, NIL, BOOLEAN } kind;
+
 typedef struct node {
     struct node *next, *child;
     char *key, *text;
@@ -25,6 +29,7 @@ typedef struct node {
     kind type;
     double number;
 } node;
+
 struct rmr_template_document {
     block *blocks;
     program *programs;
@@ -33,6 +38,7 @@ struct rmr_template_document {
     const char **categories;
     size_t category_count;
 };
+
 typedef struct {
     const char *source;
     size_t length, pos, work, bytes;
@@ -42,10 +48,12 @@ typedef struct {
     rmr_status status;
     locale_t locale;
 } parser;
+
 static void fail(parser *p, rmr_status status, size_t offset, const char *message) {
     if (p->status == RMR_OK)
         p->status = rmr_fail(p->error, status, offset, message);
 }
+
 static bool work(parser *p, size_t n) {
     if (n > p->limits.maximum_elements - p->work) {
         fail(p, RMR_ERR_LIMIT, p->pos, "JSON work limit");
@@ -54,6 +62,7 @@ static bool work(parser *p, size_t n) {
     p->work += n;
     return true;
 }
+
 static void *allocate(parser *p, size_t count, size_t size) {
     if (!count || p->status != RMR_OK)
         return nullptr;
@@ -73,10 +82,12 @@ static void *allocate(parser *p, size_t count, size_t size) {
     p->bytes += bytes;
     return b + 1;
 }
+
 static void space(parser *p) {
     while (p->pos < p->length && strchr(" \t\r\n", p->source[p->pos]) && p->source[p->pos])
         p->pos++;
 }
+
 static bool take(parser *p, char c) {
     space(p);
     if (p->pos < p->length && p->source[p->pos] == c) {
@@ -85,6 +96,7 @@ static bool take(parser *p, char c) {
     }
     return false;
 }
+
 static int hex(unsigned char c) {
     if (c >= '0' && c <= '9')
         return c - '0';
@@ -94,6 +106,7 @@ static int hex(unsigned char c) {
         return c - 'A' + 10;
     return -1;
 }
+
 static unsigned unicode(parser *p) {
     unsigned v = 0;
     for (unsigned i = 0; i < 4; i++) {
@@ -105,6 +118,7 @@ static unsigned unicode(parser *p) {
     }
     return v;
 }
+
 static char *string(parser *p) {
     if (!take(p, '"')) {
         fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "expected JSON string");
@@ -205,9 +219,11 @@ static char *string(parser *p) {
         p->pos = end + 1;
     return out;
 }
+
 static bool digit(parser *p) {
     return p->pos < p->length && p->source[p->pos] >= '0' && p->source[p->pos] <= '9';
 }
+
 static node *parse(parser *p, unsigned depth) {
     space(p);
     if (depth > 128) {
@@ -318,6 +334,7 @@ static node *parse(parser *p, unsigned depth) {
     }
     return v;
 }
+
 static bool type(parser *p, node *v, kind wanted) {
     if (p->status != RMR_OK)
         return false;
@@ -327,6 +344,7 @@ static bool type(parser *p, node *v, kind wanted) {
     }
     return true;
 }
+
 static node *field(parser *p, node *v, const char *key) {
     if (!type(p, v, OBJECT))
         return nullptr;
@@ -338,10 +356,12 @@ static node *field(parser *p, node *v, const char *key) {
     }
     return nullptr;
 }
+
 static node *optional(parser *p, node *v, const char *key) {
     node *n = field(p, v, key);
     return n && n->type != NIL ? n : nullptr;
 }
+
 static void value(parser *p, node *n, rmr_template_value *out) {
     if (p->status != RMR_OK)
         return;
@@ -370,6 +390,7 @@ static void value(parser *p, node *n, rmr_template_value *out) {
         return;
     out->expression = pr->expression;
 }
+
 static void box(parser *p, node *n, rmr_template_box *out) {
     if (!n)
         return;
@@ -383,6 +404,7 @@ static void box(parser *p, node *n, rmr_template_box *out) {
             value(p, v, values[i]);
     }
 }
+
 static void repeat(parser *p, node *n, rmr_template_repeat *out) {
     if (!n)
         return;
@@ -399,6 +421,7 @@ static void repeat(parser *p, node *n, rmr_template_repeat *out) {
     out->kind = RMR_REPEAT_COUNT;
     value(p, n, &out->count);
 }
+
 static void color(parser *p, node *n, rmr_color *out) {
     if (!type(p, n, STRING))
         return;
@@ -445,10 +468,12 @@ static void color(parser *p, node *n, rmr_color *out) {
     *out = (rmr_color){(double)(v >> 24) / 255, (double)((v >> 16) & 255) / 255,
                        (double)((v >> 8) & 255) / 255, (double)(v & 255) / 255};
 }
+
 static bool command(node *n) {
     return n && n->type == STRING && strlen(n->text) == 1 &&
            strchr("MLHVCSQTAZmlhvcsqtaz", n->text[0]);
 }
+
 static void path(parser *p, node *n, rmr_template_path *out) {
     node *data = field(p, n, "data");
     if (!type(p, data, ARRAY))
@@ -518,6 +543,7 @@ static void path(parser *p, node *n, rmr_template_path *out) {
         color(p, fill, &out->fill);
     }
 }
+
 static void items(parser *p, node *n, const rmr_template_item **out, size_t *count,
                   unsigned depth) {
     if (!type(p, n, ARRAY))
@@ -573,6 +599,7 @@ static void items(parser *p, node *n, const rmr_template_item **out, size_t *cou
         }
     }
 }
+
 void rmr_template_document_free(rmr_template_document *d) {
     if (!d)
         return;
@@ -586,6 +613,7 @@ void rmr_template_document_free(rmr_template_document *d) {
     }
     free(d);
 }
+
 rmr_status rmr_template_document_decode(const char *json, size_t length, const rmr_limits *given,
                                         rmr_template_document **out, rmr_error *error) {
     if (!json || !out)
@@ -679,24 +707,30 @@ rmr_status rmr_template_document_decode(const char *json, size_t length, const r
     *out = d;
     return RMR_OK;
 }
+
 const rmr_template *rmr_template_document_model(const rmr_template_document *d) {
     return d ? &d->model : nullptr;
 }
+
 const char *rmr_template_document_name(const rmr_template_document *d) {
     return d ? d->name : nullptr;
 }
+
 const char *rmr_template_document_orientation(const rmr_template_document *d) {
     return d ? d->orientation : nullptr;
 }
+
 size_t rmr_template_document_category_count(const rmr_template_document *d) {
     return d ? d->category_count : 0;
 }
+
 const char *rmr_template_document_category(const rmr_template_document *d, size_t i) {
     return d && i < d->category_count ? d->categories[i] : nullptr;
 }
 
 /* Document metadata shares the same bounded JSON parser/arena as templates. */
 #include <rmrender/document.h>
+
 struct rmr_document_layout {
     rmr_template_document *storage;
     rmr_document_page *pages;
@@ -705,24 +739,29 @@ struct rmr_document_layout {
     rmr_point canvas;
     bool landscape;
 };
+
 typedef struct {
     rmr_document_page page;
     const char *key;
     size_t position;
 } ordered_page;
+
 static int page_order(const void *a, const void *b) {
     const ordered_page *x = a, *y = b;
     int order = strcmp(x->key, y->key);
     return order ? order : x->position < y->position ? -1 : x->position > y->position ? 1 : 0;
 }
+
 static node *content_optional(parser *p, node *entry, const char *key) {
     node *value = optional(p, entry, key);
     return value && value->type != NIL ? value : nullptr;
 }
+
 static node *stamped(parser *p, node *entry, const char *key) {
     node *n = content_optional(p, entry, key);
     return n && type(p, n, OBJECT) ? content_optional(p, n, "value") : nullptr;
 }
+
 /* Parse a nonnegative JSON integer exactly, including decimal/exponent syntax.
  * A double would silently round page indexes above 2^53 or tiny fractions. */
 static bool source_index(const char *text, size_t *out) {
@@ -790,6 +829,7 @@ static bool source_index(const char *text, size_t *out) {
     *out = (size_t)value;
     return true;
 }
+
 static void redirection(parser *p, node *n, bool stamp, rmr_document_page *page) {
     if (!n || n->type == NIL)
         return;
@@ -807,6 +847,7 @@ static void redirection(parser *p, node *n, bool stamp, rmr_document_page *page)
     } else
         page->refused_source = true;
 }
+
 rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr_limits *given,
                                       rmr_document_layout **out, rmr_error *error) {
     if (!json || !out)
@@ -920,25 +961,34 @@ rmr_status rmr_document_layout_decode(const char *json, size_t length, const rmr
     *out = d;
     return RMR_OK;
 }
+
 size_t rmr_document_layout_bytes(const rmr_document_layout *d) { return d ? d->bytes : 0; }
+
 void rmr_document_layout_free(rmr_document_layout *d) {
     if (d)
         rmr_template_document_free(d->storage);
 }
+
 size_t rmr_document_layout_count(const rmr_document_layout *d) { return d ? d->count : 0; }
+
 const rmr_document_page *rmr_document_layout_page(const rmr_document_layout *d, size_t i) {
     return d && i < d->count ? &d->pages[i] : nullptr;
 }
+
 size_t rmr_document_layout_deleted_count(const rmr_document_layout *d) {
     return d ? d->deleted_count : 0;
 }
+
 const char *rmr_document_layout_deleted(const rmr_document_layout *d, size_t i) {
     return d && i < d->deleted_count ? d->deleted[i] : nullptr;
 }
+
 rmr_point rmr_document_layout_canvas(const rmr_document_layout *d) {
     return d ? d->canvas : (rmr_point){0};
 }
+
 bool rmr_document_layout_landscape(const rmr_document_layout *d) { return d && d->landscape; }
+
 rmr_document_page rmr_document_page_checked(rmr_document_page page, size_t count) {
     if (page.has_source && page.source_page >= count) {
         page.has_source = false;

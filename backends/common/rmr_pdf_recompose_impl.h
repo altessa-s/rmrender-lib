@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 /* Included after the platform source representation and PDF entry points. */
 rmr_status RMR_PDF_NATIVE(pdf_recompose)(const RMR_PDF_NATIVE(pdf_source) * source,
                                          const rmr_pdf_page *pages, size_t count,

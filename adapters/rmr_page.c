@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
+
 static rmr_status fail(rmr_error *e, rmr_status s, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s};
@@ -11,10 +13,12 @@ static rmr_status fail(rmr_error *e, rmr_status s, const char *message) {
     }
     return s;
 }
+
 static bool plausible(rmr_point size) {
     return isfinite(size.x) && isfinite(size.y) && size.x > 0 && size.y > 0 && size.x <= 100000 &&
            size.y <= 100000;
 }
+
 rmr_status rmr_lines_document_canvas(const rm_page *const *pages, size_t count,
                                      rmr_point content_size, bool landscape,
                                      const rmr_limits *given, rmr_point *out, rmr_error *error) {
@@ -39,6 +43,7 @@ rmr_status rmr_lines_document_canvas(const rm_page *const *pages, size_t count,
     *out = size;
     return RMR_OK;
 }
+
 rmr_status rmr_lines_composed_page_plan(const rm_page *page, rmr_point canvas, rmr_ink_edge edge,
                                         double margin, const rmr_page_resources *given_resources,
                                         const rmr_limits *given, rmr_plan **out, rmr_error *error) {

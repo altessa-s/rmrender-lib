@@ -13,6 +13,7 @@
 #endif
 #include "rmr_internal.h"
 #include <rmrender/template.h>
+
 typedef enum {
     END,
     NUMBER,
@@ -36,16 +37,19 @@ typedef enum {
     NEG,
     SELECT
 } operation;
+
 typedef struct {
     operation op;
     size_t offset, length;
     double number;
 } instruction;
+
 struct rmr_expression {
     char *source;
     instruction *code;
     size_t count, stack_size;
 };
+
 typedef struct {
     char *source;
     size_t length, position, start, token_length;
@@ -58,17 +62,22 @@ typedef struct {
     rmr_status status;
     rmr_error *error;
 } parser;
+
 static bool letter(unsigned char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
+
 static bool digit(unsigned char c) { return c >= '0' && c <= '9'; }
+
 static bool space(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
 }
+
 static void failure(parser *p, rmr_status status, const char *message) {
     if (p->status == RMR_OK)
         p->status = rmr_fail(p->error, status, p->start, message);
 }
+
 static void next(parser *p) {
     if (p->status != RMR_OK)
         return;
@@ -145,6 +154,7 @@ static void next(parser *p) {
     }
     p->token_length = p->position - p->start;
 }
+
 static void emit(parser *p, operation op, size_t offset, size_t length, double number) {
     if (p->status != RMR_OK)
         return;
@@ -164,6 +174,7 @@ static void emit(parser *p, operation op, size_t offset, size_t length, double n
     if (p->stack > p->peak)
         p->peak = p->stack;
 }
+
 static bool enter(parser *p) {
     if (p->status != RMR_OK)
         return false;
@@ -174,7 +185,9 @@ static bool enter(parser *p) {
     p->depth++;
     return true;
 }
+
 static void ternary(parser *p);
+
 static void unary(parser *p) {
     if (p->status != RMR_OK)
         return;
@@ -204,6 +217,7 @@ static void unary(parser *p) {
     } else
         failure(p, RMR_ERR_INVALID_ARGUMENT, "expected expression operand");
 }
+
 static void product(parser *p) {
     unary(p);
     while (p->status == RMR_OK && (p->token == MUL || p->token == DIV)) {
@@ -214,6 +228,7 @@ static void product(parser *p) {
         emit(p, op, offset, 0, 0);
     }
 }
+
 static void sum(parser *p) {
     product(p);
     while (p->status == RMR_OK && (p->token == ADD || p->token == SUB)) {
@@ -224,6 +239,7 @@ static void sum(parser *p) {
         emit(p, op, offset, 0, 0);
     }
 }
+
 static void comparison(parser *p) {
     sum(p);
     if (p->status == RMR_OK && p->token >= LE && p->token <= GT) {
@@ -234,6 +250,7 @@ static void comparison(parser *p) {
         emit(p, op, offset, 0, 0);
     }
 }
+
 static void conjunction(parser *p) {
     comparison(p);
     while (p->status == RMR_OK && p->token == AND) {
@@ -243,6 +260,7 @@ static void conjunction(parser *p) {
         emit(p, AND, offset, 0, 0);
     }
 }
+
 static void disjunction(parser *p) {
     conjunction(p);
     while (p->status == RMR_OK && p->token == OR) {
@@ -252,6 +270,7 @@ static void disjunction(parser *p) {
         emit(p, OR, offset, 0, 0);
     }
 }
+
 static void ternary(parser *p) {
     disjunction(p);
     if (p->status == RMR_OK && p->token == QUESTION) {
@@ -270,6 +289,7 @@ static void ternary(parser *p) {
         p->depth--;
     }
 }
+
 static rmr_status parse(parser *p) {
     next(p);
     ternary(p);
@@ -277,6 +297,7 @@ static rmr_status parse(parser *p) {
         failure(p, RMR_ERR_INVALID_ARGUMENT, "expression not fully parsed");
     return p->status;
 }
+
 void rmr_expression_free(rmr_expression *p) {
     if (p) {
         free(p->source);
@@ -284,6 +305,7 @@ void rmr_expression_free(rmr_expression *p) {
         free(p);
     }
 }
+
 rmr_status rmr_expression_compile(const char *source, size_t length, const rmr_limits *given,
                                   rmr_expression **out, rmr_error *e) {
     if (!source || !out)
@@ -345,6 +367,7 @@ rmr_status rmr_expression_compile(const char *source, size_t length, const rmr_l
     *out = compiled;
     return RMR_OK;
 }
+
 rmr_status rmr_expression_evaluate(const rmr_expression *p, const rmr_binding *bindings,
                                    size_t count, double *out, rmr_error *e) {
     if (!p || !out || (count && !bindings))
@@ -438,6 +461,7 @@ rmr_status rmr_expression_evaluate(const rmr_expression *p, const rmr_binding *b
 }
 
 size_t rmr_expression_cost(const rmr_expression *p) { return p->count; }
+
 size_t rmr_expression_stack_bytes(const rmr_expression *p) {
     return p->stack_size * sizeof(double);
 }

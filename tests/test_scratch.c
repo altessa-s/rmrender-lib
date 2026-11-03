@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
 #include <rmrender/grain.h>
+
 int main(void) {
     rmr_grain_point points[] = {{-128, 32, 128, 128, 0}, {128, 32, 128, 203, 0}};
     rmr_mask mask = {0};

@@ -4,28 +4,36 @@
 
 /* Variable-width stroke outlines: caps, joins, run reduction and stationary dots. */
 #include "rmr_internal.h"
+
 static constexpr double pi = 3.14159265358979323846264338327950288;
+
 typedef struct {
     double x, y;
     bool valid;
 } direction;
+
 typedef struct {
     rmr_path path;
     size_t capacity, maximum, bytes;
     rmr_status status;
 } builder;
+
 static direction between(rmr_point a, rmr_point b) {
     double x = b.x - a.x, y = b.y - a.y, length = sqrt(x * x + y * y);
     return length > 0 && isfinite(length) ? (direction){x / length, y / length, true}
                                           : (direction){0};
 }
+
 static direction right(direction d) { return (direction){-d.y, d.x, d.valid}; }
+
 static double angle(direction a, direction b) {
     return acos(rmr_clamp(a.x * b.x + a.y * b.y, -1, 1));
 }
+
 static rmr_point moved(rmr_point p, direction d, double distance) {
     return (rmr_point){p.x + d.x * distance, p.y + d.y * distance};
 }
+
 static void emit(builder *b, rmr_element e) {
     if (b->status != RMR_OK)
         return;
@@ -53,6 +61,7 @@ static void emit(builder *b, rmr_element e) {
     }
     b->path.elements[b->path.count++] = e;
 }
+
 static void polygon(builder *b, rmr_point *corners, size_t n, bool wind) {
     if (n < 3)
         return;
@@ -68,6 +77,7 @@ static void polygon(builder *b, rmr_point *corners, size_t n, bool wind) {
                               .end = corners[reverse ? n - i - 1 : i]});
     emit(b, (rmr_element){.kind = RMR_CLOSE});
 }
+
 static void disc(builder *b, rmr_point p, double radius) {
     if (radius <= 0)
         return;
@@ -79,12 +89,14 @@ static void disc(builder *b, rmr_point p, double radius) {
     emit(b, (rmr_element){RMR_CURVE, {x + radius, y}, {x + k, y + radius}, {x + radius, y + k}});
     emit(b, (rmr_element){.kind = RMR_CLOSE});
 }
+
 static size_t arc_steps(double radius, double sweep) {
     if (radius <= 0.1)
         return 1;
     double steps = ceil(fabs(sweep) / (2 * acos(1 - 0.1 / radius)));
     return (size_t)fmin(fmax(steps, 1), 64);
 }
+
 static void cap(builder *b, rmr_cap kind, rmr_point p, double r, direction outward) {
     if (kind == RMR_CAP_BUTT || r <= 0)
         return;
@@ -109,6 +121,7 @@ static void cap(builder *b, rmr_cap kind, rmr_point p, double r, direction outwa
     }
     polygon(b, corners, n, true);
 }
+
 static void join(builder *b, rmr_point p, double r, direction before, direction after,
                  rmr_join kind) {
     double turn = angle(before, after);
@@ -140,6 +153,7 @@ static void join(builder *b, rmr_point p, double r, direction before, direction 
     }
     polygon(b, corners, n, true);
 }
+
 static bool fits(const rmr_sample *points, size_t from, size_t to) {
     rmr_point start = points[from].position, end = points[to].position;
     direction along = between(start, end), normal = right(along);
@@ -160,6 +174,7 @@ static bool fits(const rmr_sample *points, size_t from, size_t to) {
     }
     return true;
 }
+
 rmr_status rmr_outline(const rmr_sample *points, size_t count, rmr_cap end, rmr_join joining,
                        const rmr_limits *given, rmr_path *out, rmr_error *e) {
     rmr_limits l = given ? *given : rmr_limits_default();

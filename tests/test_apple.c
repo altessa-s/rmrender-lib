@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
+
 static bool cancelled(void *context) {
     (void)context;
     return true;
 }
+
 static void masked_output(void) {
     rmr_element shape[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                            {.kind = RMR_LINE, .end = {3, 0}},
@@ -52,6 +55,7 @@ static void masked_output(void) {
     rmr_buffer_free(&pdf);
     rmr_plan_free(plan);
 }
+
 static void composition_output(void) {
     rmr_plan *base = rectangle((rmr_color){0, 0, 0, 1}, RMR_BLEND_NORMAL);
     rmr_element hole[] = {{.kind = RMR_MOVE, .end = {-12, 0}},
@@ -79,6 +83,7 @@ static void composition_output(void) {
     rmr_bitmap_free(&bitmap);
     rmr_plan_free(plan);
 }
+
 int main(void) {
     composition_output();
     masked_output();

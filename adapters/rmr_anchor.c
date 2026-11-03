@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
+
 static rmr_status fail(rmr_error *e, rmr_status status, const char *message) {
     if (e) {
         *e = (rmr_error){.code = status};
@@ -11,7 +13,9 @@ static rmr_status fail(rmr_error *e, rmr_status status, const char *message) {
     }
     return status;
 }
+
 static bool valid(double n, double maximum) { return isfinite(n) && fabs(n) <= maximum; }
+
 /* Decode one scalar, rejecting overlong encodings, surrogates and truncated UTF-8. */
 static bool scalar(rm_str text, size_t *at, size_t *units) {
     unsigned c = (unsigned char)text.bytes[(*at)++];
@@ -38,12 +42,14 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
     *units = value >= 65536 ? 2 : 1;
     return true;
 }
+
 static rmr_status result(rmr_point point, double maximum, rmr_point *out, rmr_error *error) {
     if (!valid(point.x, maximum) || !valid(point.y, maximum))
         return fail(error, RMR_ERR_LIMIT, "anchor position out of range");
     *out = point;
     return RMR_OK;
 }
+
 rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_anchor *anchor,
                                 const rmr_limits *given, rmr_point *out, rmr_error *error) {
     rmr_limits l = given ? *given : rmr_limits_default();
@@ -138,12 +144,14 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout *layout, const rm_text_a
     return result((rmr_point){margin + offsets.at_index, baseline}, l.maximum_coordinate, out,
                   error);
 }
+
 static rmr_status resolve(void *context, const rm_text_anchor *anchor, rmr_point *out) {
     rmr_anchor_context *c = context;
     if (!c)
         return RMR_ERR_INVALID_ARGUMENT;
     return rmr_lines_anchor_pen(c->layout, anchor, c->limits, out, nullptr);
 }
+
 rmr_anchor_provider rmr_lines_layout_anchor_provider(rmr_anchor_context *context) {
     return (rmr_anchor_provider){RMR_ANCHOR_PROVIDER_ABI, sizeof(rmr_anchor_provider), context,
                                  resolve};

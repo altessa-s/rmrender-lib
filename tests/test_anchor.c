@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
+
 typedef struct {
     size_t calls, paragraph, line, index;
     rmr_caret_offsets offsets;
     rmr_status status;
 } state;
+
 static rmr_status measure(void *context, size_t paragraph, size_t line, size_t index,
                           rmr_caret_offsets *out) {
     state *s = context;
@@ -18,6 +21,7 @@ static rmr_status measure(void *context, size_t paragraph, size_t line, size_t i
     *out = s->offsets;
     return s->status;
 }
+
 int main(void) {
     state s = {.offsets = {7, 20}};
     rmr_caret_provider caret = {RMR_CARET_PROVIDER_ABI, sizeof caret, &s, measure};

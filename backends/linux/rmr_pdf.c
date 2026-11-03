@@ -1,17 +1,21 @@
 #include "../../src/rmr_pdf_edit.h"
+
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_linux_internal.h"
 #include <fpdf_annot.h>
 #include <fpdf_doc.h>
 #include <limits.h>
 #include <rmrender/linux_pdf.h>
+
 struct rmr_linux_pdf_source {
     rmr_buffer data;
     size_t count;
     rmr_pdf_page_geometry *geometry;
 };
+
 void rmr_linux_pdf_source_free(rmr_linux_pdf_source *s) {
     if (s) {
         rmr_buffer_free(&s->data);
@@ -19,7 +23,9 @@ void rmr_linux_pdf_source_free(rmr_linux_pdf_source *s) {
         free(s);
     }
 }
+
 size_t rmr_linux_pdf_source_count(const rmr_linux_pdf_source *s) { return s ? s->count : 0; }
+
 rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const rmr_limits *given,
                                        rmr_linux_pdf_source **out, rmr_error *e) {
     if (!bytes || !size || !out)
@@ -74,6 +80,7 @@ rmr_status rmr_linux_pdf_source_create(const uint8_t *bytes, size_t size, const 
     *out = s;
     return RMR_OK;
 }
+
 rmr_status rmr_linux_pdf_source_size(const rmr_linux_pdf_source *s, size_t page, rmr_point *out,
                                      rmr_error *e) {
     if (!s || !out || page >= s->count)
@@ -83,11 +90,13 @@ rmr_status rmr_linux_pdf_source_size(const rmr_linux_pdf_source *s, size_t page,
                           : (rmr_point){g.media.width, g.media.height};
     return RMR_OK;
 }
+
 static rmr_transform concat(rmr_transform a, rmr_transform b) {
     return (rmr_transform){b.a * a.a + b.c * a.b,          b.b * a.a + b.d * a.b,
                            b.a * a.c + b.c * a.d,          b.b * a.c + b.d * a.d,
                            b.a * a.tx + b.c * a.ty + b.tx, b.b * a.tx + b.d * a.ty + b.ty};
 }
+
 static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page *p) {
     rmr_rect m = g.media, r = p->source_rect;
     rmr_transform t;
@@ -109,6 +118,7 @@ static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page *p) {
     return concat(concat(t, (rmr_transform){r.width, 0, 0, r.height, r.x, r.y}),
                   p->sheet.transform);
 }
+
 static rmr_transform inverse(rmr_transform t) {
     double det = t.a * t.d - t.b * t.c;
     return (rmr_transform){t.d / det,
@@ -118,6 +128,7 @@ static rmr_transform inverse(rmr_transform t) {
                            (t.c * t.ty - t.d * t.tx) / det,
                            (t.b * t.tx - t.a * t.ty) / det};
 }
+
 static rmr_rect box(rmr_transform t, double w, double h) {
     double x[] = {t.tx, t.a * w + t.tx, t.c * h + t.tx, t.a * w + t.c * h + t.tx},
            y[] = {t.ty, t.b * w + t.ty, t.d * h + t.ty, t.b * w + t.d * h + t.ty};
@@ -130,6 +141,7 @@ static rmr_rect box(rmr_transform t, double w, double h) {
     }
     return (rmr_rect){left, bottom, right - left, top - bottom};
 }
+
 rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const rmr_pdf_page *pages,
                                      size_t count, const rmr_limits *given, rmr_cancel_fn cancel,
                                      void *ctx, rmr_buffer *out, rmr_pdf_incremental_report *report,
@@ -206,6 +218,7 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
     free(overlays);
     return s == RMR_OK || reported ? s : rmr_linux_error(e, s, "incremental PDF export failed");
 }
+
 typedef struct {
     rmr_pdf_local_link *links;
     rmr_pdf_outline *outline;
@@ -213,6 +226,7 @@ typedef struct {
     size_t *page_map;
     size_t link_count, outline_count, bytes, work;
 } navigation;
+
 static void navigation_free(navigation *n) {
     for (size_t i = 0; i < n->outline_count; i++)
         free((void *)(uintptr_t)n->outline[i].title);
@@ -221,6 +235,7 @@ static void navigation_free(navigation *n) {
     free(n->bookmarks);
     free(n->page_map);
 }
+
 static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest, const rmr_linux_pdf_source *source,
                               const rmr_pdf_page *pages, size_t count, size_t current,
                               const size_t *page_map, rmr_pdf_destination *out) {
@@ -248,6 +263,7 @@ static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest, const rmr_linux
     *out = (rmr_pdf_destination){target, {t.a * px + t.c * py + t.tx, t.b * px + t.d * py + t.ty}};
     return true;
 }
+
 static FPDF_DEST link_destination(FPDF_DOCUMENT doc, FPDF_LINK link) {
     FPDF_DEST dest = FPDFLink_GetDest(doc, link);
     FPDF_ACTION action = FPDFLink_GetAction(link);
@@ -255,6 +271,7 @@ static FPDF_DEST link_destination(FPDF_DOCUMENT doc, FPDF_LINK link) {
         dest = FPDFAction_GetDest(doc, action);
     return dest;
 }
+
 static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
                                      const rmr_linux_pdf_source *source, const rmr_pdf_page *pages,
                                      size_t count, const rmr_limits *l, rmr_cancel_fn cancel,
@@ -377,6 +394,7 @@ static rmr_status navigation_collect(navigation *n, FPDF_DOCUMENT src,
     }
     return RMR_OK;
 }
+
 rmr_status rmr_linux_pdf_overlay(const rmr_linux_pdf_source *source, const rmr_pdf_page *pages,
                                  size_t count, const rmr_limits *given, rmr_cancel_fn cancel,
                                  void *ctx, rmr_buffer *out, rmr_pdf_report *report, rmr_error *e) {

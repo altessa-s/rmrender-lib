@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include "text_metrics_cases.h"
 #include "text_metrics_reference.h"
@@ -19,11 +20,13 @@ typedef struct {
     unsigned index, glyph;
     double x, y;
 } glyph_origin;
+
 typedef struct {
     double width;
     size_t count;
     glyph_origin glyphs[64];
 } glyph_case_reference;
+
 static const struct {
     const char *text;
     int script;
@@ -33,6 +36,7 @@ static const struct {
     {"कुं कूँ कें कैं", 2, -1},      {"กิ กุ ก่ ก้", 6, -1},   {"שָׁלוֹם", 1, -1},
     {"مَرْحَبًا", 3, -1},
 };
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_glyph_reference.h"
 #endif
@@ -116,6 +120,7 @@ static size_t capture(Fonts *fonts, size_t sample_index, double size, bool bold,
 #endif
     return count;
 }
+
 int main(int argc, char **argv) {
     CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
     bool dump = argc == 3;

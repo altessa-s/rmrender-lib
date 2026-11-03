@@ -1,12 +1,15 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "../backends/linux/rmr_hvar.h"
 #include "test.h"
+
 static void put(uint8_t *b, size_t at, uint32_t value, unsigned n) {
     for (unsigned i = 0; i < n; i++)
         b[at + n - i - 1] = (uint8_t)(value >> (i * 8));
 }
+
 static size_t fixture(uint8_t b[128], bool wide, int mapping) {
     memset(b, 0, 128);
     put(b, 0, 0x10000, 4);
@@ -44,6 +47,7 @@ static size_t fixture(uint8_t b[128], bool wide, int mapping) {
     }
     return at;
 }
+
 int main(void) {
     uint8_t bytes[128], changed[128];
     for (int wide = 0; wide < 2; wide++)

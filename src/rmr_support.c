@@ -1,10 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #ifdef RMRENDER_TESTING
 static thread_local size_t remaining = SIZE_MAX;
+
 void rmr_test_fail_after(size_t n) { remaining = n; }
+
 static bool fail(void) {
     if (remaining == SIZE_MAX)
         return false;
@@ -17,12 +20,15 @@ static bool fail(void) {
 static bool fail(void) { return false; }
 #endif
 void *rmr_alloc(size_t n) { return fail() ? nullptr : malloc(n ? n : 1); }
+
 void *rmr_calloc(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size)
         return nullptr;
     return fail() ? nullptr : calloc(n ? n : 1, size ? size : 1);
 }
+
 void *rmr_realloc(void *p, size_t n) { return fail() ? nullptr : realloc(p, n ? n : 1); }
+
 rmr_status rmr_fail(rmr_error *e, rmr_status s, size_t index, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s, .index = index};
@@ -30,12 +36,14 @@ rmr_status rmr_fail(rmr_error *e, rmr_status s, size_t index, const char *messag
     }
     return s;
 }
+
 #define RMR_STR_(x) #x
 #define RMR_STR(x) RMR_STR_(x)
 const char *rmr_version(void) {
     return RMR_STR(RMRENDER_VERSION_MAJOR) "." RMR_STR(RMRENDER_VERSION_MINOR) "." RMR_STR(
         RMRENDER_VERSION_PATCH);
 }
+
 const char *rmr_status_string(rmr_status s) {
     static const char *const names[] = {"ok",
                                         "invalid argument",
@@ -46,30 +54,36 @@ const char *rmr_status_string(rmr_status s) {
                                         "cancelled"};
     return (size_t)s < sizeof names / sizeof *names ? names[s] : "unknown status";
 }
+
 rmr_limits rmr_limits_default(void) {
     return (rmr_limits){1000000,    4000000, 65535,    256u << 20, 256u << 20,
                         256u << 20, 32768,   10000000, 200};
 }
+
 void rmr_path_free(rmr_path *p) {
     if (p) {
         free(p->elements);
         *p = (rmr_path){0};
     }
 }
+
 void rmr_buffer_free(rmr_buffer *b) {
     if (b) {
         free(b->bytes);
         *b = (rmr_buffer){0};
     }
 }
+
 bool rmr_point_valid(rmr_point p, double bound) {
     return isfinite(p.x) && isfinite(p.y) && fabs(p.x) <= bound && fabs(p.y) <= bound;
 }
+
 bool rmr_color_valid(rmr_color c) {
     return isfinite(c.red) && isfinite(c.green) && isfinite(c.blue) && isfinite(c.alpha) &&
            c.red >= 0 && c.red <= 1 && c.green >= 0 && c.green <= 1 && c.blue >= 0 && c.blue <= 1 &&
            c.alpha >= 0 && c.alpha <= 1;
 }
+
 rmr_status rmr_page_to_pdf(rmr_rect v, double scale, rmr_transform *out, rmr_error *e) {
     if (!out || !isfinite(scale) || scale <= 0 || !isfinite(v.x) || !isfinite(v.y) ||
         !isfinite(v.width) || !isfinite(v.height) || v.width <= 0 || v.height <= 0)
@@ -81,6 +95,7 @@ rmr_status rmr_page_to_pdf(rmr_rect v, double scale, rmr_transform *out, rmr_err
     *out = t;
     return RMR_OK;
 }
+
 rmr_point rmr_transform_point(rmr_transform t, rmr_point p) {
     return (rmr_point){t.a * p.x + t.c * p.y + t.tx, t.b * p.x + t.d * p.y + t.ty};
 }
@@ -99,6 +114,7 @@ rmr_status rmr_paper_points(rmr_paper paper, double w, double h, rmr_point *out,
     *out = size;
     return RMR_OK;
 }
+
 rmr_status rmr_sheet_create(rmr_rect b, double fw, double fh, double scale, rmr_sheet *out,
                             rmr_error *e) {
     if (!out || !isfinite(b.x) || !isfinite(b.y) || !isfinite(b.width) || !isfinite(b.height) ||
@@ -116,6 +132,7 @@ rmr_status rmr_sheet_create(rmr_rect b, double fw, double fh, double scale, rmr_
     *out = s;
     return RMR_OK;
 }
+
 rmr_status rmr_paper_sheet(rmr_paper paper, double w, double h, rmr_rect bounds, rmr_sheet *out,
                            rmr_error *e) {
     if (!out)

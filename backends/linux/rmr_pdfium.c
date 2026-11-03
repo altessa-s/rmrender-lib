@@ -1,14 +1,18 @@
 #define _POSIX_C_SOURCE 200809L
+
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_linux_internal.h"
 #include <limits.h>
 #include <pthread.h>
+
 /* PDFium is process-global and not thread safe. All entry points are serialized.
  * Never destroy the engine while another library may retain a PDFium handle. */
 static pthread_mutex_t mutex;
 static pthread_once_t once = PTHREAD_ONCE_INIT;
+
 static void initialize(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -17,11 +21,14 @@ static void initialize(void) {
     pthread_mutexattr_destroy(&attr);
     FPDF_InitLibrary();
 }
+
 void rmr_pdfium_lock(void) {
     pthread_once(&once, initialize);
     pthread_mutex_lock(&mutex);
 }
+
 void rmr_pdfium_unlock(void) { pthread_mutex_unlock(&mutex); }
+
 rmr_status rmr_linux_error(rmr_error *e, rmr_status s, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s};
@@ -29,6 +36,7 @@ rmr_status rmr_linux_error(rmr_error *e, rmr_status s, const char *message) {
     }
     return s;
 }
+
 cairo_status_t rmr_linux_write(void *ctx, const unsigned char *data, unsigned int size) {
     rmr_sink *s = ctx;
     if (s->status != RMR_OK)
@@ -59,10 +67,12 @@ cairo_status_t rmr_linux_write(void *ctx, const unsigned char *data, unsigned in
     s->data.size = needed;
     return CAIRO_STATUS_SUCCESS;
 }
+
 typedef struct {
     FPDF_FILEWRITE base;
     rmr_sink sink;
 } writer;
+
 static int write_block(FPDF_FILEWRITE *base, const void *data, unsigned long size) {
     writer *w = (writer *)base;
     if (size > UINT_MAX) {
@@ -71,6 +81,7 @@ static int write_block(FPDF_FILEWRITE *base, const void *data, unsigned long siz
     }
     return rmr_linux_write(&w->sink, data, (unsigned int)size) == CAIRO_STATUS_SUCCESS;
 }
+
 rmr_status rmr_pdfium_save(FPDF_DOCUMENT doc, const rmr_limits *limits, rmr_buffer *out) {
     writer w = {.base = {1, write_block}, .sink = {.maximum = limits->maximum_pdf_bytes}};
     bool ok = FPDF_SaveAsCopy(doc, &w.base, FPDF_NO_INCREMENTAL) != 0;
@@ -81,6 +92,7 @@ rmr_status rmr_pdfium_save(FPDF_DOCUMENT doc, const rmr_limits *limits, rmr_buff
     *out = w.sink.data;
     return RMR_OK;
 }
+
 rmr_status rmr_pdfium_form(FPDF_DOCUMENT dest, FPDF_PAGE page, FPDF_DOCUMENT source, size_t index,
                            rmr_transform t) {
     if (index > INT_MAX)
@@ -110,6 +122,7 @@ rmr_status rmr_pdfium_form(FPDF_DOCUMENT dest, FPDF_PAGE page, FPDF_DOCUMENT sou
     FPDFPage_InsertObject(page, object);
     return RMR_OK;
 }
+
 rmr_transform rmr_pdfium_raw_transform(FPDF_PAGE page, rmr_transform t) {
     FS_RECTF b = {0};
     FPDF_GetPageBoundingBox(page, &b);

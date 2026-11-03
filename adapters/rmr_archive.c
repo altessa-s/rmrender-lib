@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <rmlines/parser.h>
 #include <rmrender/archive.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 struct rmr_archive_document {
     const rmd_archive *archive;
     rmr_document_layout *layout;
@@ -15,6 +17,7 @@ struct rmr_archive_document {
     rmr_limits limits;
     rmr_asset_view pdf;
 };
+
 static rmr_status fail(rmr_error *e, rmr_status s, const char *m) {
     if (e) {
         *e = (rmr_error){.code = s};
@@ -22,6 +25,7 @@ static rmr_status fail(rmr_error *e, rmr_status s, const char *m) {
     }
     return s;
 }
+
 static rmd_str filename(rmd_str name) {
     size_t start = 0;
     for (size_t i = 0; i < name.length; i++)
@@ -29,24 +33,30 @@ static rmd_str filename(rmd_str name) {
             start = i + 1;
     return (rmd_str){name.bytes + start, name.length - start};
 }
+
 static bool suffix(rmd_str s, const char *tail) {
     size_t n = strlen(tail);
     return s.length >= n && !memcmp(s.bytes + s.length - n, tail, n);
 }
+
 static bool same(rmd_str s, const char *z) {
     return strlen(z) == s.length && !memcmp(s.bytes, z, s.length);
 }
+
 static bool belongs(rmd_str name, const char *id) { return same(rmd_document_id(name), id); }
+
 typedef struct {
     size_t index;
     rmd_str name, base;
 } page_file;
+
 static int compare(const void *a, const void *b) {
     const page_file *x = a, *y = b;
     size_t n = x->name.length < y->name.length ? x->name.length : y->name.length;
     int c = memcmp(x->name.bytes, y->name.bytes, n);
     return c ? c : x->name.length < y->name.length ? -1 : x->name.length > y->name.length ? 1 : 0;
 }
+
 void rmr_archive_document_free(rmr_archive_document *d) {
     if (d) {
         rmr_document_layout_free(d->layout);
@@ -57,6 +67,7 @@ void rmr_archive_document_free(rmr_archive_document *d) {
         free(d);
     }
 }
+
 rmr_status rmr_archive_document_create(const rmd_archive *archive, const char *id, bool recover,
                                        const rmr_limits *given, rmr_archive_document **out,
                                        rmr_error *e) {
@@ -207,19 +218,25 @@ done:
     *out = d;
     return RMR_OK;
 }
+
 size_t rmr_archive_document_count(const rmr_archive_document *d) { return d ? d->count : 0; }
+
 const rmr_document_page *rmr_archive_document_page(const rmr_archive_document *d, size_t i) {
     return d && i < d->count ? &d->pages[i] : nullptr;
 }
+
 rmr_point rmr_archive_document_canvas(const rmr_archive_document *d) {
     return d ? rmr_document_layout_canvas(d->layout) : (rmr_point){0};
 }
+
 bool rmr_archive_document_landscape(const rmr_archive_document *d) {
     return d && rmr_document_layout_landscape(d->layout);
 }
+
 rmr_asset_view rmr_archive_document_pdf(const rmr_archive_document *d) {
     return d ? d->pdf : (rmr_asset_view){0};
 }
+
 rmr_status rmr_archive_document_parse_page(const rmr_archive_document *d, size_t i, rm_page **out,
                                            rmr_error *e) {
     if (!d || i >= d->count || !out)
@@ -250,6 +267,7 @@ rmr_status rmr_archive_document_parse_page(const rmr_archive_document *d, size_t
     *out = page;
     return RMR_OK;
 }
+
 rmr_status rmr_archive_document_image(void *context, rm_str file, rmr_asset_view *out) {
     const rmr_archive_document *d = context;
     if (!d || !out || (!file.bytes && file.length))

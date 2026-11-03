@@ -9,11 +9,13 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+
 typedef struct {
     char bytes[32768];
     size_t n, offsets[32];
     unsigned gen[32];
 } fixture;
+
 static void add(fixture *f, const char *format, ...) {
     va_list a;
     va_start(a, format);
@@ -22,15 +24,18 @@ static void add(fixture *f, const char *format, ...) {
     assert(n >= 0 && (size_t)n < sizeof f->bytes - f->n);
     f->n += (size_t)n;
 }
+
 static void obj(fixture *f, unsigned id, unsigned gen, const char *body) {
     f->offsets[id] = f->n;
     f->gen[id] = gen;
     add(f, "%u %u obj\n%s\nendobj\n", id, gen, body);
 }
+
 static void stream(fixture *f, unsigned id, const char *body) {
     f->offsets[id] = f->n;
     add(f, "%u 0 obj\n<< /Length %zu >>\nstream\n%s\nendstream\nendobj\n", id, strlen(body), body);
 }
+
 static fixture source(bool certified) {
     fixture f = {0};
     add(&f, "%%PDF-1.7\n");
@@ -68,4 +73,5 @@ static fixture source(bool certified) {
     add(&f, "trailer\n<< /Size 17 /Root 1 0 R /ID [<0102><0304>] >>\nstartxref\n%zu\n%%%%EOF\n", x);
     return f;
 }
+
 #endif

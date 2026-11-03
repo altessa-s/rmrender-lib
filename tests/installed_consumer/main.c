@@ -1,8 +1,10 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <rmrender/linux_document.h>
 #include <rmrender/linux_marks.h>
+
 int main(void) {
     rm_page page = {0};
     rmr_page_marks *marks = nullptr;

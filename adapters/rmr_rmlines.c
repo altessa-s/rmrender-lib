@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_width.h"
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 static rmr_status error(rmr_error *e, rmr_status s, size_t index, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s, .index = index};
@@ -13,9 +15,11 @@ static rmr_status error(rmr_error *e, rmr_status s, size_t index, const char *me
     }
     return s;
 }
+
 static bool highlighter(rm_pen_tool t) {
     return t == RM_TOOL_HIGHLIGHTER_1 || t == RM_TOOL_HIGHLIGHTER_2;
 }
+
 static rmr_cap ending(const rm_stroke *s) {
     if (!highlighter(s->tool))
         return RMR_CAP_ROUND;
@@ -24,6 +28,7 @@ static rmr_cap ending(const rm_stroke *s) {
             return RMR_CAP_BUTT;
     return RMR_CAP_SQUARE;
 }
+
 static rmr_grain grain(rm_pen_tool t) {
     switch (t) {
     case RM_TOOL_PENCIL_1:
@@ -41,6 +46,7 @@ static rmr_grain grain(rm_pen_tool t) {
         return RMR_GRAIN_SOLID;
     }
 }
+
 static rmr_color palette(rm_pen_color c, bool darkens) {
     static const rmr_color colors[] = {{0, 0, 0, 1},
                                        {144.0 / 255, 144.0 / 255, 144.0 / 255, 1},
@@ -70,6 +76,7 @@ static rmr_color palette(rm_pen_color c, bool darkens) {
     }
     return colors[c];
 }
+
 rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error *e) {
     if (!s || !out || (!s->points && s->point_count) || s->color < RM_COLOR_BLACK ||
         s->color > RM_COLOR_HIGHLIGHTER_ORANGE)
@@ -107,6 +114,7 @@ rmr_status rmr_lines_style(const rm_stroke *s, rmr_stroke_style *out, rmr_error 
     *out = result;
     return RMR_OK;
 }
+
 rmr_status rmr_lines_outline(const rm_stroke *s, const rmr_limits *given, rmr_path *out,
                              rmr_error *e) {
     rmr_limits l = given ? *given : rmr_limits_default();
@@ -128,6 +136,7 @@ rmr_status rmr_lines_outline(const rm_stroke *s, const rmr_limits *given, rmr_pa
     free(points);
     return status;
 }
+
 rmr_status rmr_lines_mask_with_raster(const rm_stroke *s, const rmr_unit_raster *raster,
                                       const rmr_limits *given, rmr_mask *out, rmr_error *e) {
     rmr_limits l = given ? *given : rmr_limits_default();
@@ -161,10 +170,12 @@ rmr_status rmr_lines_mask_with_raster(const rm_stroke *s, const rmr_unit_raster 
     free(points);
     return status;
 }
+
 typedef struct {
     size_t position;
     rmr_rect bounds;
 } erase_record;
+
 static rmr_rect path_box(rmr_path path) {
     double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
     for (size_t i = 0; i < path.count; i++) {
@@ -180,6 +191,7 @@ static rmr_rect path_box(rmr_path path) {
     }
     return isfinite(x0) ? (rmr_rect){x0, y0, x1 - x0, y1 - y0} : (rmr_rect){0};
 }
+
 static rmr_rect stroke_reach(const rm_stroke *s, rmr_cap cap) {
     double widest = 0, x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
     for (size_t i = 0; i < s->point_count; i++) {
@@ -198,16 +210,19 @@ static rmr_rect stroke_reach(const rm_stroke *s, rmr_cap cap) {
     return isfinite(x0) ? (rmr_rect){x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad}
                         : (rmr_rect){0};
 }
+
 static bool intersects(rmr_rect a, rmr_rect b) {
     return a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0 && a.x <= b.x + b.width &&
            b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
 }
+
 static bool same_source(const rm_stroke *a, const rm_stroke *b) {
     return a->tool == RM_TOOL_SHADER && a->has_source_id && a->point_count > 1 &&
            b->tool == RM_TOOL_SHADER && b->has_source_id && b->point_count > 1 &&
            a->source_id.author == b->source_id.author &&
            a->source_id.counter == b->source_id.counter;
 }
+
 rmr_status rmr_lines_plan_with_raster(const rm_stroke *strokes, size_t count, rmr_rect viewport,
                                       const rmr_unit_raster *raster, const rmr_limits *given,
                                       rmr_plan **out, rmr_error *e) {
@@ -389,6 +404,7 @@ rmr_status rmr_lines_mask(const rm_stroke *stroke, const rmr_limits *limits, rmr
                           rmr_error *error) {
     return rmr_lines_mask_with_raster(stroke, nullptr, limits, out, error);
 }
+
 rmr_status rmr_lines_plan(const rm_stroke *strokes, size_t count, rmr_rect viewport,
                           const rmr_limits *limits, rmr_plan **out, rmr_error *error) {
     return rmr_lines_plan_with_raster(strokes, count, viewport, nullptr, limits, out, error);

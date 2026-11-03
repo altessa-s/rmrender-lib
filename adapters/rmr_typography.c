@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <math.h>
 #include <rmrender/typography.h>
 #include <stdio.h>
+
 static rmr_status fail(rmr_error *e, rmr_status status, const char *message) {
     if (e) {
         *e = (rmr_error){.code = status};
@@ -11,6 +13,7 @@ static rmr_status fail(rmr_error *e, rmr_status status, const char *message) {
     }
     return status;
 }
+
 static bool scalar(rm_str text, size_t *at, size_t *units) {
     unsigned c = (unsigned char)text.bytes[(*at)++];
     if (c < 128) {
@@ -36,6 +39,7 @@ static bool scalar(rm_str text, size_t *at, size_t *units) {
     *units = value >= 65536 ? 2 : 1;
     return true;
 }
+
 static bool utf8(rm_str t) {
     for (size_t i = 0; i < t.length;) {
         size_t units;
@@ -44,16 +48,21 @@ static bool utf8(rm_str t) {
     }
     return true;
 }
+
 static bool in(uint32_t c, uint32_t lo, uint32_t hi) { return c >= lo && c <= hi; }
+
 static bool arabic(uint32_t c) {
     return in(c, 0x600, 0x7bf) || in(c, 0xfb50, 0xfdff) || in(c, 0xfe70, 0xfeff);
 }
+
 static bool cjk(uint32_t c) {
     return in(c, 0x2e80, 0x9fff) || in(c, 0xac00, 0xd7af) || in(c, 0x1100, 0x11ff);
 }
+
 static bool cyrillic(uint32_t c) {
     return in(c, 0x400, 0x52f) || in(c, 0x370, 0x3ff) || in(c, 0x1f00, 0x1fff);
 }
+
 rmr_status rmr_lines_type_metrics(const rm_paragraph_format *format, rm_str text,
                                   const rmr_limits *given, rmr_type_metrics *out,
                                   rmr_error *error) {

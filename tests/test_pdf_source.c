@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple_pdf.h>
+
 int main(void) {
     CFMutableDataRef bytes = CFDataCreateMutable(kCFAllocatorDefault, 0);
     CGDataConsumerRef consumer = CGDataConsumerCreateWithCFData(bytes);

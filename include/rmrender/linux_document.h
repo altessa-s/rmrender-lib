@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_LINUX_DOCUMENT_H
 #define RMR_LINUX_DOCUMENT_H
 #include "archive.h"
 #include "linux_pdf.h"
 #include "linux_text.h"
+
 /* Render an assembled RMDoc archive document. Zero maximum_pages means all.
  * Archive attachments are used unless resources.image overrides them. Templates
  * and fonts stay explicit. Imported PDF pages use native point sizing; notebook
@@ -17,6 +19,7 @@ rmr_linux_document_pdf(const rmr_archive_document *document, const rmr_page_reso
                        const rmr_linux_fonts *fonts, rmr_paper paper, size_t maximum_pages,
                        const rmr_limits *limits, rmr_cancel_fn cancel, void *context,
                        rmr_buffer *out, rmr_document_report *report, rmr_error *error);
+
 /* Preserve imported PDF objects through a strict incremental update. Ordinary
  * notebooks still render fresh. Unsupported PDF structures or changed source
  * page membership/order/visibility fail, never redraw. Link counters are zero
@@ -27,6 +30,7 @@ rmr_linux_document_pdf(const rmr_archive_document *document, const rmr_page_reso
     const rmr_linux_fonts *fonts, rmr_paper paper, size_t maximum_pages, const rmr_limits *limits,
     rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_document_report *report,
     rmr_error *error);
+
 /* Fresh preserving export allowing source-page reorder/removal/duplication.
  * Notebooks render fresh. Imported PDFs follow pdf_recompose's native-coordinate
  * and form/signature contract. No silent fallback for unsupported page types.
@@ -36,4 +40,5 @@ rmr_linux_document_pdf(const rmr_archive_document *document, const rmr_page_reso
     const rmr_linux_fonts *fonts, rmr_paper paper, size_t maximum_pages, const rmr_limits *limits,
     rmr_cancel_fn cancel, void *context, rmr_buffer *out, rmr_document_report *report,
     rmr_error *error);
+
 #endif

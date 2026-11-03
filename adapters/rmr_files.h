@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_FILES_H
 #define RMR_FILES_H
 #include <errno.h>
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 static rmr_status rmr_read_resource(const char *directory, const char *name, size_t length,
                                     const char *extension, size_t maximum, rmr_buffer *out) {
     if (!directory || (!name && length))
@@ -64,4 +66,5 @@ static rmr_status rmr_read_resource(const char *directory, const char *name, siz
     *out = (rmr_buffer){bytes, size};
     return RMR_OK;
 }
+
 #endif

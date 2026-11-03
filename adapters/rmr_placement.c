@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include <math.h>
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 struct rmr_placed_scene {
     rm_stroke *strokes;
     rm_stroke_point *points;
@@ -13,17 +15,20 @@ struct rmr_placed_scene {
     char *files;
     size_t stroke_count, image_count, bytes;
 };
+
 typedef struct {
     rm_text_anchor anchor;
     rmr_point pen;
     bool occupied;
 } entry;
+
 typedef struct {
     entry *cache;
     size_t capacity, work;
     rmr_limits limits;
     const rmr_anchor_provider *provider;
 } placement;
+
 static rmr_status fail(rmr_error *e, rmr_status s, size_t index, const char *message) {
     if (e) {
         *e = (rmr_error){.code = s, .index = index};
@@ -31,15 +36,18 @@ static rmr_status fail(rmr_error *e, rmr_status s, size_t index, const char *mes
     }
     return s;
 }
+
 static bool point_valid(double x, double y, double maximum) {
     return isfinite(x) && isfinite(y) && fabs(x) <= maximum && fabs(y) <= maximum;
 }
+
 static bool reserve(size_t *bytes, size_t count, size_t size, size_t maximum) {
     if (*bytes > maximum || count > (maximum - *bytes) / size)
         return false;
     *bytes += count * size;
     return true;
 }
+
 static uint64_t hash(rm_text_anchor anchor) {
     /* Hash values, not padding; +/-zero and absent origin_x compare equally. */
     uint64_t bits = 0;
@@ -55,10 +63,12 @@ static uint64_t hash(rm_text_anchor anchor) {
         }
     return h;
 }
+
 static bool equal(rm_text_anchor a, rm_text_anchor b) {
     return a.paragraph == b.paragraph && a.offset == b.offset && a.has_origin_x == b.has_origin_x &&
            (!a.has_origin_x || a.origin_x == b.origin_x);
 }
+
 static rmr_status pen(placement *p, rm_text_anchor anchor, size_t index, rmr_point *out,
                       rmr_error *e) {
     if (!p->provider)
@@ -90,6 +100,7 @@ static rmr_status pen(placement *p, rm_text_anchor anchor, size_t index, rmr_poi
         slot = (slot + 1) & (p->capacity - 1);
     }
 }
+
 void rmr_placed_scene_free(rmr_placed_scene *s) {
     if (!s)
         return;
@@ -99,6 +110,7 @@ void rmr_placed_scene_free(rmr_placed_scene *s) {
     free(s->files);
     free(s);
 }
+
 rmr_status rmr_lines_place_scene(const rm_stroke *strokes, size_t stroke_count,
                                  const rm_page_image *images, size_t image_count,
                                  const rmr_anchor_provider *provider, const rmr_limits *given,
@@ -247,12 +259,17 @@ done:
     rmr_placed_scene_free(s);
     return status;
 }
+
 size_t rmr_placed_scene_bytes(const rmr_placed_scene *s) { return s ? s->bytes : 0; }
+
 size_t rmr_placed_scene_stroke_count(const rmr_placed_scene *s) { return s ? s->stroke_count : 0; }
+
 const rm_stroke *rmr_placed_scene_strokes(const rmr_placed_scene *s) {
     return s ? s->strokes : nullptr;
 }
+
 size_t rmr_placed_scene_image_count(const rmr_placed_scene *s) { return s ? s->image_count : 0; }
+
 const rm_page_image *rmr_placed_scene_images(const rmr_placed_scene *s) {
     return s ? s->images : nullptr;
 }

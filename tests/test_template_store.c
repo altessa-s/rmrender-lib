@@ -4,10 +4,12 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmrender/rmlines.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
 static void write_template(const char *directory, const char *name, const char *json) {
     char path[512];
     snprintf(path, sizeof path, "%s/%s.template", directory, name);
@@ -16,6 +18,7 @@ static void write_template(const char *directory, const char *name, const char *
     CHECK(fwrite(json, 1, strlen(json), file) == strlen(json));
     CHECK(fclose(file) == 0);
 }
+
 int main(void) {
     char root[] = "/tmp/rmr-template-XXXXXX";
     CHECK(mkdtemp(root));

@@ -1,13 +1,16 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
+
 static void text_operator(CGPDFScannerRef scanner, void *info) {
     (void)scanner;
     ++*(size_t *)info;
 }
+
 int main(void) {
     rmr_text_provider provider = rmr_apple_text_provider();
     const char *labels[] = {"Sunday", "Линия", "مرحبا", "שלום", "日本語", "📓", "e\xcc\x81", ""};

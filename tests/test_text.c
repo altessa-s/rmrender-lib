@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
 #include <rmrender/template.h>
+
 static rmr_status measure(void *context, const char *utf8, size_t size, double font_size,
                           rmr_text_metrics *out) {
     (void)utf8;
@@ -12,6 +14,7 @@ static rmr_status measure(void *context, const char *utf8, size_t size, double f
     *out = (rmr_text_metrics){(double)size * 5, {0, -8, (double)size * 5, 10}};
     return RMR_OK;
 }
+
 static rmr_status bad_measure(void *context, const char *utf8, size_t size, double font_size,
                               rmr_text_metrics *out) {
     (void)context;
@@ -21,26 +24,32 @@ static rmr_status bad_measure(void *context, const char *utf8, size_t size, doub
     *out = (rmr_text_metrics){.width = NAN};
     return RMR_OK;
 }
+
 static rmr_status backend_begin(void *ctx, rmr_rect viewport) {
     (void)viewport;
     ++*(int *)ctx;
     return RMR_OK;
 }
+
 static rmr_status backend_draw(void *ctx, const rmr_draw *d) {
     (void)ctx;
     (void)d;
     return RMR_OK;
 }
+
 static rmr_status backend_end(void *ctx) {
     (void)ctx;
     return RMR_OK;
 }
+
 static void backend_abort(void *ctx) { (void)ctx; }
+
 static rmr_status build(const rmr_template *t, const rmr_text_provider *provider, rmr_plan **out) {
     return rmr_template_plan_with_text(t, (rmr_point){100, 100}, (rmr_point){100, 100},
                                        (rmr_rect){-50, 0, 100, 100}, provider, nullptr, out,
                                        nullptr);
 }
+
 int main(void) {
     const char json[] =
         "{\"name\":\"Own\",\"constants\":[{\"textWidth\":100}],\"items\":[{\"type\":\"text\","

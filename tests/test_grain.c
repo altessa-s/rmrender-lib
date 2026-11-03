@@ -1,30 +1,36 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
 #include <rmrender/grain.h>
+
 static rmr_status untouched_begin(void *context, rmr_rect viewport) {
     (void)context;
     (void)viewport;
     CHECK(false);
     return RMR_OK;
 }
+
 static rmr_status untouched_draw(void *context, const rmr_draw *draw) {
     (void)context;
     (void)draw;
     CHECK(false);
     return RMR_OK;
 }
+
 static rmr_status untouched_end(void *context) {
     (void)context;
     CHECK(false);
     return RMR_OK;
 }
+
 static void untouched_abort(void *context) {
     (void)context;
     CHECK(false);
 }
+
 int main(void) {
     rmr_grain_point points[] = {{0, 0, 12, 128, 10}, {40, 10, 20, 210, 60}, {40, 10, 10, 255, 0}};
     rmr_grain_point minimum = {.x = 0.35f, .width = 0.7};

@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
 #include <rmmarks/text.h>
 #ifdef RMR_TEST_LINUX
@@ -67,6 +68,7 @@ static void marks_contract(void) {
     rmr_page_marks_free(nullptr);
     CHECK(!rmr_page_marks_view(nullptr));
 }
+
 static void sheet_contract(void) {
     uint8_t pixels[80] = {0};
     for (size_t y = 0; y < 4; y++)

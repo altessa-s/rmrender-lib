@@ -1,7 +1,9 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "test.h"
+
 int main(void) {
     rmr_sample points[] = {{{0, 0}, 12}, {{100, 0}, 24}, {{101, 80}, 18}};
     rmr_path p = {0};

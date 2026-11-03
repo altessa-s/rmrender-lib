@@ -1,10 +1,12 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include "test.h"
 #include <locale.h>
 #include <rmrender/template.h>
+
 static double eval(const char *s) {
     rmr_expression *p = nullptr;
     double v;
@@ -14,6 +16,7 @@ static double eval(const char *s) {
     rmr_expression_free(p);
     return v;
 }
+
 int main(void) {
     CHECK(eval("2+3*4") == 14 && eval("(2+3)*4") == 20);
     CHECK(eval("templateWidth / 2 + x") == 709);

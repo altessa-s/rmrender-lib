@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "../common/rmr_font_calibration.h"
 #include "rmr_hvar.h"
 #include "rmr_typography_internal.h"
@@ -14,6 +15,7 @@
 #include <sys/mman.h>
 #endif
 #include <unistd.h>
+
 static const char *calibration_key(rmr_type_face face, bool bold, bool italic, int script,
                                    double size, char key[96]) {
     if (script >= 0) {
@@ -36,6 +38,7 @@ static const char *calibration_key(rmr_type_face face, bool bold, bool italic, i
            : face == RMR_FACE_MEDIUM ? "reMarkableSans-Medium"
                                      : "reMarkableSans-Regular";
 }
+
 static double calibrated_kern(uint32_t c, rmr_type_face face, bool bold, bool italic, int script) {
     if (c > UINT16_MAX)
         return 0;
@@ -50,6 +53,7 @@ static double calibrated_kern(uint32_t c, rmr_type_face face, bool bold, bool it
         return italic ? 0 : sansMediumGlyphShare(u);
     return bold ? sansBoldGlyphShare(u) : italic ? sansItalicGlyphShare(u) : sansGlyphShare(u);
 }
+
 static void calibrated_pattern(FcPattern *pattern, void *context) {
     const rmr_linux_fonts *fonts = context;
     FcChar8 *family = nullptr;
@@ -120,6 +124,7 @@ static void calibrated_pattern(FcPattern *pattern, void *context) {
     FcPatternDel(pattern, FC_MATRIX);
     FcPatternAddMatrix(pattern, FC_MATRIX, &matrix);
 }
+
 static int character_script(gunichar c) {
     if ((c >= 0x590 && c <= 0x5ff) || (c >= 0xfb1d && c <= 0xfb4f))
         return 1;
@@ -137,23 +142,30 @@ static int character_script(gunichar c) {
         return 6;
     return 0;
 }
+
 static bool strong(gunichar c) { return g_unichar_isalpha(c) || (c >= 0x3040 && c <= 0x30ff); }
+
 static bool latin_character(gunichar c) {
     return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 0xc0 && c <= 0x24f) ||
            (c >= 0x1e00 && c <= 0x1eff);
 }
+
 /* Spacing metadata is removed before Pango shapes the text. Applying it to
  * completed clusters preserves natural font kerning and joining. */
 static PangoAttrClass spacing_class;
+
 static PangoAttribute *spacing_copy(const PangoAttribute *a) {
     PangoAttrInt *copy = g_new(PangoAttrInt, 1);
     *copy = *(const PangoAttrInt *)a;
     return &copy->attr;
 }
+
 static void spacing_destroy(PangoAttribute *a) { g_free(a); }
+
 static gboolean spacing_equal(const PangoAttribute *a, const PangoAttribute *b) {
     return ((const PangoAttrInt *)a)->value == ((const PangoAttrInt *)b)->value;
 }
+
 static PangoAttribute *spacing_new(int value) {
     static gsize initialized;
     if (g_once_init_enter(&initialized)) {
@@ -166,14 +178,17 @@ static PangoAttribute *spacing_new(int value) {
     a->value = value;
     return &a->attr;
 }
+
 static gboolean is_spacing(PangoAttribute *a, gpointer context) {
     (void)context;
     return a->klass == &spacing_class;
 }
+
 PangoAttrList *rmr_pango_source_attributes(PangoLayout *layout) {
     PangoAttrList *source = g_object_get_data(G_OBJECT(layout), "rmrender-source-attributes");
     return source ? source : pango_layout_get_attributes(layout);
 }
+
 /* CoreText shears GPOS advance adjustments along with the font matrix;
  * nominal horizontal advances remain unchanged. Cairo applies the shear only
  * to glyph outlines, so mirror the extra adjustment in document geometry. */
@@ -334,6 +349,7 @@ static void emoji_clusters(PangoGlyphItem *run, const char *text) {
         }
     }
 }
+
 rmr_status rmr_pango_calibrate(PangoLayout *layout, const rmr_limits *limits) {
     guint serial = pango_layout_get_serial(layout);
     if (GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(layout), "rmrender-calibrated")) == serial)
@@ -428,6 +444,7 @@ rmr_status rmr_pango_calibrate(PangoLayout *layout, const rmr_limits *limits) {
     g_object_set_data(G_OBJECT(layout), "rmrender-calibrated", GUINT_TO_POINTER(serial));
     return RMR_OK;
 }
+
 double rmr_pango_cluster_spacing(PangoLayout *layout, size_t from, size_t to) {
     const char *text = pango_layout_get_text(layout);
     PangoAttrIterator *it = pango_attr_list_get_iterator(rmr_pango_source_attributes(layout));
@@ -451,6 +468,7 @@ double rmr_pango_cluster_spacing(PangoLayout *layout, size_t from, size_t to) {
     pango_attr_iterator_destroy(it);
     return -.5 * (double)(uniform ? first : sum) / PANGO_SCALE;
 }
+
 /* Carets split the gap between nominal cluster advances, including GPOS and
  * explicit spacing. Use fractional HVAR metrics, as in variable_advances(). */
 double rmr_pango_cluster_adjustment(PangoGlyphItem *run, int cluster) {
@@ -489,6 +507,7 @@ double rmr_pango_cluster_adjustment(PangoGlyphItem *run, int cluster) {
         hb_font_destroy(base);
     return -.5 * delta_width / PANGO_SCALE;
 }
+
 double rmr_pango_caret_adjustment(PangoLayout *layout, size_t index) {
     const char *text = pango_layout_get_text(layout);
     size_t length = strlen(text);
@@ -515,6 +534,7 @@ double rmr_pango_caret_adjustment(PangoLayout *layout, size_t index) {
     return pango_layout_get_direction(layout, (int)at) == PANGO_DIRECTION_RTL ? -adjustment
                                                                               : adjustment;
 }
+
 void rmr_pango_attributes(const rmr_linux_fonts *fonts, PangoAttrList *attrs, rm_str text,
                           size_t start, size_t end, double size, rmr_type_face face, bool bold,
                           bool italic) {
@@ -596,6 +616,7 @@ void rmr_pango_attributes(const rmr_linux_fonts *fonts, PangoAttrList *attrs, rm
             at = next;
         }
 }
+
 static const char *const names[] = {"NotoSans-Regular",
                                     "NotoSans-Bold",
                                     "NotoSans-Italic",
@@ -610,8 +631,10 @@ static const char *const names[] = {"NotoSans-Regular",
                                     "NotoSansJP-Variable",
                                     "NotoSansThaiLooped-Variable",
                                     "NotoEmoji-Variable"};
+
 static_assert(sizeof names / sizeof *names ==
               sizeof((rmr_linux_fonts *)0)->fds / sizeof((rmr_linux_fonts *)0)->fds[0]);
+
 void rmr_linux_fonts_free(rmr_linux_fonts *f) {
     if (!f || atomic_fetch_sub(&f->references, 1) != 1)
         return;
@@ -634,6 +657,7 @@ void rmr_linux_fonts_free(rmr_linux_fonts *f) {
     }
     free(f);
 }
+
 rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
                                   const rmr_limits *given, rmr_linux_fonts **out, rmr_error *e) {
     if (!resolve || !out)
@@ -745,12 +769,15 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void *context,
     *out = f;
     return RMR_OK;
 }
+
 #include "../../adapters/rmr_files.h"
+
 typedef struct {
     const char *directory;
     rmr_buffer bytes;
     size_t maximum;
 } directory_fonts;
+
 static rmr_status resolve_directory(void *ctx, const char *name, rmr_asset_view *out) {
     directory_fonts *d = ctx;
     rmr_buffer_free(&d->bytes);
@@ -760,6 +787,7 @@ static rmr_status resolve_directory(void *ctx, const char *name, rmr_asset_view 
         *out = (rmr_asset_view){d->bytes.bytes, d->bytes.size};
     return s;
 }
+
 rmr_status rmr_linux_fonts_create_directory(const char *directory, const rmr_limits *l,
                                             rmr_linux_fonts **out, rmr_error *e) {
     if (!directory)
@@ -771,6 +799,7 @@ rmr_status rmr_linux_fonts_create_directory(const char *directory, const rmr_lim
     rmr_buffer_free(&d.bytes);
     return s;
 }
+
 PangoLayout *rmr_pango_layout(const rmr_linux_fonts *fonts, rm_str text, double size,
                               rmr_type_face face, bool bold, bool italic) {
     PangoContext *context = pango_font_map_create_context(fonts->map);

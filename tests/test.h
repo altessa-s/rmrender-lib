@@ -1,6 +1,7 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #ifndef RMR_TEST_H
 #define RMR_TEST_H
 #include <math.h>
@@ -27,4 +28,5 @@ static inline rmr_plan *rectangle(rmr_color color, rmr_blend blend) {
     OK(rmr_plan_create(&d, 1, (rmr_rect){-32, 0, 64, 64}, nullptr, &p, nullptr));
     return p;
 }
+
 #endif

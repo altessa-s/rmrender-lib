@@ -1,9 +1,11 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
+
 #include "rmr_internal.h"
 #include <float.h>
 #include <rmrender/template.h>
+
 typedef struct {
     rmr_limits limits;
     const rmr_text_provider *provider;
@@ -14,15 +16,18 @@ typedef struct {
     rmr_element *elements;
     rmr_error *error;
 } builder;
+
 static rmr_status fail(builder *b, rmr_status s, const char *message) {
     return rmr_fail(b->error, s, b->work, message);
 }
+
 static rmr_status charge(builder *b, size_t cost) {
     if (cost > b->limits.maximum_elements - b->work)
         return fail(b, RMR_ERR_LIMIT, "template work limit");
     b->work += cost;
     return RMR_OK;
 }
+
 static rmr_status value(builder *b, rmr_template_value v, double *out) {
     rmr_status s = charge(b, v.expression ? rmr_expression_cost(v.expression) : 1);
     if (s != RMR_OK)
@@ -35,6 +40,7 @@ static rmr_status value(builder *b, rmr_template_value v, double *out) {
         return fail(b, RMR_ERR_LIMIT, "template expression stack limit");
     return rmr_expression_evaluate(v.expression, b->bindings, b->binding_count, out, b->error);
 }
+
 static bool name_valid(const char *name, size_t length) {
     if (!name || !length || length > 65536)
         return false;
@@ -46,6 +52,7 @@ static bool name_valid(const char *name, size_t length) {
     }
     return true;
 }
+
 static void bind(builder *b, const char *name, size_t length, double number) {
     for (size_t i = 0; i < b->binding_count; i++) {
         rmr_binding *v = &b->bindings[i];
@@ -56,6 +63,7 @@ static void bind(builder *b, const char *name, size_t length, double number) {
     }
     b->bindings[b->binding_count++] = (rmr_binding){name, length, number};
 }
+
 static rmr_status environment(builder *b, const rmr_template *t) {
     b->binding_count = 0;
     bind(b, "templateWidth", 13, b->canvas.x);
@@ -76,6 +84,7 @@ static rmr_status environment(builder *b, const rmr_template *t) {
     }
     return RMR_OK;
 }
+
 static rmr_status repetitions(builder *b, rmr_template_repeat repeat, double step, double start,
                               double extent, size_t *count, double *direction) {
     *count = 1;
@@ -99,6 +108,7 @@ static rmr_status repetitions(builder *b, rmr_template_repeat repeat, double ste
         *count = (size_t)fmin(fmax(trunc(n), 1), 10000);
     return RMR_OK;
 }
+
 static rmr_status point(builder *b, rmr_template_value x, rmr_template_value y, rmr_point origin,
                         rmr_point *out) {
     double px, py;
@@ -113,6 +123,7 @@ static rmr_status point(builder *b, rmr_template_value x, rmr_template_value y, 
                ? RMR_OK
                : fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template coordinate");
 }
+
 static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin) {
     if (p->count && !p->elements)
         return fail(b, RMR_ERR_INVALID_ARGUMENT, "missing template path elements");
@@ -181,6 +192,7 @@ static rmr_status path(builder *b, const rmr_template_path *p, rmr_point origin)
     b->draw_count++;
     return RMR_OK;
 }
+
 static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point origin) {
     if (!b->provider)
         return fail(b, RMR_ERR_UNSUPPORTED, "text metrics provider required");
@@ -242,6 +254,7 @@ static rmr_status text_item(builder *b, const rmr_template_text *t, rmr_point or
     b->draw_count++;
     return RMR_OK;
 }
+
 static rmr_status items(builder *b, const rmr_template_item *list, size_t count, rmr_point origin,
                         unsigned depth) {
     if (count && !list)
@@ -320,6 +333,7 @@ static rmr_status items(builder *b, const rmr_template_item *list, size_t count,
     }
     return RMR_OK;
 }
+
 rmr_status rmr_template_plan_with_text(const rmr_template *t, rmr_point canvas, rmr_point extent,
                                        rmr_rect viewport, const rmr_text_provider *provider,
                                        const rmr_limits *given, rmr_plan **out, rmr_error *e) {
@@ -422,6 +436,7 @@ rmr_status rmr_template_plan(const rmr_template *t, rmr_point canvas, rmr_point 
                              rmr_error *error) {
     return rmr_template_plan_with_text(t, canvas, extent, viewport, nullptr, limits, out, error);
 }
+
 rmr_status rmr_template_background_plan(const rmr_template *t, rmr_point canvas, rmr_point extent,
                                         const rmr_plan *foreground, bool visible,
                                         const rmr_limits *limits, rmr_plan **out,
