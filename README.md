@@ -17,7 +17,7 @@ Part of **[Slate Drive](https://slatedrive.app)**
 ([repository](https://github.com/altessa-s/slatedrive)), the macOS app that
 shows a reMarkable library in Finder.
 
-The version is 1.0.0. The API and ABI stay compatible within a major version;
+The version is 1.1.0. The API and ABI stay compatible within a major version;
 the shared-library ABI name is the major version.
 
 ## What it renders
@@ -40,8 +40,8 @@ Pen textures are sampled in portable C for every grain family (the pencils,
 the paintbrush and both ballpoints): pressure maps along each segment,
 SplitMix64 lattice hashes, and 16 procedural 64×64 tiles embedded as packed
 bits. Nothing is loaded at run time and no platform rasterizer is
-involved. Apple and Linux backends draw output; the core can also be built
-without either backend. See [Linux setup and compatibility](LINUX.md).
+involved. Apple and Cairo backends draw output; the core can also be built
+without either backend.
 
 ## Build and install
 
@@ -64,7 +64,8 @@ cmake --install build --prefix "$PWD/stage"
 | `RMRENDER_BUILD_TESTS` | on for a top-level build | Build tests and the `check` target |
 | `RMRENDER_WERROR` | `OFF` | Treat compiler warnings as errors |
 | `RMRENDER_BUILD_APPLE` | on with an Apple SDK | Build the CoreGraphics/CoreText backend |
-| `RMRENDER_BUILD_LINUX` | `OFF` | Build the Cairo/Pango/PDFium backend; see [Linux](LINUX.md) |
+| `RMRENDER_BUILD_CAIRO` | `OFF` | Build the Cairo/Pango/PDFium backend on Linux or macOS (needs `RMRENDER_BUILD_APPLE=OFF`) |
+| `RMRENDER_BUILD_LINUX` | `OFF` | Same as `RMRENDER_BUILD_CAIRO` |
 | `RMRENDER_BUILD_RMLINES` | `OFF` | Build the RMLines adapter |
 | `RMRENDER_BUILD_RMDOC` | `OFF` | Build the RMDoc adapter (needs RMLines) |
 | `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs RMLines and Apple or Linux) |
@@ -93,9 +94,46 @@ pkg-config names use `rmrender-` and hyphens (`rmrender-core`,
 marks components. `add_subdirectory` is supported; tests default to off when
 embedded. Public names use `rmr_`/`RMR_` and coexist with RMLines' `rm_` names.
 
-The examples below use Apple entry points. Linux uses the matching `linux*.h`
-headers and `rmr_linux_` prefix; its PDF and typography boundaries are documented
-in [LINUX.md](LINUX.md).
+The examples below use Apple entry points. The Cairo backend uses the matching
+`linux*.h` headers and the `rmr_linux_` prefix.
+
+## Cairo backend
+
+The Cairo backend builds on Linux and macOS, one backend per build. It needs
+Cairo 1.16+, Pango 1.50+, Fontconfig, HarfBuzz 3.3+, GdkPixbuf, zlib and
+PDFium; only PDFium's C API is used. CMake never downloads anything;
+`scripts/fetch-pdfium.py` fetches a pinned, checksum-verified PDFium build
+(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`). On Debian 13:
+
+```sh
+apt-get install clang cmake ninja-build pkg-config python3 libcairo2-dev libpango1.0-dev \
+    libgdk-pixbuf-2.0-dev libfontconfig1-dev libharfbuzz-dev zlib1g-dev
+python3 scripts/fetch-pdfium.py --platform linux-x64 --output /path/to/pdfium
+cmake -S . -B build -G Ninja -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_APPLE=OFF \
+    -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON \
+    -DPDFium_ROOT=/path/to/pdfium -DCMAKE_PREFIX_PATH=/path/to/dependencies
+```
+
+The targets are `RMRender::linux`, `linux_text`, `linux_document` and
+`linux_marks`, with `RMRender::cairo*` aliases; pkg-config names are
+`rmrender-linux`, `rmrender-linux-text`, `rmrender-linux-document` and
+`rmrender-linux-marks`. The installed package finds PDFium through
+`PDFium_ROOT`. RMRender does not bundle PDFium or the graphics libraries;
+ship them and their licenses with the application.
+
+Text always uses the bundled fonts through a private Fontconfig/Pango font
+map, never system font registration. PDFium is process-global and not thread
+safe: RMRender initializes it once, serializes its own PDFium calls and keeps
+it alive for the life of the process, so applications must not call
+`FPDF_DestroyLibrary` and must coordinate their own PDFium use. A font
+provider and its layouts serve one thread at a time.
+
+`rmr_pdf_rewrite` writes a document's current object graph as a new
+single-revision PDF, and `rmr_pdf_select_pages` reorders, omits or repeats
+pages along the way. The `pdf_recompose` and `document_pdf_recomposed` entry
+points combine page selection, overlays and rewriting. A rewrite invalidates
+existing signatures and is not redaction; use the incremental routes to keep a
+signed revision.
 
 ## Draw a plan
 
