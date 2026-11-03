@@ -94,3 +94,14 @@ jobs:
       - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
       - run: cmake --build build-consumer
       - run: LD_LIBRARY_PATH="$RUNNER_TEMP/rmr-deps/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib" ./build-consumer/consumer
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # The same clang-format release on every machine; .clang-format-ignore
+      # keeps generated and third-party files out.
+      - run: python3 -m pip install clang-format==21.1.8
+      - run: git ls-files '*.c' '*.h' | xargs clang-format --dry-run --Werror
