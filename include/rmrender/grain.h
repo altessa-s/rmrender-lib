@@ -31,8 +31,11 @@ typedef struct {
   rmr_rect box;
 } rmr_mask;
 
+/* Releases mask's bytes and zeroes it; a null pointer is a no-op. */
 RMR_API void rmr_mask_free(rmr_mask* mask);
 
+/* Integer-aligned bounding box covering every point's half-width-plus-one
+ * capsule. */
 [[nodiscard]] RMR_API rmr_status rmr_grain_box(const rmr_grain_point* points,
                                                size_t count,
                                                const rmr_limits* limits,
@@ -61,6 +64,7 @@ typedef struct {
                        uint8_t* bytes, size_t stride);
 } rmr_unit_raster;
 
+/* Deterministic pseudo-random value in [0,1) for an integer lattice point. */
 RMR_API double rmr_grain_noise(int64_t x, int64_t y);
 
 /* Nonfinite or |coordinate| > 1e12 returns variant zero. */

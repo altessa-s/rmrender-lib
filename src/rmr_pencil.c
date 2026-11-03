@@ -7,16 +7,20 @@
 #include "rmr_internal.h"
 #include "rmr_tiles.h"
 
+/* SplitMix64 finalizer: scrambles z into a well-distributed 64-bit value. */
 static uint64_t mix(uint64_t z) {
   z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
   z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
   return z ^ (z >> 31);
 }
 
+/* Hash of lattice cell (x, y), salted by salt. */
 static uint64_t hash(int64_t x, int64_t y, uint64_t salt) {
   return mix(mix((uint64_t)x + salt) ^ (uint64_t)y);
 }
 
+/* Hashed pseudo-random value in [0,1) for lattice cell (x, y), salted by
+ * salt. */
 static double unit(int64_t x, int64_t y, uint64_t salt) {
   return (double)(hash(x, y, salt) >> 11) * 0x1p-53;
 }
@@ -35,10 +39,13 @@ unsigned int rmr_stamp_variant(float x, float y) {
   return (unsigned int)((bits ^ (bits >> 31)) & 3);
 }
 
+/* Pressure normalized to [0,1]; a nonfinite input is treated as zero. */
 static double pressure(float p) {
   return isfinite(p) ? rmr_clamp((double)p / 255, 0, 1) : 0;
 }
 
+/* Ink coverage density for grain at normalized pressure p, interpolated
+ * from the family's calibration table. */
 static double density(rmr_grain grain, double p) {
   static const double pencil[][2] = {
       {0, .010},   {.09, .020}, {.16, .060}, {.22, .090}, {.28, .200},
@@ -62,15 +69,19 @@ static double density(rmr_grain grain, double p) {
   return table[count - 1][1];
 }
 
+/* Smoothstep of x between a and b, clamped to [0,1]. */
 static double smooth(double a, double b, double x) {
   double u = rmr_clamp((x - a) / (b - a), 0, 1);
   return u * u * (3 - 2 * u);
 }
 
+/* Lattice cell index containing x, clamped to a safe integer range. */
 static int64_t cell(double x) {
   return (int64_t)rmr_clamp(floor(x), -0x1p62, 0x1p62);
 }
 
+/* Interpolated noise offset at arc-length s on bristle track t, giving a
+ * wavering hair line in [0,1). */
 static double hair(double s, double t) {
   const uint64_t salt = UINT64_C(0x686169726C696E65);
   int64_t track = cell(t);
@@ -81,6 +92,8 @@ static double hair(double s, double t) {
   return a + (b - a) * g;
 }
 
+/* Row or column range in [0, count) covering pixel centers in [low, high);
+ * false (first/last unset) if the range is empty or invalid. */
 static bool cells(double low, double high, size_t count, size_t* first,
                   size_t* last) {
   double a = fmax(ceil(low - .5), 0),
@@ -91,6 +104,8 @@ static bool cells(double low, double high, size_t count, size_t* first,
   return true;
 }
 
+/* True if lattice position (x, y) is inked for grain at pressure byte
+ * value (1..254), using the procedural tiles or density tables. */
 static bool sample(rmr_grain grain, int64_t x, int64_t y, unsigned value,
                    double width) {
   double p = (double)(value - 1) / 253;

@@ -24,6 +24,8 @@ struct rmr_linux_layout {
   double bottom;
 };
 
+/* Counts the UTF-16 code units spanned by bytes of UTF-8 text; characters
+ * outside the basic plane count as two units. */
 static size_t units(const char* text, size_t bytes) {
   size_t n = 0;
   const char* end = text + bytes;
@@ -34,6 +36,8 @@ static size_t units(const char* text, size_t bytes) {
   return n;
 }
 
+/* Byte offset of the u-th UTF-16 code unit within text, or SIZE_MAX if u
+ * lands past the end or inside a surrogate pair. */
 static size_t offset(const char* text, size_t bytes, size_t u) {
   size_t at = 0, used = 0;
   while (at < bytes && used < u) {
@@ -63,6 +67,7 @@ static double rtl_trailing_width(PangoLayoutLine* line) {
   return (double)x / PANGO_SCALE;
 }
 
+/* True if the line's final logical character resolves to RTL direction. */
 static bool rtl_logical_end(PangoLayoutLine* line) {
   if (!line->length) return false;
   const char* text = pango_layout_get_text(line->layout);
@@ -71,6 +76,8 @@ static bool rtl_logical_end(PangoLayoutLine* line) {
          PANGO_DIRECTION_RTL;
 }
 
+/* X position in Pango units of index within line; uses the trailing edge of
+ * the last character when index falls at an RTL line's logical end. */
 static int line_index_x(PangoLayoutLine* line, size_t index) {
   int x = 0;
   const char* text = pango_layout_get_text(line->layout);
@@ -118,6 +125,9 @@ static double start_adjustment(PangoLayoutLine* line) {
   return 0;
 }
 
+/* Computes the caret x position for an interior index that may fall at a
+ * bidi run boundary or inside a kerned glyph cluster, writing the base
+ * position to *x and returning any extra pair-adjustment width to add. */
 static double interior_adjustment(PangoLayoutLine* line, size_t index, int* x) {
   const char* text = pango_layout_get_text(line->layout);
   size_t previous = (size_t)(g_utf8_prev_char(text + index) - text);
@@ -211,6 +221,9 @@ static double end_pair_adjustment(PangoLayoutLine* line) {
   return 0;
 }
 
+/* Caret-provider callback: computes the primary and line-start x offsets
+ * for a character index within paragraph pi's line li, after validating
+ * that pi, li, and index are all in range. */
 static rmr_status caret(void* ctx, size_t pi, size_t li, size_t index,
                         rmr_caret_offsets* out) {
   rmr_linux_layout* l = ctx;
@@ -259,6 +272,8 @@ static rmr_status caret(void* ctx, size_t pi, size_t li, size_t index,
   return RMR_OK;
 }
 
+/* Frees a layout together with its native Pango objects, retained paragraph
+ * text, and font reference. A null layout is a no-op. */
 void rmr_linux_layout_free(rmr_linux_layout* l) {
   if (!l) return;
 
@@ -280,20 +295,26 @@ void rmr_linux_layout_free(rmr_linux_layout* l) {
   free(l);
 }
 
+/* Returns the layout's accounted byte size, or zero for a null layout. */
 size_t rmr_linux_layout_bytes(const rmr_linux_layout* l) {
   return l ? l->bytes : 0;
 }
 
+/* Returns the layout's anchor/paragraph table, or null for a null layout. */
 const rmr_anchor_layout* rmr_linux_layout_anchors(const rmr_linux_layout* l) {
   return l ? &l->anchors : nullptr;
 }
 
+/* Writes the layout's bottom y-coordinate to *out; returns false if the
+ * layout is null or has no paragraphs. */
 bool rmr_linux_layout_bottom(const rmr_linux_layout* l, double* out) {
   if (!l || !l->anchors.count || !out) return false;
   *out = l->bottom;
   return true;
 }
 
+/* Sets a's byte range to [start, end) and merges it into list, which takes
+ * ownership of a. */
 static void attr(PangoAttrList* list, PangoAttribute* a, size_t start,
                  size_t end) {
   a->start_index = (guint)start;
@@ -301,6 +322,9 @@ static void attr(PangoAttrList* list, PangoAttribute* a, size_t start,
   pango_attr_list_change(list, a);
 }
 
+/* Builds and lays out the marker glyph for a list item: a bullet character,
+ * a lowercase letter, a lowercase roman numeral, or a decimal number,
+ * chosen by family and nesting level. */
 static PangoLayout* marker(const rmr_linux_fonts* fonts, rmr_type_metrics m,
                            rm_list_family family, size_t ordinal, int level) {
   char label[128];
@@ -823,11 +847,14 @@ rmr_status rmr_linux_layout_create(const rm_text_block* text, double page_width,
   return RMR_OK;
 }
 
+/* Computes the visual start/end x and baseline of paragraph pi's line li,
+ * accounting for RTL alignment within the column and trailing whitespace. */
 rmr_status rmr_linux_layout_line(const rmr_linux_layout* l, size_t pi,
                                  size_t li, rmr_text_line* out, rmr_error* e) {
   if (!l || !out || pi >= l->anchors.count ||
       li >= l->paragraphs[pi].line_count)
-    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text line index");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
+                           "invalid text line index");
 
   const rmr_anchor_paragraph* p = &l->paragraphs[pi];
   rmr_anchor_line v = p->lines[li];
@@ -852,6 +879,8 @@ typedef struct {
   bool discard;
 } layout_sink;
 
+/* Cairo PDF write callback that forwards bytes to the sink unless the
+ * layout output is being discarded. */
 static cairo_status_t layout_write(void* closure, const unsigned char* data,
                                    unsigned int length) {
   layout_sink* output = closure;
@@ -865,7 +894,8 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout* l, rmr_rect viewport,
                                  const rmr_limits* given, rmr_plan** out,
                                  rmr_error* e) {
   if (!l || !out)
-    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "missing layout/output");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
+                           "missing layout/output");
 
   rmr_limits limits = given ? *given : rmr_limits_default();
   rmr_plan* valid = nullptr;
@@ -977,6 +1007,8 @@ rmr_status rmr_linux_layout_plan(const rmr_linux_layout* l, rmr_rect viewport,
   return s == RMR_OK ? s : rmr_linux_error(e, s, "text PDF rendering failed");
 }
 
+/* Measures the Pango-shaped width of text; when less_rightmost is set, the
+ * advance of whichever glyph extends furthest to the right is excluded. */
 rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face,
                                 bool bold, bool italic, bool less_rightmost,
                                 const rmr_linux_fonts* fonts,
@@ -985,7 +1017,8 @@ rmr_status rmr_linux_text_width(rm_str text, double size, rmr_type_face face,
   rmr_limits l = given ? *given : rmr_limits_default();
   if (!fonts || !out || (!text.bytes && text.length) || !isfinite(size) ||
       size <= 0 || size > 100000 || face > RMR_FACE_SERIF)
-    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT, "invalid text measurement");
+    return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
+                           "invalid text measurement");
 
   if (text.length > INT_MAX || text.length > l.maximum_elements ||
       text.length > l.maximum_plan_bytes / 4)

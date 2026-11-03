@@ -31,6 +31,7 @@
 #if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
 #include <CoreFoundation/CoreFoundation.h>
 #endif
+
 static const char* samples[] = {"office ffi affine",
                                 "é ä ô é ä",
                                 "مرحبا بالعالم مرحبا بالعالم",
@@ -53,10 +54,12 @@ typedef struct {
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_caret_reference.h"
 #endif
+
 int main(int argc, char** argv) {
   CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
   bool dump = argc == 3;
   size_t mismatches = 0;
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
   size_t at = 0;
 #else
@@ -143,6 +146,7 @@ int main(int argc, char** argv) {
       }
 
   release(fonts);
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
   CHECK(at == sizeof apple_carets / sizeof *apple_carets);
   FcFini();

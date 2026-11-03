@@ -35,6 +35,8 @@ rmr_linux_pdf(const rmr_plan* const* plans, size_t count, double scale,
     const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,
     rmr_bitmap* out, rmr_error* error);
 
+/* Like rmr_linux_pdf, but each page uses its own explicit sheet (size and
+ * transform) instead of a single shared scale. */
 [[nodiscard]] RMR_API rmr_status rmr_linux_pdf_sheets(
     const rmr_plan* const* plans, const rmr_sheet* sheets, size_t count,
     const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,

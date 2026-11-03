@@ -20,6 +20,8 @@
 #endif
 #include <unistd.h>
 
+/* Writes the calibration-table lookup name for this face/weight/script/size
+ * combination into key and returns it. */
 static const char* calibration_key(rmr_type_face face, bool bold, bool italic,
                                    int script, double size, char key[96]) {
   if (script >= 0) {
@@ -44,6 +46,8 @@ static const char* calibration_key(rmr_type_face face, bool bold, bool italic,
                                    : "reMarkableSans-Regular";
 }
 
+/* The calibrated kerning share for c under this face/weight/style/script, as
+ * a fraction of the type size. */
 static double calibrated_kern(uint32_t c, rmr_type_face face, bool bold,
                               bool italic, int script) {
   if (c > UINT16_MAX) return 0;
@@ -61,6 +65,10 @@ static double calibrated_kern(uint32_t c, rmr_type_face face, bool bold,
                   : rmr_sans_glyph_share(u);
 }
 
+/* Fontconfig default-substitute callback: rewrites family, weight, slant,
+ * variation axis and synthetic matrix for the RMR-* alias family encoded in
+ * pattern, or swaps in the real emoji family; other patterns are untouched.
+ */
 static void calibrated_pattern(FcPattern* pattern, void* context) {
   const rmr_linux_fonts* fonts = context;
   FcChar8* family = nullptr;
@@ -149,6 +157,8 @@ static void calibrated_pattern(FcPattern* pattern, void* context) {
   FcPatternAddMatrix(pattern, FC_MATRIX, &matrix);
 }
 
+/* Internal script index for c: 0 default, 1 Hebrew, 2 Devanagari, 3 Arabic,
+ * 4 Korean, 5 CJK, 6 Thai. */
 static int character_script(gunichar c) {
   if ((c >= 0x590 && c <= 0x5ff) || (c >= 0xfb1d && c <= 0xfb4f)) return 1;
   if (c >= 0x900 && c <= 0x97f) return 2;
@@ -163,10 +173,14 @@ static int character_script(gunichar c) {
   return 0;
 }
 
+/* True if c is a strong directional/script character that determines the
+ * script used for calibration from this point on. */
 static bool strong(gunichar c) {
   return g_unichar_isalpha(c) || (c >= 0x3040 && c <= 0x30ff);
 }
 
+/* True if c is a basic Latin or Latin-1/Extended-A letter, exempted from
+ * script-specific calibration. */
 static bool latin_character(gunichar c) {
   return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) ||
          (c >= 0xc0 && c <= 0x24f) || (c >= 0x1e00 && c <= 0x1eff);
@@ -176,19 +190,24 @@ static bool latin_character(gunichar c) {
  * completed clusters preserves natural font kerning and joining. */
 static PangoAttrClass spacing_class;
 
+/* Duplicates a calibrated-spacing Pango attribute. */
 static PangoAttribute* spacing_copy(const PangoAttribute* a) {
   PangoAttrInt* copy = g_new(PangoAttrInt, 1);
   *copy = *(const PangoAttrInt*)a;
   return &copy->attr;
 }
 
+/* Frees a calibrated-spacing Pango attribute. */
 static void spacing_destroy(PangoAttribute* a) { g_free(a); }
 
+/* True if two calibrated-spacing attributes carry the same value. */
 static gboolean spacing_equal(const PangoAttribute* a,
                               const PangoAttribute* b) {
   return ((const PangoAttrInt*)a)->value == ((const PangoAttrInt*)b)->value;
 }
 
+/* Creates a calibrated-spacing Pango attribute carrying value, registering
+ * the attribute class on first use. */
 static PangoAttribute* spacing_new(int value) {
   static gsize initialized;
   if (g_once_init_enter(&initialized)) {
@@ -204,6 +223,7 @@ static PangoAttribute* spacing_new(int value) {
   return &a->attr;
 }
 
+/* Pango attribute filter matching calibrated-spacing attributes. */
 static gboolean is_spacing(PangoAttribute* a, gpointer context) {
   (void)context;
   return a->klass == &spacing_class;
@@ -712,6 +732,8 @@ static_assert(sizeof names / sizeof *names ==
               sizeof((rmr_linux_fonts*)0)->fds /
                   sizeof((rmr_linux_fonts*)0)->fds[0]);
 
+/* Releases fonts once its reference count reaches zero, shutting down the
+ * font map and closing all font file descriptors. */
 void rmr_linux_fonts_free(rmr_linux_fonts* f) {
   if (!f || atomic_fetch_sub(&f->references, 1) != 1) return;
 
@@ -727,6 +749,7 @@ void rmr_linux_fonts_free(rmr_linux_fonts* f) {
 
   for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
     if (f->fds[i] >= 0) close(f->fds[i]);
+
 #ifdef __APPLE__
     if (f->paths[i][0]) unlink(f->paths[i]);
 #endif
@@ -735,6 +758,8 @@ void rmr_linux_fonts_free(rmr_linux_fonts* f) {
   free(f);
 }
 
+/* Builds a private Fontconfig/Pango font map from resolve's bundled fonts,
+ * including per-face base-character sets used to pick calibration script. */
 rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void* context,
                                   const rmr_limits* given,
                                   rmr_linux_fonts** out, rmr_error* e) {
@@ -807,6 +832,7 @@ rmr_status rmr_linux_fonts_create(rmr_font_resolve_fn resolve, void* context,
     if (s != RMR_OK) break;
 
     char path[64];
+
 #ifdef __APPLE__
     snprintf(path, sizeof path, "%s", f->paths[i]);
 #else
@@ -863,6 +889,8 @@ typedef struct {
   size_t maximum;
 } directory_fonts;
 
+/* Font resolver reading name as a .ttf file from ctx's directory into its
+ * reusable buffer. */
 static rmr_status resolve_directory(void* ctx, const char* name,
                                     rmr_asset_view* out) {
   directory_fonts* d = ctx;

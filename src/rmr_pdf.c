@@ -26,6 +26,7 @@ typedef struct {
   void* context;
 } job;
 
+/* Records the first failure and its reason; later failures are ignored. */
 static void stop(job* j, rmr_status s, const char* why) {
   if (j->status == RMR_OK) {
     j->status = s;
@@ -33,6 +34,8 @@ static void stop(job* j, rmr_status s, const char* why) {
   }
 }
 
+/* Charges one unit of work and polls cancellation. Returns false once the
+ * job has failed. */
 static bool tick(job* j) {
   if (j->status != RMR_OK) return false;
 
@@ -45,6 +48,9 @@ static bool tick(job* j) {
   return j->status == RMR_OK;
 }
 
+/* Zeroed arena allocation charged to the scratch budget; freed by
+ * release(). Returns null, failing the job, when over budget or out of
+ * memory. */
 static void* take(job* j, size_t n) {
   if (j->status != RMR_OK) return nullptr;
   if (n > SIZE_MAX - sizeof(mem) ||
@@ -80,14 +86,17 @@ typedef struct {
   size_t size, pos;
 } scan;
 
+/* PDF whitespace, which includes NUL. */
 static bool space(uint8_t c) {
   return c == 0 || c == 9 || c == 10 || c == 12 || c == 13 || c == 32;
 }
 
+/* True for whitespace and the PDF delimiter characters. */
 static bool delim(uint8_t c) {
   return space(c) || strchr("()<>[]{}/%", c) != nullptr;
 }
 
+/* Skips whitespace and % comments. */
 static void ws(scan* s) {
   while (s->pos < s->size) {
     uint8_t c = s->data[s->pos];
@@ -102,6 +111,7 @@ static void ws(scan* s) {
   }
 }
 
+/* Consumes w if it is the next complete token. */
 static bool word(scan* s, const char* w) {
   ws(s);
   size_t n = strlen(w);
@@ -112,6 +122,8 @@ static bool word(scan* s, const char* w) {
   return true;
 }
 
+/* Reads an unsigned decimal token without sign. On overflow or a
+ * non-delimited token, only leading whitespace is consumed. */
 static bool integer(scan* s, uint64_t* v) {
   ws(s);
   size_t p = s->pos;
@@ -129,6 +141,7 @@ static bool integer(scan* s, uint64_t* v) {
   return true;
 }
 
+/* Value of a hexadecimal digit, or -1. */
 static int hex(uint8_t c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -136,6 +149,7 @@ static int hex(uint8_t c) {
   return -1;
 }
 
+/* True if n is a name token equal to name after decoding #xx escapes. */
 static bool named(const node* n, const char* name) {
   if (!n || n->type != NAME) return false;
   size_t k = 0;
@@ -154,6 +168,7 @@ static bool named(const node* n, const char* name) {
   return name[k] == 0;
 }
 
+/* Compares two validated name tokens after decoding #xx escapes. */
 static bool same_name(const node* a, const node* b) {
   size_t i = 1, k = 1;
 
@@ -173,6 +188,8 @@ static bool same_name(const node* a, const node* b) {
   return i == a->length && k == b->length;
 }
 
+/* Unresolved value of key in dictionary d; null if absent or d is not a
+ * dictionary. */
 static node* get(node* d, const char* key) {
   if (!d || d->type != DICT) return nullptr;
   for (node* n = d->child; n && n->next; n = n->next->next)
@@ -180,6 +197,9 @@ static node* get(node* d, const char* key) {
   return nullptr;
 }
 
+/* Parses one direct object into arena nodes. Strings, numbers and keywords
+ * stay raw scalars; "n g R" becomes a reference. Rejects duplicate
+ * dictionary keys, malformed tokens and nesting of 64 levels. */
 static node* parse(scan* s, unsigned depth) {
   if (!tick(s->j)) return nullptr;
   if (depth >= 64) {
@@ -328,6 +348,7 @@ typedef struct {
   max_align_t align;
 } zblock;
 
+/* zlib allocator charged to the job's scratch budget. */
 static voidpf pdf_zalloc(voidpf context, uInt count, uInt size) {
   job* j = context;
   if (j->status != RMR_OK) return nullptr;
@@ -350,6 +371,7 @@ static voidpf pdf_zalloc(voidpf context, uInt count, uInt size) {
   return b + 1;
 }
 
+/* zlib deallocator; returns the block's size to the scratch budget. */
 static void pdf_zfree(voidpf context, voidpf address) {
   job* j = context;
   if (!address) return;
@@ -574,6 +596,7 @@ typedef struct {
   size_t stream_count;
 } file;
 
+/* Index entry for object id, or null when the index has none. */
 static entry* lookup(file* f, uint32_t id) {
   size_t lo = 0, hi = f->count;
   while (lo < hi) {
@@ -635,6 +658,10 @@ bad:
   return nullptr;
 }
 
+/* Parses an indirect object once and caches it on the entry, reading it
+ * from the file body or its object stream. For a stream object, also
+ * records the raw stream bytes. Fails on free, missing or cyclic
+ * objects. */
 static node* object(file* f, entry* e, unsigned depth) {
   if (!e || !e->live) {
     stop(f->j, RMR_ERR_INVALID_ARGUMENT, "missing PDF object");
@@ -704,6 +731,7 @@ bad:
   return nullptr;
 }
 
+/* Follows references until a direct object; other nodes pass through. */
 static node* resolve(file* f, node* n, unsigned depth) {
   if (!n || n->type != REF) return n;
   if (depth >= 64) {
@@ -748,6 +776,7 @@ static bool decimal(node* n, double* out) {
   return digit && isfinite(value);
 }
 
+/* True if both values resolve to arrays of four equal numbers. */
 static bool equal_boxes(file* f, node* a, node* b) {
   a = resolve(f, a, 0);
   b = resolve(f, b, 0);
@@ -767,6 +796,8 @@ static bool equal_boxes(file* f, node* a, node* b) {
   return !a && !b;
 }
 
+/* qsort order: object number, newest revision, table rows before stream
+ * rows, then original row order. */
 static int entry_order(const void* a, const void* b) {
   const entry *x = a, *y = b;
   if (x->number != y->number) return x->number < y->number ? -1 : 1;
@@ -775,6 +806,8 @@ static int entry_order(const void* a, const void* b) {
   return (x->mapped > y->mapped) - (x->mapped < y->mapped);
 }
 
+/* Parses and decodes the cross-reference stream object at offset; cached
+ * per file so both index passes share it. */
 static xref_stream* load_xref_stream(file* f, size_t offset) {
   for (size_t i = 0; i < f->stream_count; i++)
     if (f->streams[i].offset == offset) return &f->streams[i];
@@ -816,6 +849,8 @@ bad:
   return nullptr;
 }
 
+/* Counts the rows of the xref stream at offset, also storing them when
+ * fill is set. Returns the stream dictionary, which acts as the trailer. */
 static node* stream_section(file* f, size_t offset, bool fill, size_t* used,
                             size_t revision) {
   xref_stream* x = load_xref_stream(f, offset);
@@ -1008,6 +1043,9 @@ bad:
   return false;
 }
 
+/* Walks the page tree depth-first, appending each page with its inherited
+ * Resources, MediaBox, CropBox and Rotate. Refuses cycles, bad nodes and
+ * a /UserUnit other than 1. */
 static bool tree(file* f, node* ref, node* resources, node* media, node* crop,
                  node* rotate, unsigned depth) {
   if (!tick(f->j)) return false;
@@ -1061,6 +1099,9 @@ bad:
   return false;
 }
 
+/* Indexes every xref revision of a PDF (newest row per object wins),
+ * resolves the catalog and collects the pages. Refuses encryption and
+ * catalog /Perms. Allocations live in the job's arena. */
 static bool open_file(file* f, job* j, const uint8_t* bytes, size_t size,
                       bool overlay) {
   *f = (file){.j = j,
@@ -1167,6 +1208,7 @@ typedef struct {
   size_t count;
 } writer;
 
+/* Appends bytes to the output, growing it up to maximum_pdf_bytes. */
 static void put(writer* w, const void* bytes, size_t n) {
   if (w->j->status != RMR_OK || !n) return;
   if (n > w->j->limits.maximum_pdf_bytes - w->data.size) {
@@ -1199,8 +1241,11 @@ static void put(writer* w, const void* bytes, size_t n) {
   w->data.size += n;
 }
 
+/* Appends a NUL-terminated string. */
 static void text(writer* w, const char* s) { put(w, s, strlen(s)); }
 
+/* Appends printf-style text; output longer than 511 bytes fails the
+ * job. */
 static void format(writer* w, const char* fmt, ...) {
   char b[512];
   va_list a;
@@ -1274,6 +1319,7 @@ static void real(writer* w, double v) {
   text(w, fixed);
 }
 
+/* Next unused object number; 0 after failing the job on exhaustion. */
 static uint32_t reserve(writer* w) {
   if (w->next_number >= UINT32_MAX) {
     stop(w->j, RMR_ERR_LIMIT, "PDF object number limit");
@@ -1282,6 +1328,7 @@ static uint32_t reserve(writer* w) {
   return (uint32_t)w->next_number++;
 }
 
+/* Opens indirect object id and records its offset for the xref. */
 static void begin(writer* w, uint32_t id, uint32_t gen) {
   if (!tick(w->j)) return;
   if (!id) {
@@ -1297,8 +1344,11 @@ static void begin(writer* w, uint32_t id, uint32_t gen) {
   format(w, "%u %u obj\n", id, gen);
 }
 
+/* Closes the current indirect object. */
 static void end(writer* w) { text(w, "\nendobj\n"); }
 
+/* Serializes a node. With import set, references are renumbered to the
+ * object numbers assigned to that file's imported objects. */
 static void value(writer* w, file* import, node* n, unsigned depth) {
   if (!n) {
     text(w, "null");
@@ -1328,6 +1378,7 @@ static void value(writer* w, file* import, node* n, unsigned depth) {
     put(w, n->raw, n->length);
 }
 
+/* Writes the entries of dictionary d except the count keys in skip. */
 static void fields(writer* w, file* import, node* d, const char* const* skip,
                    size_t count) {
   if (!d) return;
@@ -1349,6 +1400,7 @@ static void fields(writer* w, file* import, node* d, const char* const* skip,
   }
 }
 
+/* Writes a new unfiltered stream object holding s; returns its number. */
 static uint32_t stream_text(writer* w, const char* s) {
   uint32_t id = reserve(w);
   begin(w, id, 0);
@@ -1391,6 +1443,9 @@ static bool import_objects(writer* w, file* f) {
   return w->j->status == RMR_OK;
 }
 
+/* Entry of the indirect content stream that contents refers to, either
+ * directly or as a one-element array; null after failing the job
+ * otherwise. */
 static entry* single_stream(file* f, node* contents) {
   if (!contents) return nullptr;
 
@@ -1418,6 +1473,8 @@ static entry* single_stream(file* f, node* contents) {
   return e;
 }
 
+/* Imports a one-page overlay file and wraps its page as a Form XObject.
+ * Returns the form's object number, or 0 on failure. */
 static uint32_t form(writer* w, file* f) {
   page* p = f->pages;
   uint64_t rotation = 0;
@@ -1464,6 +1521,8 @@ static uint32_t form(writer* w, file* f) {
   return id;
 }
 
+/* Writes a page's existing content-stream references, each checked to be
+ * an indirect stream. */
 static void contents(writer* w, file* f, node* n) {
   if (!n) return;
   node* v = resolve(f, n, 0);
@@ -1483,6 +1542,7 @@ static void contents(writer* w, file* f, node* n) {
   }
 }
 
+/* Writes a rectangle as a PDF [llx lly urx ury] array. */
 static void rectangle(writer* w, rmr_rect b) {
   text(w, "[");
   real(w, b.x);
@@ -1495,6 +1555,10 @@ static void rectangle(writer* w, rmr_rect b) {
   text(w, "]");
 }
 
+/* Rewrites one source page so it draws the overlay form, under its
+ * transform, after the original contents wrapped in q/Q. With
+ * replace_box, also replaces MediaBox/CropBox and keeps the old
+ * MediaBox as ArtBox. */
 static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
   page* p = source->pages;
   for (size_t i = 0; i < o->page && p; i++) {
@@ -1596,11 +1660,15 @@ static void trailer_fields(writer* w, node* trailer) {
       }
 }
 
+/* qsort order of written objects by object number. */
 static int update_order(const void* a, const void* b) {
   const update *x = a, *y = b;
   return (x->id > y->id) - (x->id < y->id);
 }
 
+/* Writes the cross-reference section and trailer for the objects written
+ * so far: a complete table for a fresh file, otherwise an update chained
+ * to the source's last xref, as a table, stream or both (hybrid). */
 static void finish(writer* w, file* f) {
   size_t offset = w->data.size;
   bool hybrid = f->xref_streams && get(f->trailer, "XRefStm") != nullptr;
@@ -1690,6 +1758,7 @@ static void finish(writer* w, file* f) {
   format(w, ">>\nstartxref\n%zu\n%%%%EOF\n", offset);
 }
 
+/* Frees every arena block owned by the job. */
 static void release(job* j) {
   while (j->memory) {
     mem* next = j->memory->next;
@@ -1754,6 +1823,9 @@ rmr_status rmr_pdf_incremental(const uint8_t* source, size_t size,
                         j.reason ? j.reason : "PDF update failed");
 }
 
+/* A page's inherited MediaBox, normalised to positive size, and /Rotate
+ * reduced to 0-270. False if either is malformed or not a multiple of
+ * 90. */
 static bool geometry(file* f, const page* p, rmr_pdf_page_geometry* out) {
   *out = (rmr_pdf_page_geometry){0};
 
@@ -1812,6 +1884,7 @@ rmr_status rmr_pdf_pages(const uint8_t* source, size_t size,
 
 #include "rmr_pdf_edit.h"
 
+/* Writes t applied to p as two PDF numbers, each followed by a space. */
 static void clip_point(writer* w, rmr_transform t, rmr_point p) {
   real(w, t.a * p.x + t.c * p.y + t.tx);
   text(w, " ");
@@ -1819,6 +1892,10 @@ static void clip_point(writer* w, rmr_transform t, rmr_point p) {
   text(w, " ");
 }
 
+/* Appends an incremental update to a one-page PDF that clips the page's
+ * existing contents to path, mapped through transform. On success out
+ * receives a new caller-owned buffer; on failure it is unchanged and the
+ * status is returned without a message. */
 rmr_status rmr_pdf_clip(const uint8_t* pdf, size_t size, rmr_path_view path,
                         rmr_transform transform, const rmr_limits* limits,
                         rmr_buffer* out) {
@@ -1896,6 +1973,8 @@ rmr_status rmr_pdf_clip(const uint8_t* pdf, size_t size, rmr_path_view path,
   return j.status;
 }
 
+/* Writes a /Dest [page /XYZ x y null] entry; fails the job if the page
+ * index is out of range. */
 static void destination(writer* w, page** pages, size_t count,
                         rmr_pdf_destination d) {
   if (d.page >= count) {
@@ -1916,6 +1995,11 @@ typedef struct {
   size_t first, last, prev, next, visible;
 } outline_entry;
 
+/* Appends an incremental update that adds local link annotations to their
+ * pages and, when outline_count is nonzero, installs a new document
+ * outline in place of /Outlines. Outline parents must precede their
+ * children. On success out receives a new caller-owned buffer; on
+ * failure it is unchanged. */
 rmr_status rmr_pdf_navigation(const uint8_t* pdf, size_t size,
                               const rmr_pdf_local_link* links,
                               size_t link_count, const rmr_pdf_outline* outline,
@@ -2165,6 +2249,7 @@ typedef struct {
   size_t count;
 } selected_page;
 
+/* New arena node of the given kind whose raw text copies text_value. */
 static node* select_token(job* j, kind type, const char* text_value) {
   node* n = take(j, sizeof *n);
   size_t size = strlen(text_value);
@@ -2176,6 +2261,7 @@ static node* select_token(job* j, kind type, const char* text_value) {
   return n;
 }
 
+/* New reference node for id and generation. */
 static node* select_ref(job* j, uint32_t id, uint32_t generation) {
   char raw[48];
   snprintf(raw, sizeof raw, "%u %u R", id, generation);
@@ -2187,6 +2273,7 @@ static node* select_ref(job* j, uint32_t id, uint32_t generation) {
   return n;
 }
 
+/* Deep copy of a node into the arena, with its sibling link cleared. */
 static node* select_clone(job* j, const node* n, unsigned depth) {
   if (!n || !tick(j)) return nullptr;
   if (depth >= 64) {
@@ -2208,6 +2295,7 @@ static node* select_clone(job* j, const node* n, unsigned depth) {
   return copy;
 }
 
+/* Replaces the value of key in dict, or prepends the key if absent. */
 static void select_set(job* j, node* dict, const char* key, node* v) {
   if (!dict || !v || j->status != RMR_OK) return;
 
@@ -2228,6 +2316,7 @@ static void select_set(job* j, node* dict, const char* key, node* v) {
   }
 }
 
+/* Unlinks the entry for key from dict, if present. */
 static void select_remove(node* dict, const char* key) {
   if (!dict) return;
   for (node** at = &dict->child; *at; at = &(*at)->next->next)
@@ -2242,6 +2331,7 @@ typedef struct {
   node* tail;
 } selection_array;
 
+/* New empty array that select_append extends in constant time. */
 static node* select_array(job* j) {
   selection_array* a = take(j, sizeof *a);
   if (a) a->value.type = ARRAY;
@@ -2259,6 +2349,7 @@ static void select_append(node* array, node* item) {
   a->tail = item;
 }
 
+/* True if a widget dictionary also carries field keys (merged field). */
 static bool select_merged(node* dict) {
   return get(dict, "T") || get(dict, "FT") || get(dict, "V") || get(dict, "DV");
 }
@@ -2302,6 +2393,10 @@ static void select_refs(file* f, node* n, const selected_page* local,
       select_refs(f, c, local, depth + 1);
 }
 
+/* Rebuilds a form field array for the selected pages. Widgets become their
+ * page copies and merged field/widgets keep the field with per-copy kids.
+ * Fields left without widgets are dropped unless no source page held
+ * them. Retained fields are marked 2 in seen. */
 static node* select_fields(file* f, node* array, node** widgets, uint8_t* seen,
                            const uint8_t* attached, unsigned depth) {
   array = resolve(f, array, 0);
@@ -2369,6 +2464,8 @@ typedef struct label_range {
   struct label_range* next;
 } label_range;
 
+/* Collects every (first page index, label dictionary) pair of a page
+ * label number tree into a list. */
 static void select_label_ranges(file* f, node* tree, label_range** out,
                                 unsigned depth) {
   tree = resolve(f, tree, 0);
@@ -2406,6 +2503,8 @@ static void select_label_ranges(file* f, node* tree, label_range** out,
     select_label_ranges(f, k, out, depth + 1);
 }
 
+/* New /PageLabels number tree giving each selected page the label it had
+ * in the source; null on failure. */
 static node* select_labels(file* f, const size_t* indices, size_t count) {
   job* j = f->j;
   label_range* ranges = nullptr;

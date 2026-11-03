@@ -9,6 +9,9 @@
 
 typedef enum { PDF_FRESH, PDF_INCREMENTAL, PDF_RECOMPOSED } pdf_output_mode;
 
+/* Shared implementation behind the three public document-to-PDF entry
+ * points; lays out every page into a plan and sheet, then dispatches to
+ * recompose, incremental, or overlay PDF output according to mode. */
 static rmr_status document_pdf(const rmr_archive_document* document,
                                const rmr_page_resources* given_resources,
                                const rmr_linux_fonts* fonts, rmr_paper paper,
@@ -18,7 +21,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
                                rmr_error* e, pdf_output_mode mode) {
   if (!document || !out || paper > RMR_PAPER_TABLET)
     return rmr_linux_error(e, RMR_ERR_INVALID_ARGUMENT,
-                      "invalid document render input");
+                           "invalid document render input");
 
   rmr_limits limits = given ? *given : rmr_limits_default(), remaining = limits;
   rmr_asset_view pdf = rmr_archive_document_pdf(document);
@@ -42,7 +45,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
                   (sizeof(rm_page*) + sizeof(rmr_pdf_page))) {
     rmr_linux_pdf_source_free(source);
     return rmr_linux_error(e, count ? RMR_ERR_LIMIT : RMR_ERR_INVALID_ARGUMENT,
-                      "document page count invalid");
+                           "document page count invalid");
   }
 
   rm_page** parsed = calloc(count, sizeof *parsed);
@@ -52,7 +55,7 @@ static rmr_status document_pdf(const rmr_archive_document* document,
     free(pages);
     rmr_linux_pdf_source_free(source);
     return rmr_linux_error(e, RMR_ERR_OUT_OF_MEMORY,
-                      "document page allocation failed");
+                           "document page allocation failed");
   }
   remaining.maximum_plan_bytes -= count * (sizeof *parsed + sizeof *pages);
   rmr_document_report result = {.document_pages = total,

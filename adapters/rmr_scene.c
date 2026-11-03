@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Fill *e (if given) with status s, item index and message, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s, size_t i,
                        const char* message) {
   if (e) {

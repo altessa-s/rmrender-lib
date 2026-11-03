@@ -24,16 +24,19 @@ typedef struct {
   bool dirty, clip_viewport;
 } drawing;
 
+/* Maps a blend mode to the matching Cairo compositing operator. */
 static cairo_operator_t blend(rmr_blend b) {
   return b == RMR_BLEND_DARKEN     ? CAIRO_OPERATOR_DARKEN
          : b == RMR_BLEND_MULTIPLY ? CAIRO_OPERATOR_MULTIPLY
                                    : CAIRO_OPERATOR_OVER;
 }
 
+/* Sets the context's source color from an RMR color. */
 static void color(cairo_t* cr, rmr_color c) {
   cairo_set_source_rgba(cr, c.red, c.green, c.blue, c.alpha);
 }
 
+/* Replays a path view's elements into the context as a new path. */
 static void path(cairo_t* cr, rmr_path_view p) {
   cairo_new_path(cr);
   for (size_t i = 0; i < p.count; i++) {
@@ -56,6 +59,9 @@ static void path(cairo_t* cr, rmr_path_view p) {
   }
 }
 
+/* Computes the ceiling pixel width and height for a surface of size w by
+ * h, rejecting non-finite or non-positive sizes and sizes that exceed the
+ * side or byte limits in l. */
 static rmr_status dimensions(double w, double h, const rmr_limits* l,
                              size_t* width, size_t* height) {
   if (!isfinite(w) || !isfinite(h) || w <= 0 || h <= 0)
@@ -72,6 +78,8 @@ static rmr_status dimensions(double w, double h, const rmr_limits* l,
   return RMR_OK;
 }
 
+/* Flattens the active transparency group onto the context using the
+ * stored blend mode and alpha, if a group is currently open. */
 static void group_end(drawing* c) {
   if (!c->group) return;
   cairo_pop_group_to_source(c->cr);
@@ -80,6 +88,9 @@ static void group_end(drawing* c) {
   c->group = 0;
 }
 
+/* Applies the sheet's transform to the context, inverting the vertical
+ * axis against the sheet height so .rm coordinates land correctly in
+ * Cairo's top-down space. */
 static void setup(drawing* c) {
   cairo_matrix_t m = {
       c->sheet.transform.a,  -c->sheet.transform.b,
@@ -88,6 +99,8 @@ static void setup(drawing* c) {
   cairo_transform(c->cr, &m);
 }
 
+/* Begins a new single-page Cairo PDF surface writing into c's sink, with
+ * the sheet transform already applied. */
 static void segment_start(drawing* c) {
   c->sink = (rmr_sink){.maximum = c->limits.maximum_pdf_bytes};
   c->surface = cairo_pdf_surface_create_for_stream(
@@ -97,6 +110,9 @@ static void segment_start(drawing* c) {
   c->dirty = false;
 }
 
+/* Closes the current page's Cairo PDF surface and, if anything was
+ * drawn, loads the resulting PDF bytes and forms them as a page object
+ * into the destination page. Returns the first failure encountered. */
 static rmr_status segment_end(drawing* c) {
   group_end(c);
   cairo_show_page(c->cr);
@@ -124,6 +140,8 @@ static rmr_status segment_end(drawing* c) {
   return s;
 }
 
+/* Builds a single-paragraph Pango layout for text in the fixed
+ * sans-serif family at an absolute point size. */
 static PangoLayout* label(cairo_t* cr, const char* text, size_t size,
                           double font_size) {
   PangoLayout* p = pango_cairo_create_layout(cr);
@@ -138,6 +156,9 @@ static PangoLayout* label(cairo_t* cr, const char* text, size_t size,
   return p;
 }
 
+/* Computes ink and logical text metrics for text via Pango, rejecting
+ * invalid UTF-8, oversized text, and non-finite or out-of-range font
+ * sizes. */
 static rmr_status measure(void* ctx, const char* text, size_t size,
                           double font_size, rmr_text_metrics* out) {
   (void)ctx;
@@ -178,6 +199,9 @@ typedef struct {
   rmr_status status;
 } image_size;
 
+/* GdkPixbufLoader size-prepared callback: checks w by h against the
+ * bitmap limits and, if they are exceeded, shrinks the decode target to
+ * 1x1 to abort the load early. */
 static void prepared(GdkPixbufLoader* loader, int w, int h, void* data) {
   image_size* s = data;
   size_t x, y;
@@ -185,6 +209,9 @@ static void prepared(GdkPixbufLoader* loader, int w, int h, void* data) {
   if (s->status != RMR_OK) gdk_pixbuf_loader_set_size(loader, 1, 1);
 }
 
+/* Decodes a PNG or JPEG image into a premultiplied ARGB32 Cairo surface,
+ * enforcing l's size limits. Returns RMR_ERR_BACKEND for an unrecognized
+ * or undecodable format. */
 static rmr_status image_surface(const rmr_image_view* im, const rmr_limits* l,
                                 cairo_surface_t** out) {
   const char* type =
@@ -238,6 +265,10 @@ static rmr_status image_surface(const rmr_image_view* im, const rmr_limits* l,
   return status;
 }
 
+/* Paints an embedded PDF page. When c has a destination PDF, forms the
+ * source page directly into it with blending and clipping applied via a
+ * wrapper document; otherwise rasterizes the page to a bitmap and
+ * composites it as an image. Must be called with the PDFium lock held. */
 static rmr_status paint_pdf_locked(drawing* c, const rmr_draw* d) {
   if (d->image.size > c->limits.maximum_pdf_bytes || d->pdf_page > INT_MAX)
     return RMR_ERR_LIMIT;
@@ -495,6 +526,8 @@ static rmr_status paint_pdf_locked(drawing* c, const rmr_draw* d) {
   return s;
 }
 
+/* Paints an embedded PDF page while holding the process-wide PDFium
+ * lock. */
 static rmr_status paint_pdf(drawing* c, const rmr_draw* d) {
   rmr_pdfium_lock();
   rmr_status s = paint_pdf_locked(c, d);
@@ -502,6 +535,8 @@ static rmr_status paint_pdf(drawing* c, const rmr_draw* d) {
   return s;
 }
 
+/* Backend begin callback: clips the context to the viewport when the
+ * drawing was configured to clip it. */
 static rmr_status begin(void* ctx, rmr_rect viewport) {
   drawing* c = ctx;
   if (c->clip_viewport) {
@@ -512,6 +547,10 @@ static rmr_status begin(void* ctx, rmr_rect viewport) {
   return RMR_OK;
 }
 
+/* Backend draw callback: manages the transparency group, applies the
+ * draw's stroke/fill/color state, then paints an image, PDF page, mask,
+ * text, or vector path, finally cutting out any eraser ink drawn earlier
+ * in the same isolated group. */
 static rmr_status draw(void* ctx, const rmr_draw* d) {
   drawing* c = ctx;
   if (c->group != d->group) {
@@ -644,14 +683,20 @@ static rmr_status draw(void* ctx, const rmr_draw* d) {
   return s;
 }
 
+/* Backend end callback: flattens any open transparency group and
+ * reports whether the context is left in an error state. */
 static rmr_status end(void* ctx) {
   drawing* c = ctx;
   group_end(c);
   return cairo_status(c->cr) == CAIRO_STATUS_SUCCESS ? RMR_OK : RMR_ERR_BACKEND;
 }
 
+/* Backend abort callback: flattens any open transparency group without
+ * reporting a status. */
 static void abort_draw(void* ctx) { group_end(ctx); }
 
+/* Builds the rmr_backend vtable bound to c, advertising the feature
+ * bitmask this backend supports. */
 static rmr_backend backend(drawing* c) {
   return (rmr_backend){RMR_BACKEND_ABI,
                        sizeof(rmr_backend),
@@ -663,6 +708,9 @@ static rmr_backend backend(drawing* c) {
                        abort_draw};
 }
 
+/* Checks that a sheet has finite, positive, bounded dimensions and a
+ * uniformly scaled transform with no rotation or shear and a flipped y
+ * axis. */
 static bool sheet_valid(const rmr_sheet* s) {
   if (!s || !isfinite(s->width) || !isfinite(s->height) || s->width <= 0 ||
       s->height <= 0 || s->width > 1000000 || s->height > 1000000)
@@ -673,6 +721,10 @@ static bool sheet_valid(const rmr_sheet* s) {
          fabs(t.tx) <= 1e12 && fabs(t.ty) <= 1e12;
 }
 
+/* Renders a plan onto an explicit sheet into a bitmap: validates the
+ * sheet and background color, paints the background, executes the plan
+ * through the Cairo backend, then converts the premultiplied ARGB32
+ * surface to unpremultiplied RGBA bytes. */
 static rmr_status bitmap_on_sheet(const rmr_plan* plan, const rmr_sheet* sheet,
                                   bool clip, rmr_color bg,
                                   const rmr_limits* given, rmr_cancel_fn cancel,
@@ -807,6 +859,8 @@ rmr_status rmr_linux_render_pdf(const rmr_plan* const* plans,
   return s == RMR_OK ? s : rmr_linux_error(e, s, "Linux PDF rendering failed");
 }
 
+/* Serializes count plans/sheets into a single PDF, holding the
+ * process-wide PDFium lock for the call. */
 rmr_status rmr_linux_pdf_sheets(const rmr_plan* const* plans,
                                 const rmr_sheet* sheets, size_t count,
                                 const rmr_limits* given, rmr_cancel_fn cancel,

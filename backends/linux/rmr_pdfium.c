@@ -15,6 +15,8 @@
 static pthread_mutex_t mutex;
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 
+/* Initializes the recursive mutex and the PDFium library; runs once per
+ * process. */
 static void initialize(void) {
   pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
@@ -76,6 +78,8 @@ typedef struct {
   rmr_sink sink;
 } writer;
 
+/* PDFium write callback: forwards to rmr_linux_write(), rejecting sizes
+ * larger than UINT_MAX. */
 static int write_block(FPDF_FILEWRITE* base, const void* data,
                        unsigned long size) {
   writer* w = (writer*)base;

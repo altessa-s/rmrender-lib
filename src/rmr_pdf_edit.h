@@ -7,6 +7,8 @@
 #define RMR_PDF_EDIT_H
 #include <rmrender/pdf.h>
 
+/* Appends an incremental update clipping a one-page PDF's content to path,
+ * mapped through transform. */
 RMR_API rmr_status rmr_pdf_clip(const uint8_t* pdf, size_t size,
                                 rmr_path_view path, rmr_transform transform,
                                 const rmr_limits* limits, rmr_buffer* out);
@@ -30,6 +32,8 @@ typedef struct {
   bool open;
 } rmr_pdf_outline;
 
+/* Appends an incremental update adding local link annotations and,
+ * optionally, a new document outline. */
 RMR_API rmr_status rmr_pdf_navigation(
     const uint8_t* pdf, size_t size, const rmr_pdf_local_link* links,
     size_t link_count, const rmr_pdf_outline* outline, size_t outline_count,

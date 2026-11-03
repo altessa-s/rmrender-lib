@@ -12,6 +12,7 @@ typedef struct {
 } rmr_bitmap;
 
 /* Premultiplied RGBA8, tightly packed, first row at top. */
+/* Frees pixels and zeroes bitmap; a null bitmap is a no-op. */
 RMR_API void rmr_bitmap_free(rmr_bitmap* bitmap);
 
 #endif

@@ -62,6 +62,9 @@ typedef struct {
     const rm_stroke* stroke, const rmr_unit_raster* raster,
     const rmr_limits* limits, rmr_mask* out, rmr_error* error);
 
+/* Like rmr_lines_plan, but accepts a unit raster for grain families that
+ * need one (validated, not invoked); pass nullptr for all-grain support
+ * without a raster. */
 [[nodiscard]] RMR_API rmr_status rmr_lines_plan_with_raster(
     const rm_stroke* strokes, size_t count, rmr_rect viewport,
     const rmr_unit_raster* raster, const rmr_limits* limits, rmr_plan** out,
@@ -205,12 +208,27 @@ typedef struct rmr_placed_scene rmr_placed_scene;
     const rm_stroke* strokes, size_t stroke_count, const rm_page_image* images,
     size_t image_count, const rmr_anchor_provider* provider,
     const rmr_limits* limits, rmr_placed_scene** out, rmr_error* error);
+
+/* Releases scene and its owned strokes, points, images and filenames; a
+ * null pointer is a no-op. */
 RMR_API void rmr_placed_scene_free(rmr_placed_scene* scene);
+
+/* Accounted owned heap bytes; null scene returns 0. */
 RMR_API size_t rmr_placed_scene_bytes(const rmr_placed_scene* scene);
+
+/* Number of strokes in the placed scene; null scene returns 0. */
 RMR_API size_t rmr_placed_scene_stroke_count(const rmr_placed_scene* scene);
+
+/* Borrowed stroke array, valid until scene is freed; null scene returns
+ * nullptr. */
 RMR_API const rm_stroke* rmr_placed_scene_strokes(
     const rmr_placed_scene* scene);
+
+/* Number of images in the placed scene; null scene returns 0. */
 RMR_API size_t rmr_placed_scene_image_count(const rmr_placed_scene* scene);
+
+/* Borrowed image array, valid until scene is freed; null scene returns
+ * nullptr. */
 RMR_API const rm_page_image* rmr_placed_scene_images(
     const rmr_placed_scene* scene);
 
@@ -285,6 +303,8 @@ typedef struct {
   const rmr_limits* limits;
 } rmr_anchor_context;
 
+/* Wraps context in an anchor_provider that resolves through
+ * rmr_lines_anchor_pen using context's layout and limits. */
 RMR_API rmr_anchor_provider
 rmr_lines_layout_anchor_provider(rmr_anchor_context* context);
 
@@ -296,11 +316,16 @@ typedef struct {
   bool has_column_width;
 } rmr_text_extent;
 
+/* Like rmr_lines_content_bounds, but also grows the viewport to cover a
+ * laid-out text extent (and its ink-edge-specific text foot); callers with
+ * text/highlights on the page must go through this entry point. */
 [[nodiscard]] RMR_API rmr_status rmr_lines_content_bounds_with_text(
     const rm_page* page, double width, double height, rmr_ink_edge edge,
     double margin, const rmr_text_extent* text, const rmr_limits* limits,
     rmr_rect* out, rmr_error* error);
 
+/* Opaque fill color for a highlight, derived from its stroke color/ARGB,
+ * with the legacy yellow family remapped to a fixed highlight yellow. */
 [[nodiscard]] RMR_API rmr_status rmr_lines_highlight_color(
     const rm_highlight* highlight, rmr_color* out, rmr_error* error);
 
@@ -328,7 +353,14 @@ rmr_template_store_create(const char* directory, const rmr_limits* limits,
 [[nodiscard]] RMR_API rmr_status rmr_template_store_create_layered(
     const char* const* directories, size_t count, const rmr_limits* limits,
     rmr_template_store** out, rmr_error* error);
+
+/* Releases store, its directory copies and cached model; a null pointer is
+ * a no-op. */
 RMR_API void rmr_template_store_free(rmr_template_store* store);
+
+/* rmr_template_resolve_fn callback: finds name's .template file across
+ * store's layered directories, decodes it, and caches the decoded model,
+ * replacing any previously resolved one. */
 RMR_API rmr_status rmr_template_store_resolve(void* store, rm_str name,
                                               const rmr_template** out);
 

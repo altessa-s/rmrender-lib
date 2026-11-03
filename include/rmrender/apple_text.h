@@ -13,6 +13,7 @@
  */
 typedef struct rmr_apple_fonts rmr_apple_fonts;
 
+/* Custom font resolver, called by name as each font is first needed. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_fonts_create(
     rmr_font_resolve_fn resolve, void* context, const rmr_limits* limits,
     rmr_apple_fonts** out, rmr_error* error);
@@ -21,6 +22,8 @@ typedef struct rmr_apple_fonts rmr_apple_fonts;
 [[nodiscard]] RMR_API rmr_status rmr_apple_fonts_create_directory(
     const char* directory, const rmr_limits* limits, rmr_apple_fonts** out,
     rmr_error* error);
+
+/* Releases fonts and its native descriptors; a null pointer is a no-op. */
 RMR_API void rmr_apple_fonts_free(rmr_apple_fonts* fonts);
 
 typedef struct rmr_apple_layout rmr_apple_layout;
@@ -32,10 +35,21 @@ typedef struct rmr_apple_layout rmr_apple_layout;
 [[nodiscard]] RMR_API rmr_status rmr_apple_layout_create(
     const rm_text_block* text, double page_width, const rmr_apple_fonts* fonts,
     const rmr_limits* limits, rmr_apple_layout** out, rmr_error* error);
+
+/* Accounted owned heap bytes; null layout returns 0. */
 RMR_API size_t rmr_apple_layout_bytes(const rmr_apple_layout* layout);
+
+/* Releases layout, its paragraphs and native CoreText retains; a null
+ * pointer is a no-op. */
 RMR_API void rmr_apple_layout_free(rmr_apple_layout* layout);
+
+/* Borrowed anchors view into layout, valid until it is freed; null layout
+ * returns nullptr. */
 RMR_API const rmr_anchor_layout* rmr_apple_layout_anchors(
     const rmr_apple_layout* layout);
+
+/* Baseline-following y below the last paragraph; false if layout is null or
+ * has no paragraphs, leaving out unchanged. */
 RMR_API bool rmr_apple_layout_bottom(const rmr_apple_layout* layout,
                                      double* out);
 
@@ -66,10 +80,15 @@ RMR_API bool rmr_apple_layout_bottom(const rmr_apple_layout* layout,
     const rmr_apple_fonts* fonts, const rmr_limits* limits, rmr_rect* out,
     rmr_error* error);
 
+/* Visual line geometry (UTF-16 range, baseline and start/end x) for a laid
+ * out paragraph/line pair. Out-of-range indices fail, leaving out
+ * unchanged. */
 [[nodiscard]] RMR_API rmr_status
 rmr_apple_layout_line(const rmr_apple_layout* layout, size_t paragraph,
                       size_t line, rmr_text_line* out, rmr_error* error);
 
+/* Typographic width of one Helvetica line, matching rmr_apple_page_plan's
+ * shaping. less_rightmost excludes trailing glyph overhang. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_text_width(
     rm_str text, double size, rmr_type_face face, bool bold, bool italic,
     bool less_rightmost, const rmr_apple_fonts* fonts, const rmr_limits* limits,

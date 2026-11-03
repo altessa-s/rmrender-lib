@@ -16,6 +16,7 @@
 #define create_fonts rmr_linux_fonts_create_directory
 #define free_fonts rmr_linux_fonts_free
 #endif
+
 typedef struct {
   unsigned index, glyph;
   double x, y;
@@ -44,10 +45,12 @@ static const struct {
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_glyph_reference.h"
 #endif
+
 static size_t capture(Fonts* fonts, size_t sample_index, double size, bool bold,
                       bool italic, glyph_origin out[64], double* width) {
   const char* sample = glyph_cases[sample_index].text;
   size_t count = 0;
+
 #if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
   CTFontRef font = rmr_ct_font(fonts, size, RMR_FACE_SANS, bold, italic,
                                glyph_cases[sample_index].script);
@@ -146,6 +149,7 @@ static size_t capture(Fonts* fonts, size_t sample_index, double size, bool bold,
 int main(int argc, char** argv) {
   CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
   bool dump = argc == 3;
+
 #if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
   dump = true;
 #else

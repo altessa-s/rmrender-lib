@@ -18,6 +18,7 @@ struct rmr_archive_document {
   rmr_asset_view pdf;
 };
 
+/* Fill *e (if given) with status s and message m, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s, const char* m) {
   if (e) {
     *e = (rmr_error){.code = s};
@@ -26,6 +27,7 @@ static rmr_status fail(rmr_error* e, rmr_status s, const char* m) {
   return s;
 }
 
+/* The portion of name after its last '/', or all of it if there is none. */
 static rmd_str filename(rmd_str name) {
   size_t start = 0;
   for (size_t i = 0; i < name.length; i++)
@@ -33,15 +35,18 @@ static rmd_str filename(rmd_str name) {
   return (rmd_str){name.bytes + start, name.length - start};
 }
 
+/* True if s ends with the NUL-terminated string tail. */
 static bool suffix(rmd_str s, const char* tail) {
   size_t n = strlen(tail);
   return s.length >= n && !memcmp(s.bytes + s.length - n, tail, n);
 }
 
+/* True if s exactly matches the NUL-terminated string z. */
 static bool same(rmd_str s, const char* z) {
   return strlen(z) == s.length && !memcmp(s.bytes, z, s.length);
 }
 
+/* True if the document ID embedded in name matches id. */
 static bool belongs(rmd_str name, const char* id) {
   return same(rmd_document_id(name), id);
 }
@@ -51,6 +56,7 @@ typedef struct {
   rmd_str name, base;
 } page_file;
 
+/* qsort comparator ordering page_file entries by name bytes. */
 static int compare(const void* a, const void* b) {
   const page_file *x = a, *y = b;
   size_t n = x->name.length < y->name.length ? x->name.length : y->name.length;
@@ -61,6 +67,7 @@ static int compare(const void* a, const void* b) {
                                            : 0;
 }
 
+/* Free a document and its owned index/string memory; d may be null. */
 void rmr_archive_document_free(rmr_archive_document* d) {
   if (d) {
     rmr_document_layout_free(d->layout);
@@ -237,23 +244,28 @@ done:
   return RMR_OK;
 }
 
+/* Number of pages in the document, or 0 if d is null. */
 size_t rmr_archive_document_count(const rmr_archive_document* d) {
   return d ? d->count : 0;
 }
 
+/* Page at index i, or null if d is null or i is out of range. */
 const rmr_document_page* rmr_archive_document_page(
     const rmr_archive_document* d, size_t i) {
   return d && i < d->count ? &d->pages[i] : nullptr;
 }
 
+/* Canvas size from the document's layout metadata, or {0} without one. */
 rmr_point rmr_archive_document_canvas(const rmr_archive_document* d) {
   return d ? rmr_document_layout_canvas(d->layout) : (rmr_point){0};
 }
 
+/* True if the document's layout metadata marks it landscape. */
 bool rmr_archive_document_landscape(const rmr_archive_document* d) {
   return d && rmr_document_layout_landscape(d->layout);
 }
 
+/* The document's PDF attachment, or an empty view if it has none. */
 rmr_asset_view rmr_archive_document_pdf(const rmr_archive_document* d) {
   return d ? d->pdf : (rmr_asset_view){0};
 }

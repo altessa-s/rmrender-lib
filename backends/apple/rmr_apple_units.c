@@ -6,6 +6,8 @@
 #include <math.h>
 #include <rmrender/apple.h>
 
+/* rmr_unit_raster callback: rasterize unit spans as antialiasing-free
+ * grayscale strokes into bytes. */
 static rmr_status units(void* context, const rmr_unit_span* spans, size_t count,
                         rmr_rect box, size_t width, size_t height,
                         uint8_t* bytes, size_t stride) {

@@ -6,6 +6,7 @@
 #include <rmrender/typography.h>
 #include <stdio.h>
 
+/* Fill *e (if given) with status and message, and return status. */
 static rmr_status fail(rmr_error* e, rmr_status status, const char* message) {
   if (e) {
     *e = (rmr_error){.code = status};
@@ -14,6 +15,8 @@ static rmr_status fail(rmr_error* e, rmr_status status, const char* message) {
   return status;
 }
 
+/* Decode one scalar at *at, rejecting overlong encodings, surrogates and
+ * truncated UTF-8; advances *at and sets *units to its UTF-16 length. */
 static bool scalar(rm_str text, size_t* at, size_t* units) {
   unsigned c = (unsigned char)text.bytes[(*at)++];
   if (c < 128) {
@@ -41,6 +44,7 @@ static bool scalar(rm_str text, size_t* at, size_t* units) {
   return true;
 }
 
+/* True if t is entirely well-formed UTF-8. */
 static bool utf8(rm_str t) {
   for (size_t i = 0; i < t.length;) {
     size_t units;
@@ -49,19 +53,23 @@ static bool utf8(rm_str t) {
   return true;
 }
 
+/* True if c lies within [lo, hi]. */
 static bool in(uint32_t c, uint32_t lo, uint32_t hi) {
   return c >= lo && c <= hi;
 }
 
+/* True if c falls in an Arabic script block. */
 static bool arabic(uint32_t c) {
   return in(c, 0x600, 0x7bf) || in(c, 0xfb50, 0xfdff) || in(c, 0xfe70, 0xfeff);
 }
 
+/* True if c falls in a CJK or Hangul script block. */
 static bool cjk(uint32_t c) {
   return in(c, 0x2e80, 0x9fff) || in(c, 0xac00, 0xd7af) ||
          in(c, 0x1100, 0x11ff);
 }
 
+/* True if c falls in a Cyrillic or combining-mark block. */
 static bool cyrillic(uint32_t c) {
   return in(c, 0x400, 0x52f) || in(c, 0x370, 0x3ff) || in(c, 0x1f00, 0x1fff);
 }

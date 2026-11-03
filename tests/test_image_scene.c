@@ -87,6 +87,7 @@ static void pdf_check(rmr_plan* p, bool release_before_close) {
   rmr_buffer_free(&pdf);
 }
 #endif
+
 static rmr_status resolve(void* context, rm_str file, rmr_asset_view* out) {
   (void)file;
   *out = context ? *(rmr_asset_view*)context
@@ -158,6 +159,7 @@ int main(void) {
   image.vertices[1].x = image.vertices[2].x = 0;
   image.vertices[1].u = image.vertices[2].u = .5;
   p = plan(&page, nullptr);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p);
   pixel(b, 16, 16, 255, 0, 0, 255);
@@ -195,6 +197,7 @@ int main(void) {
 
   page.stroke_count = 3;
   p = plan(&page, nullptr);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p);
   pixel(b, 16, 16, 0, 0, 0, 255);

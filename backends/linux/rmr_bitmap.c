@@ -5,6 +5,7 @@
 #include <rmrender/output.h>
 #include <stdlib.h>
 
+/* Frees b's pixel buffer and resets b to zero. */
 void rmr_bitmap_free(rmr_bitmap* b) {
   if (b) {
     free(b->pixels);

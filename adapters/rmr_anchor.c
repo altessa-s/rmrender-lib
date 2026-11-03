@@ -6,6 +6,7 @@
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 
+/* Fill *e (if given) with status and message, and return status. */
 static rmr_status fail(rmr_error* e, rmr_status status, const char* message) {
   if (e) {
     *e = (rmr_error){.code = status};
@@ -14,6 +15,7 @@ static rmr_status fail(rmr_error* e, rmr_status status, const char* message) {
   return status;
 }
 
+/* True if n is finite and within [-maximum, maximum]. */
 static bool valid(double n, double maximum) {
   return isfinite(n) && fabs(n) <= maximum;
 }
@@ -47,6 +49,7 @@ static bool scalar(rm_str text, size_t* at, size_t* units) {
   return true;
 }
 
+/* Validate point against maximum and, if valid, write it to *out. */
 static rmr_status result(rmr_point point, double maximum, rmr_point* out,
                          rmr_error* error) {
   if (!valid(point.x, maximum) || !valid(point.y, maximum))
@@ -167,6 +170,7 @@ rmr_status rmr_lines_anchor_pen(const rmr_anchor_layout* layout,
                 l.maximum_coordinate, out, error);
 }
 
+/* rmr_anchor_provider callback: resolves anchor using the bound context. */
 static rmr_status resolve(void* context, const rm_text_anchor* anchor,
                           rmr_point* out) {
   rmr_anchor_context* c = context;

@@ -8,6 +8,7 @@
 
 #include "rmr_width.h"
 
+/* Fill *e (if given) with status s, item index i and message, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s, size_t i,
                        const char* message) {
   if (e) {
@@ -26,6 +27,9 @@ static void include(rmr_rect* b, double x, double y, double half) {
   *b = (rmr_rect){left, bottom, right - left, top - bottom};
 }
 
+/* Like rmr_lines_content_bounds, but also grows the viewport to cover a
+ * laid-out text extent (and its ink-edge-specific text foot); callers with
+ * text/highlights on the page must go through this entry point. */
 rmr_status rmr_lines_content_bounds_with_text(const rm_page* page, double w,
                                               double h, rmr_ink_edge edge,
                                               double margin,

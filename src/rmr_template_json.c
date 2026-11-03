@@ -50,12 +50,15 @@ typedef struct {
   locale_t locale;
 } parser;
 
+/* Record the first failure in p and its error; later calls are no-ops. */
 static void fail(parser* p, rmr_status status, size_t offset,
                  const char* message) {
   if (p->status == RMR_OK)
     p->status = rmr_fail(p->error, status, offset, message);
 }
 
+/* Charge n units against the decoding work budget, failing with LIMIT if
+ * it would be exceeded. */
 static bool work(parser* p, size_t n) {
   if (n > p->limits.maximum_elements - p->work) {
     fail(p, RMR_ERR_LIMIT, p->pos, "JSON work limit");
@@ -65,6 +68,8 @@ static bool work(parser* p, size_t n) {
   return true;
 }
 
+/* Bump-allocate count*size zeroed bytes from the arena, tracked in
+ * p->doc->blocks and bounded by maximum_plan_bytes. */
 static void* allocate(parser* p, size_t count, size_t size) {
   if (!count || p->status != RMR_OK) return nullptr;
 
@@ -87,12 +92,14 @@ static void* allocate(parser* p, size_t count, size_t size) {
   return b + 1;
 }
 
+/* Skip JSON whitespace. */
 static void space(parser* p) {
   while (p->pos < p->length && strchr(" \t\r\n", p->source[p->pos]) &&
          p->source[p->pos])
     p->pos++;
 }
 
+/* Skip whitespace, then consume c if the parser is positioned on it. */
 static bool take(parser* p, char c) {
   space(p);
   if (p->pos < p->length && p->source[p->pos] == c) {
@@ -102,6 +109,7 @@ static bool take(parser* p, char c) {
   return false;
 }
 
+/* Hex digit value of c, or -1 if c is not a hex digit. */
 static int hex(unsigned char c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -109,6 +117,7 @@ static int hex(unsigned char c) {
   return -1;
 }
 
+/* Parse a \uXXXX escape's four hex digits into a UTF-16 code unit. */
 static unsigned unicode(parser* p) {
   unsigned v = 0;
   for (unsigned i = 0; i < 4; i++) {
@@ -121,6 +130,8 @@ static unsigned unicode(parser* p) {
   return v;
 }
 
+/* Parse a JSON string literal, decoding escapes into a freshly allocated,
+ * NUL-terminated UTF-8 buffer. */
 static char* string(parser* p) {
   if (!take(p, '"')) {
     fail(p, RMR_ERR_INVALID_ARGUMENT, p->pos, "expected JSON string");
@@ -224,11 +235,14 @@ static char* string(parser* p) {
   return out;
 }
 
+/* True if the parser is positioned on an ASCII decimal digit. */
 static bool digit(parser* p) {
   return p->pos < p->length && p->source[p->pos] >= '0' &&
          p->source[p->pos] <= '9';
 }
 
+/* Recursive-descent JSON value parser, returning an arena-allocated node
+ * tree; depth bounds object/array nesting. */
 static node* parse(parser* p, unsigned depth) {
   space(p);
   if (depth > 128) {
@@ -342,6 +356,7 @@ static node* parse(parser* p, unsigned depth) {
   return v;
 }
 
+/* Require v to be of kind wanted, failing with the first mismatch. */
 static bool type(parser* p, node* v, kind wanted) {
   if (p->status != RMR_OK) return false;
   if (!v || v->type != wanted) {
@@ -352,6 +367,7 @@ static bool type(parser* p, node* v, kind wanted) {
   return true;
 }
 
+/* Named child of object v, or null if key is absent; v must be an object. */
 static node* field(parser* p, node* v, const char* key) {
   if (!type(p, v, OBJECT)) return nullptr;
   for (node* n = v->child; n; n = n->next) {
@@ -361,11 +377,14 @@ static node* field(parser* p, node* v, const char* key) {
   return nullptr;
 }
 
+/* Named field, treating a present JSON null the same as an absent key. */
 static node* optional(parser* p, node* v, const char* key) {
   node* n = field(p, v, key);
   return n && n->type != NIL ? n : nullptr;
 }
 
+/* Decode a template value: a number literal verbatim, or a string compiled
+ * as an expression. */
 static void value(parser* p, node* n, rmr_template_value* out) {
   if (p->status != RMR_OK) return;
   if (n && n->type == NUMBER) {
@@ -396,6 +415,7 @@ static void value(parser* p, node* n, rmr_template_value* out) {
   out->expression = pr->expression;
 }
 
+/* Decode an optional box's x/y/width/height value fields in place. */
 static void box(parser* p, node* n, rmr_template_box* out) {
   if (!n) return;
   if (!type(p, n, OBJECT)) return;
@@ -408,6 +428,7 @@ static void box(parser* p, node* n, rmr_template_box* out) {
   }
 }
 
+/* Decode a repeat spec: a direction keyword, or otherwise a count value. */
 static void repeat(parser* p, node* n, rmr_template_repeat* out) {
   if (!n) return;
 
@@ -427,6 +448,7 @@ static void repeat(parser* p, node* n, rmr_template_repeat* out) {
   value(p, n, &out->count);
 }
 
+/* Decode a template color: a named gray shade, or a #RGB/#RGBA hex string. */
 static void color(parser* p, node* n, rmr_color* out) {
   if (!type(p, n, STRING)) return;
 
@@ -477,11 +499,14 @@ static void color(parser* p, node* n, rmr_color* out) {
                      (double)((v >> 8) & 255) / 255, (double)(v & 255) / 255};
 }
 
+/* True if n is a one-letter SVG-style path command, including letters this
+ * parser does not implement (path() restricts those further). */
 static bool command(node* n) {
   return n && n->type == STRING && strlen(n->text) == 1 &&
          strchr("MLHVCSQTAZmlhvcsqtaz", n->text[0]);
 }
 
+/* Decode explicit M/L/C/Z path elements plus optional fill/stroke paint. */
 static void path(parser* p, node* n, rmr_template_path* out) {
   node* data = field(p, n, "data");
   if (!type(p, data, ARRAY)) return;
@@ -562,6 +587,8 @@ static void path(parser* p, node* n, rmr_template_path* out) {
   }
 }
 
+/* Decode a template item array (path/group/text), recursing into group
+ * children up to the nesting limit tracked by depth. */
 static void items(parser* p, node* n, const rmr_template_item** out,
                   size_t* count, unsigned depth) {
   if (!type(p, n, ARRAY)) return;
@@ -789,6 +816,7 @@ typedef struct {
   size_t position;
 } ordered_page;
 
+/* Order entries by page id, then by original document position. */
 static int page_order(const void* a, const void* b) {
   const ordered_page *x = a, *y = b;
   int order = strcmp(x->key, y->key);
@@ -798,11 +826,14 @@ static int page_order(const void* a, const void* b) {
                                      : 0;
 }
 
+/* Named field of entry (.content decoding), treating null as absent. */
 static node* content_optional(parser* p, node* entry, const char* key) {
   node* value = optional(p, entry, key);
   return value && value->type != NIL ? value : nullptr;
 }
 
+/* CRDT-stamped field: unwrap the {value:...} wrapper object, treating a
+ * missing field, non-object wrapper or null value as absent. */
 static node* stamped(parser* p, node* entry, const char* key) {
   node* n = content_optional(p, entry, key);
   return n && type(p, n, OBJECT) ? content_optional(p, n, "value") : nullptr;
@@ -871,6 +902,8 @@ static bool source_index(const char* text, size_t* out) {
   return true;
 }
 
+/* Decode a page's source-page redirect (optionally CRDT-stamped) into
+ * page's has_source/source_page/refused_source fields. */
 static void redirection(parser* p, node* n, bool stamp,
                         rmr_document_page* page) {
   if (!n || n->type == NIL) return;

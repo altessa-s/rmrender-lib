@@ -29,6 +29,7 @@ typedef struct {
   const rmr_anchor_provider* provider;
 } placement;
 
+/* Fill *e (if given) with status s, item index and message, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s, size_t index,
                        const char* message) {
   if (e) {
@@ -38,16 +39,20 @@ static rmr_status fail(rmr_error* e, rmr_status s, size_t index,
   return s;
 }
 
+/* True if x and y are finite and within [-maximum, maximum]. */
 static bool point_valid(double x, double y, double maximum) {
   return isfinite(x) && isfinite(y) && fabs(x) <= maximum && fabs(y) <= maximum;
 }
 
+/* Add count*size to *bytes if it stays within maximum; false if it would
+ * overflow or exceed the limit, leaving *bytes unchanged. */
 static bool reserve(size_t* bytes, size_t count, size_t size, size_t maximum) {
   if (*bytes > maximum || count > (maximum - *bytes) / size) return false;
   *bytes += count * size;
   return true;
 }
 
+/* FNV-1a hash of anchor's identifying fields, for the probe cache below. */
 static uint64_t hash(rm_text_anchor anchor) {
   /* Hash values, not padding; +/-zero and absent origin_x compare equally. */
   uint64_t bits = 0;
@@ -66,12 +71,15 @@ static uint64_t hash(rm_text_anchor anchor) {
   return h;
 }
 
+/* True if a and b select the same anchor position. */
 static bool equal(rm_text_anchor a, rm_text_anchor b) {
   return a.paragraph == b.paragraph && a.offset == b.offset &&
          a.has_origin_x == b.has_origin_x &&
          (!a.has_origin_x || a.origin_x == b.origin_x);
 }
 
+/* Resolve anchor to a pen position via the provider, caching by open-
+ * addressed probing so repeated anchors resolve only once per call. */
 static rmr_status pen(placement* p, rm_text_anchor anchor, size_t index,
                       rmr_point* out, rmr_error* e) {
   if (!p->provider)
@@ -106,6 +114,7 @@ static rmr_status pen(placement* p, rm_text_anchor anchor, size_t index,
   }
 }
 
+/* Free a placed scene and its owned storage; s may be null. */
 void rmr_placed_scene_free(rmr_placed_scene* s) {
   if (!s) return;
   free(s->strokes);
@@ -286,22 +295,27 @@ done:
   return status;
 }
 
+/* Retained byte size of the placed scene, or 0 if s is null. */
 size_t rmr_placed_scene_bytes(const rmr_placed_scene* s) {
   return s ? s->bytes : 0;
 }
 
+/* Number of strokes in the placed scene, or 0 if s is null. */
 size_t rmr_placed_scene_stroke_count(const rmr_placed_scene* s) {
   return s ? s->stroke_count : 0;
 }
 
+/* Borrowed stroke array of the placed scene, or null if s is null. */
 const rm_stroke* rmr_placed_scene_strokes(const rmr_placed_scene* s) {
   return s ? s->strokes : nullptr;
 }
 
+/* Number of images in the placed scene, or 0 if s is null. */
 size_t rmr_placed_scene_image_count(const rmr_placed_scene* s) {
   return s ? s->image_count : 0;
 }
 
+/* Borrowed image array of the placed scene, or null if s is null. */
 const rm_page_image* rmr_placed_scene_images(const rmr_placed_scene* s) {
   return s ? s->images : nullptr;
 }

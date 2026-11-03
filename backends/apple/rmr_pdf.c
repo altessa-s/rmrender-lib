@@ -17,6 +17,7 @@ struct rmr_apple_pdf_source {
   CGPDFDocumentRef document;
 };
 
+/* Fill `e` with `s` and `m`, if non-null; always returns `s`. */
 static rmr_status fail(rmr_error* e, rmr_status s, const char* m) {
   if (e) {
     *e = (rmr_error){.code = s};
@@ -25,6 +26,8 @@ static rmr_status fail(rmr_error* e, rmr_status s, const char* m) {
   return s;
 }
 
+/* Release source and its underlying document and bytes; a no-op for
+ * nullptr. */
 void rmr_apple_pdf_source_free(rmr_apple_pdf_source* s) {
   if (s) {
     if (s->document) CGPDFDocumentRelease(s->document);
@@ -33,6 +36,8 @@ void rmr_apple_pdf_source_free(rmr_apple_pdf_source* s) {
   }
 }
 
+/* Open bytes as a PDF source, rejecting encrypted documents, documents that
+ * cannot be unlocked, and pages with a UserUnit other than 1. */
 rmr_status rmr_apple_pdf_source_create(const uint8_t* bytes, size_t size,
                                        const rmr_limits* given,
                                        rmr_apple_pdf_source** out,
@@ -84,6 +89,7 @@ rmr_status rmr_apple_pdf_source_create(const uint8_t* bytes, size_t size,
   return RMR_OK;
 }
 
+/* Number of pages in source, or 0 for nullptr. */
 size_t rmr_apple_pdf_source_count(const rmr_apple_pdf_source* s) {
   return s ? CGPDFDocumentGetNumberOfPages(s->document) : 0;
 }
@@ -111,6 +117,8 @@ typedef struct {
   rmr_status status;
 } sink;
 
+/* CGDataConsumer callback: append bytes to the sink buffer, growing it and
+ * enforcing the sink's limit. */
 static size_t put(void* context, const void* bytes, size_t size) {
   sink* s = context;
   if (s->status != RMR_OK) return 0;
@@ -139,6 +147,9 @@ static size_t put(void* context, const void* bytes, size_t size) {
   return size;
 }
 
+/* Compose a source page's native drawing transform with its .rm placement
+ * (source_rect) and output sheet transform into one page-to-output matrix.
+ */
 static CGAffineTransform transform(const rmr_apple_pdf_source* s,
                                    const rmr_pdf_page* p) {
   CGPDFPageRef page = CGPDFDocumentGetPage(s->document, p->source_page + 1);
@@ -153,11 +164,13 @@ static CGAffineTransform transform(const rmr_apple_pdf_source* s,
       CGAffineTransformMake(t.a, t.b, t.c, t.d, t.tx, t.ty));
 }
 
+/* Named destination identifying output page's own top-left anchor. */
 static CFStringRef destination_name(size_t page) {
   return CFStringCreateWithFormat(kCFAllocatorDefault, nullptr,
                                   CFSTR("rmrender-page-%zu"), page);
 }
 
+/* Decode a 4-number PDF array as a normalized (non-negative size) CGRect. */
 static bool array_rect(CGPDFArrayRef a, CGRect* out) {
   CGPDFReal v[4];
   if (!a || CGPDFArrayGetCount(a) < 4) return false;
@@ -170,6 +183,7 @@ static bool array_rect(CGPDFArrayRef a, CGRect* out) {
   return true;
 }
 
+/* Copy a PDF string or name object's text; nullptr if object is neither. */
 static CFStringRef pdf_name(CGPDFObjectRef object) {
   CGPDFStringRef string = nullptr;
   const char* name = nullptr;
@@ -181,6 +195,8 @@ static CFStringRef pdf_name(CGPDFObjectRef object) {
   return nullptr;
 }
 
+/* Look up name's value in a PDF name tree (Names/Kids), or nullptr if
+ * absent; work/maximum and depth bound the traversal. */
 static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name,
                                  size_t* work, size_t maximum, unsigned depth) {
   if (depth > 64 || *work >= maximum) return nullptr;
@@ -216,6 +232,8 @@ static CGPDFObjectRef named_tree(CGPDFDictionaryRef tree, CFStringRef name,
   return nullptr;
 }
 
+/* Resolve a destination reference (explicit array, action dictionary, or
+ * named destination) to its explicit destination array, or nullptr. */
 static CGPDFArrayRef destination_array(const rmr_apple_pdf_source* s,
                                        CGPDFObjectRef object, size_t* work,
                                        size_t maximum, unsigned depth) {
@@ -261,12 +279,15 @@ typedef struct {
   size_t count, capacity, maximum;
 } local_destinations;
 
+/* Named destination identifying one source link annotation's target point.
+ */
 static CFStringRef local_name(size_t origin, size_t annotation) {
   return CFStringCreateWithFormat(kCFAllocatorDefault, nullptr,
                                   CFSTR("rmrender-link-%zu-%zu"), origin,
                                   annotation);
 }
 
+/* Append item to list, growing its storage up to list->maximum entries. */
 static rmr_status destination_append(local_destinations* list,
                                      local_destination item) {
   if (list->count == list->maximum) return RMR_ERR_LIMIT;
@@ -284,11 +305,15 @@ static rmr_status destination_append(local_destinations* list,
   return RMR_OK;
 }
 
+/* qsort comparator: order local_destination entries by output page. */
 static int destination_order(const void* a, const void* b) {
   const local_destination *x = a, *y = b;
   return x->page < y->page ? -1 : x->page > y->page ? 1 : 0;
 }
 
+/* Resolve a GoTo destination object to its output page index and point in
+ * that page's output space, or SIZE_MAX if it names no visible output page.
+ */
 static size_t explicit_destination(const rmr_apple_pdf_source* s,
                                    CGPDFObjectRef object,
                                    const rmr_pdf_page* pages, size_t count,
@@ -333,6 +358,9 @@ static size_t explicit_destination(const rmr_apple_pdf_source* s,
   return SIZE_MAX;
 }
 
+/* Carry one source page's Link annotations into the output: URIs and
+ * resolvable GoTo targets become real or collected destinations, everything
+ * else is counted as dropped in report. */
 static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source* s,
                         const rmr_pdf_page* pages, size_t count, size_t index,
                         size_t* work, size_t maximum, rmr_pdf_report* report,
@@ -420,6 +448,9 @@ static rmr_status links(CGContextRef cg, const rmr_apple_pdf_source* s,
   return RMR_OK;
 }
 
+/* Rebuild one level of the PDF outline tree into output, remapping each
+ * item's page destination or splicing its children up when the destination
+ * does not survive. */
 static rmr_status outline_children(const rmr_apple_pdf_source* s,
                                    CFArrayRef input, CFMutableArrayRef output,
                                    const rmr_pdf_page* pages, size_t count,

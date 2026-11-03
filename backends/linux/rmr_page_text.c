@@ -4,6 +4,8 @@
 
 #include "rmr_typography_internal.h"
 
+/* Builds a page's render plan, or, when out is null, only measures its
+ * content bounds; shared by the three entry points below. */
 static rmr_status page_build(const rm_page* page, rmr_point canvas,
                              rmr_ink_edge edge, double margin,
                              const rmr_page_resources* given_resources,
@@ -33,7 +35,7 @@ static rmr_status page_build(const rm_page* page, rmr_point canvas,
   if (page->has_text) {
     if (!fonts)
       return rmr_linux_error(e, RMR_ERR_UNSUPPORTED,
-                        "document font provider required");
+                             "document font provider required");
     s = rmr_linux_layout_create(&page->text, canvas.x, fonts, &remaining,
                                 &layout, e);
     if (s != RMR_OK) goto done;
@@ -183,7 +185,8 @@ rmr_status rmr_linux_page_bounds(const rm_page* page, rmr_point canvas,
                                  const rmr_limits* limits, rmr_rect* out,
                                  rmr_error* error) {
   if (!out)
-    return rmr_linux_error(error, RMR_ERR_INVALID_ARGUMENT, "missing bounds output");
+    return rmr_linux_error(error, RMR_ERR_INVALID_ARGUMENT,
+                           "missing bounds output");
 
   rmr_rect result;
   rmr_status status = page_build(page, canvas, edge, margin, nullptr, fonts,

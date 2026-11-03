@@ -8,6 +8,7 @@
 #ifdef RMRENDER_TEST_APPLE
 #include <rmrender/apple.h>
 #endif
+
 typedef struct {
   const rmr_template* model;
   size_t calls;

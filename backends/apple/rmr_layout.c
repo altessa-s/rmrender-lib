@@ -29,6 +29,8 @@ typedef struct {
   CTFontRef fonts[4][3][2][2][8];
 } font_cache;
 
+/* Retained font for size/face/bold/italic/script, loading and caching it in
+ * cache on first use. */
 static CTFontRef cached_font(font_cache* cache, double size, rmr_type_face face,
                              bool bold, bool italic, int script) {
   size_t index = size == 32 ? 0 : size == 36 ? 1 : size == 46 ? 2 : 3;
@@ -38,6 +40,7 @@ static CTFontRef cached_font(font_cache* cache, double size, rmr_type_face face,
   return *slot ? (CTFontRef)CFRetain(*slot) : nullptr;
 }
 
+/* Release every font cached_font retained into cache. */
 static void clear_fonts(font_cache* cache) {
   for (size_t s = 0; s < 4; s++)
     for (size_t f = 0; f < 3; f++)
@@ -48,15 +51,18 @@ static void clear_fonts(font_cache* cache) {
               CFRelease(cache->fonts[s][f][b][i][c]);
 }
 
+/* Whether c lies in the inclusive range [a, b]. */
 static bool between(uint32_t c, uint32_t a, uint32_t b) {
   return c >= a && c <= b;
 }
 
+/* Whether c is a basic, Latin-1 Supplement or Latin Extended letter. */
 static bool latin(uint32_t c) {
   return between(c, 65, 90) || between(c, 97, 122) || between(c, 0xc0, 0x24f) ||
          between(c, 0x1e00, 0x1eff);
 }
 
+/* Non-Latin Noto script bucket for c (see cached_font), or 0 for none. */
 static int script_of(uint32_t c) {
   if (between(c, 0x590, 0x5ff) || between(c, 0xfb1d, 0xfb4f)) return 1;
   if (between(c, 0x900, 0x97f)) return 2;
@@ -71,6 +77,7 @@ static int script_of(uint32_t c) {
   return 0;
 }
 
+/* Whether the first strongly-directional scalar in u is right-to-left. */
 static bool rtl(const UniChar* u, size_t n) {
   for (size_t i = 0; i < n; i++) {
     uint32_t c = u[i];
@@ -84,6 +91,8 @@ static bool rtl(const UniChar* u, size_t n) {
   return false;
 }
 
+/* UTF-16 offset of the count-th Unicode scalar in u, or SIZE_MAX if u has
+ * fewer than count scalars. */
 static size_t scalar_index(const UniChar* u, size_t n, size_t count) {
   size_t i = 0;
   while (i < n && count) {
@@ -94,6 +103,7 @@ static size_t scalar_index(const UniChar* u, size_t n, size_t count) {
   return count ? SIZE_MAX : i;
 }
 
+/* Whether c is a Hangul syllable or compatibility jamo. */
 static bool hangul(UniChar c) {
   return between(c, 0xac00, 0xd7a3) || between(c, 0x1100, 0x11ff) ||
          between(c, 0x3130, 0x318f);
@@ -201,6 +211,8 @@ static bool scalar_boundary(rm_str text, size_t index) {
   return units == index;
 }
 
+/* rmr_caret_provider callback: caret x offsets for index within the given
+ * paragraph/line, relative to the line's string start. */
 static rmr_status caret(void* context, size_t paragraph, size_t line,
                         size_t index, rmr_caret_offsets* out) {
   rmr_apple_layout* l = context;
@@ -221,6 +233,8 @@ static rmr_status caret(void* context, size_t paragraph, size_t line,
   return RMR_OK;
 }
 
+/* Release layout and every paragraph, native line and font retain it holds.
+ */
 void rmr_apple_layout_free(rmr_apple_layout* l) {
   if (!l) return;
 
@@ -246,20 +260,25 @@ void rmr_apple_layout_free(rmr_apple_layout* l) {
   free(l);
 }
 
+/* Bytes layout counts against maximum_plan_bytes, or 0 for nullptr. */
 size_t rmr_apple_layout_bytes(const rmr_apple_layout* l) {
   return l ? l->bytes : 0;
 }
 
+/* Borrowed public anchors view into layout, or nullptr for nullptr. */
 const rmr_anchor_layout* rmr_apple_layout_anchors(const rmr_apple_layout* l) {
   return l ? &l->anchors : nullptr;
 }
 
+/* Baseline-following y below the last paragraph, if layout has any. */
 bool rmr_apple_layout_bottom(const rmr_apple_layout* l, double* out) {
   if (!l || !l->anchors.count || !out) return false;
   *out = l->bottom;
   return true;
 }
 
+/* Build a list marker line (bullet, numeral, letter or roman numeral,
+ * depending on family and level) for ordinal. */
 static CTLineRef marker(font_cache* fonts, rmr_type_metrics m,
                         rm_list_family family, size_t ordinal, int level) {
   size_t label_size = ordinal / 1000 + 64;
@@ -652,6 +671,8 @@ typedef struct {
   rmr_status status;
 } pdf_bytes;
 
+/* CGDataConsumer callback: append bytes to the output buffer, enforcing its
+ * configured maximum size. */
 static size_t put_pdf(void* context, const void* bytes, size_t size) {
   pdf_bytes* p = context;
   if (p->status != RMR_OK) return 0;
@@ -680,6 +701,7 @@ static size_t put_pdf(void* context, const void* bytes, size_t size) {
   return size;
 }
 
+/* Draw a checkbox glyph at (x, y), filled and ticked when state requires. */
 static void checkbox(CGContextRef cg, rm_checkbox_state state, double x,
                      double y) {
   CGRect box = CGRectMake(x, y - 1.74, 26.67, 26.67);
@@ -822,6 +844,7 @@ rmr_status rmr_apple_layout_plan(const rmr_apple_layout* l, rmr_rect viewport,
   return s;
 }
 
+/* Paragraph-relative string range and pixel span of one visual line. */
 rmr_status rmr_apple_layout_line(const rmr_apple_layout* l, size_t paragraph,
                                  size_t index, rmr_text_line* out,
                                  rmr_error* e) {
@@ -850,6 +873,8 @@ rmr_status rmr_apple_layout_line(const rmr_apple_layout* l, size_t paragraph,
   return RMR_OK;
 }
 
+/* Measured width of text, optionally excluding the trailing glyph's
+ * advance beyond its ink (less_rightmost). */
 rmr_status rmr_apple_text_width(rm_str text, double size, rmr_type_face face,
                                 bool bold, bool italic, bool less_rightmost,
                                 const rmr_apple_fonts* fonts,

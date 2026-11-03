@@ -6,6 +6,7 @@
 #include <rmrender/rmlines.h>
 #include <stdio.h>
 
+/* Fill *e (if given) with status s and message, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s, const char* message) {
   if (e) {
     *e = (rmr_error){.code = s};
@@ -14,6 +15,7 @@ static rmr_status fail(rmr_error* e, rmr_status s, const char* message) {
   return s;
 }
 
+/* True if size is a finite, positive canvas up to 100000 units per side. */
 static bool plausible(rmr_point size) {
   return isfinite(size.x) && isfinite(size.y) && size.x > 0 && size.y > 0 &&
          size.x <= 100000 && size.y <= 100000;

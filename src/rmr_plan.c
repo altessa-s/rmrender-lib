@@ -4,6 +4,7 @@
 
 #include "rmr_internal.h"
 
+/* Grows the bounding box [*x0,*y0]-[*x1,*y1] to also cover point p. */
 static void include(rmr_point p, double* x0, double* y0, double* x1,
                     double* y1) {
   *x0 = fmin(*x0, p.x);
@@ -12,6 +13,8 @@ static void include(rmr_point p, double* x0, double* y0, double* x1,
   *y1 = fmax(*y1, p.y);
 }
 
+/* Validates path's elements and coordinates and checks it is a
+ * well-formed sequence of moves/segments/closes. */
 static rmr_status validate_path(rmr_path_view path, rmr_limits l, size_t index,
                                 rmr_error* e) {
   if (!path.elements && path.count)

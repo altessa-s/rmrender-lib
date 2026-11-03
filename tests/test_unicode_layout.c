@@ -28,6 +28,7 @@
 #define line_get rmr_linux_layout_line
 #define layout_free rmr_linux_layout_free
 #endif
+
 /* Each entry is one extended grapheme, with its independent UTF-16 length. */
 static const struct {
   const char* text;
@@ -122,6 +123,7 @@ int main(int argc, char** argv) {
     }
 
   release(fonts);
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
   FcFini();
 #endif

@@ -15,6 +15,8 @@ struct rmr_template_store {
   rmr_limits limits;
 };
 
+/* Free a template store, its directory copies and cached model; s may be
+ * null. */
 void rmr_template_store_free(rmr_template_store* s) {
   if (s) {
     for (size_t i = 0; i < s->count; i++) free(s->directories[i]);
@@ -93,6 +95,9 @@ rmr_status rmr_template_store_create(const char* directory,
   return rmr_template_store_create_layered(&directory, 1, given, out, error);
 }
 
+/* rmr_template_resolve_fn callback: finds name's .template file across the
+ * store's layered directories, decodes it, and caches the decoded model
+ * (replacing any previously resolved one) for the duration of this store. */
 rmr_status rmr_template_store_resolve(void* context, rm_str name,
                                       const rmr_template** out) {
   rmr_template_store* s = context;

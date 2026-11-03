@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+/* Four tiles for the marker ink family. */
 extern const uint8_t rmr_marker_tiles[4][512];
 
 /* Four tiles per pencil family. */

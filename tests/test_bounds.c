@@ -8,6 +8,7 @@
 #ifdef RMRENDER_TEST_APPLE
 #include <rmrender/apple.h>
 #endif
+
 static rmr_rect bounds(rm_page* p, rmr_ink_edge edge, double margin) {
   rmr_rect b;
   OK(rmr_lines_content_bounds(p, 100, 200, edge, margin, nullptr, &b, nullptr));

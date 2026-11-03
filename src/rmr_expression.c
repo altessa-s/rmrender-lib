@@ -65,22 +65,29 @@ typedef struct {
   rmr_error* error;
 } parser;
 
+/* True if c can start or continue an identifier. */
 static bool letter(unsigned char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
+/* True if c is an ASCII decimal digit. */
 static bool digit(unsigned char c) { return c >= '0' && c <= '9'; }
 
+/* True if c is ASCII whitespace. */
 static bool space(unsigned char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' ||
          c == '\f';
 }
 
+/* Records the first failure only; later calls while already failed are
+ * no-ops. */
 static void failure(parser* p, rmr_status status, const char* message) {
   if (p->status == RMR_OK)
     p->status = rmr_fail(p->error, status, p->start, message);
 }
 
+/* Scans the next token into p->token/number/token_length, skipping
+ * leading whitespace. */
 static void next(parser* p) {
   if (p->status != RMR_OK) return;
 
@@ -164,6 +171,8 @@ static void next(parser* p) {
   p->token_length = p->position - p->start;
 }
 
+/* Appends one instruction to the code (when p->code is set) and tracks
+ * the evaluation stack's peak depth. */
 static void emit(parser* p, operation op, size_t offset, size_t length,
                  double number) {
   if (p->status != RMR_OK) return;
@@ -185,6 +194,8 @@ static void emit(parser* p, operation op, size_t offset, size_t length,
   if (p->stack > p->peak) p->peak = p->stack;
 }
 
+/* Enters one more level of recursion, failing with LIMIT at a depth of
+ * 64. */
 static bool enter(parser* p) {
   if (p->status != RMR_OK) return false;
   if (p->depth == 64) {
@@ -197,6 +208,8 @@ static bool enter(parser* p) {
 
 static void ternary(parser* p);
 
+/* Parses a unary +/-, a parenthesized expression, or a number/name
+ * operand. */
 static void unary(parser* p) {
   if (p->status != RMR_OK) return;
 
@@ -224,6 +237,7 @@ static void unary(parser* p) {
     failure(p, RMR_ERR_INVALID_ARGUMENT, "expected expression operand");
 }
 
+/* Parses a left-associative chain of * and / over unary operands. */
 static void product(parser* p) {
   unary(p);
   while (p->status == RMR_OK && (p->token == MUL || p->token == DIV)) {
@@ -235,6 +249,7 @@ static void product(parser* p) {
   }
 }
 
+/* Parses a left-associative chain of + and - over product terms. */
 static void sum(parser* p) {
   product(p);
   while (p->status == RMR_OK && (p->token == ADD || p->token == SUB)) {
@@ -246,6 +261,7 @@ static void sum(parser* p) {
   }
 }
 
+/* Parses an optional single comparison operator over sum terms. */
 static void comparison(parser* p) {
   sum(p);
   if (p->status == RMR_OK && p->token >= LE && p->token <= GT) {
@@ -257,6 +273,7 @@ static void comparison(parser* p) {
   }
 }
 
+/* Parses a left-associative chain of && over comparison terms. */
 static void conjunction(parser* p) {
   comparison(p);
   while (p->status == RMR_OK && p->token == AND) {
@@ -267,6 +284,7 @@ static void conjunction(parser* p) {
   }
 }
 
+/* Parses a left-associative chain of || over conjunction terms. */
 static void disjunction(parser* p) {
   conjunction(p);
   while (p->status == RMR_OK && p->token == OR) {
@@ -277,6 +295,7 @@ static void disjunction(parser* p) {
   }
 }
 
+/* Parses a right-associative ?: over disjunction terms. */
 static void ternary(parser* p) {
   disjunction(p);
 
@@ -296,6 +315,8 @@ static void ternary(parser* p) {
   }
 }
 
+/* Parses a complete expression from the current position, failing if
+ * trailing input remains. */
 static rmr_status parse(parser* p) {
   next(p);
   ternary(p);

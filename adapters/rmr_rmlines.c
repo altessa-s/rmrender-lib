@@ -9,6 +9,7 @@
 
 #include "rmr_width.h"
 
+/* Fill *e (if given) with status s, item index and message, and return s. */
 static rmr_status error(rmr_error* e, rmr_status s, size_t index,
                         const char* message) {
   if (e) {
@@ -18,10 +19,13 @@ static rmr_status error(rmr_error* e, rmr_status s, size_t index,
   return s;
 }
 
+/* True if t is one of the highlighter tool variants. */
 static bool highlighter(rm_pen_tool t) {
   return t == RM_TOOL_HIGHLIGHTER_1 || t == RM_TOOL_HIGHLIGHTER_2;
 }
 
+/* Line cap for s: round for non-highlighters, butt for a highlighter stroke
+ * that moves, square for one collapsed to a single point. */
 static rmr_cap ending(const rm_stroke* s) {
   if (!highlighter(s->tool)) return RMR_CAP_ROUND;
   for (size_t i = 1; i < s->point_count; i++)
@@ -30,6 +34,7 @@ static rmr_cap ending(const rm_stroke* s) {
   return RMR_CAP_SQUARE;
 }
 
+/* The grain family a tool is rendered with. */
 static rmr_grain grain(rm_pen_tool t) {
   switch (t) {
     case RM_TOOL_PENCIL_1:
@@ -48,6 +53,8 @@ static rmr_grain grain(rm_pen_tool t) {
   }
 }
 
+/* The RGBA color for pen color c, substituting a lighter shade for a few
+ * colors when the stroke darkens (highlighter/shader) rather than paints. */
 static rmr_color palette(rm_pen_color c, bool darkens) {
   static const rmr_color colors[] = {{0, 0, 0, 1},
                                      {144.0 / 255, 144.0 / 255, 144.0 / 255, 1},
@@ -202,6 +209,7 @@ typedef struct {
   rmr_rect bounds;
 } erase_record;
 
+/* Bounding box of path's control/end points, or {0} if it is empty. */
 static rmr_rect path_box(rmr_path path) {
   double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
   for (size_t i = 0; i < path.count; i++) {
@@ -219,6 +227,8 @@ static rmr_rect path_box(rmr_path path) {
   return isfinite(x0) ? (rmr_rect){x0, y0, x1 - x0, y1 - y0} : (rmr_rect){0};
 }
 
+/* s's point bounds, padded by half its widest drawn width (more for
+ * highlighters/square caps), for eraser-intersection testing. */
 static rmr_rect stroke_reach(const rm_stroke* s, rmr_cap cap) {
   double widest = 0, x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY,
          y1 = -INFINITY;
@@ -242,12 +252,15 @@ static rmr_rect stroke_reach(const rm_stroke* s, rmr_cap cap) {
                       : (rmr_rect){0};
 }
 
+/* True if nonempty rects a and b overlap. */
 static bool intersects(rmr_rect a, rmr_rect b) {
   return a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0 &&
          a.x <= b.x + b.width && b.x <= a.x + a.width &&
          a.y <= b.y + b.height && b.y <= a.y + a.height;
 }
 
+/* True if a and b are both multi-point shader strokes from the same source
+ * (author/counter), so they belong in the same compositing group. */
 static bool same_source(const rm_stroke* a, const rm_stroke* b) {
   return a->tool == RM_TOOL_SHADER && a->has_source_id && a->point_count > 1 &&
          b->tool == RM_TOOL_SHADER && b->has_source_id && b->point_count > 1 &&
@@ -255,6 +268,9 @@ static bool same_source(const rm_stroke* a, const rm_stroke* b) {
          a->source_id.counter == b->source_id.counter;
 }
 
+/* Like rmr_lines_plan, but accepts a unit raster for grain families that
+ * need one (validated, not invoked); pass nullptr for all-grain support
+ * without a raster. */
 rmr_status rmr_lines_plan_with_raster(const rm_stroke* strokes, size_t count,
                                       rmr_rect viewport,
                                       const rmr_unit_raster* raster,

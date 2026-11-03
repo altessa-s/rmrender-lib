@@ -19,15 +19,28 @@ typedef struct rmr_archive_document rmr_archive_document;
 [[nodiscard]] RMR_API rmr_status rmr_archive_document_create(
     const rmd_archive* archive, const char* document_id, bool include_unlisted,
     const rmr_limits* limits, rmr_archive_document** out, rmr_error* error);
+
+/* Releases document and its owned index/string memory; a null pointer is a
+ * no-op. */
 RMR_API void rmr_archive_document_free(rmr_archive_document* document);
+
+/* Number of pages in the document; null document returns 0. */
 RMR_API size_t rmr_archive_document_count(const rmr_archive_document* document);
 
+/* Borrowed page at index, valid until document is freed; out-of-range or
+ * null document returns nullptr. */
 RMR_API const rmr_document_page* rmr_archive_document_page(
     const rmr_archive_document* document, size_t index);
+
+/* Declared canvas size, or {0,0} if absent or document is null. */
 RMR_API rmr_point
 rmr_archive_document_canvas(const rmr_archive_document* document);
+
+/* Declared landscape orientation; null document returns false. */
 RMR_API bool rmr_archive_document_landscape(
     const rmr_archive_document* document);
+
+/* Borrowed source PDF bytes, or an empty view if the document has none. */
 RMR_API rmr_asset_view
 rmr_archive_document_pdf(const rmr_archive_document* document);
 

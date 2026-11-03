@@ -18,10 +18,14 @@ typedef struct {
   rmr_error* error;
 } builder;
 
+/* Fails with status s and message, indexed by the builder's work count
+ * so far. */
 static rmr_status fail(builder* b, rmr_status s, const char* message) {
   return rmr_fail(b->error, s, b->work, message);
 }
 
+/* Adds cost to the builder's work counter, failing with LIMIT if that
+ * would exceed maximum_elements. */
 static rmr_status charge(builder* b, size_t cost) {
   if (cost > b->limits.maximum_elements - b->work)
     return fail(b, RMR_ERR_LIMIT, "template work limit");
@@ -29,6 +33,8 @@ static rmr_status charge(builder* b, size_t cost) {
   return RMR_OK;
 }
 
+/* Resolves a template value to a number, evaluating its expression
+ * against the builder's bindings if one is present. */
 static rmr_status value(builder* b, rmr_template_value v, double* out) {
   rmr_status s =
       charge(b, v.expression ? rmr_expression_cost(v.expression) : 1);
@@ -45,6 +51,8 @@ static rmr_status value(builder* b, rmr_template_value v, double* out) {
                                  out, b->error);
 }
 
+/* True if name is a valid ASCII identifier ([A-Za-z_] then
+ * [A-Za-z_0-9]*) of plausible length. */
 static bool name_valid(const char* name, size_t length) {
   if (!name || !length || length > 65536) return false;
   for (size_t i = 0; i < length; i++) {
@@ -56,6 +64,8 @@ static bool name_valid(const char* name, size_t length) {
   return true;
 }
 
+/* Binds name to number, overwriting an existing binding of the same name
+ * or appending a new one. */
 static void bind(builder* b, const char* name, size_t length, double number) {
   for (size_t i = 0; i < b->binding_count; i++) {
     rmr_binding* v = &b->bindings[i];
@@ -67,6 +77,8 @@ static void bind(builder* b, const char* name, size_t length, double number) {
   b->bindings[b->binding_count++] = (rmr_binding){name, length, number};
 }
 
+/* Resets b's bindings to the built-in canvas constants, then evaluates
+ * and binds t's named constants in order. */
 static rmr_status environment(builder* b, const rmr_template* t) {
   b->binding_count = 0;
   bind(b, "templateWidth", 13, b->canvas.x);
@@ -90,6 +102,8 @@ static rmr_status environment(builder* b, const rmr_template* t) {
   return RMR_OK;
 }
 
+/* Resolves repeat into a repetition count and signed step direction for
+ * one axis, clamped to [1, 10000]. */
 static rmr_status repetitions(builder* b, rmr_template_repeat repeat,
                               double step, double start, double extent,
                               size_t* count, double* direction) {
@@ -114,6 +128,8 @@ static rmr_status repetitions(builder* b, rmr_template_repeat repeat,
   return RMR_OK;
 }
 
+/* Resolves x/y to canvas coordinates relative to origin, failing if the
+ * result is outside the builder's coordinate limit. */
 static rmr_status point(builder* b, rmr_template_value x, rmr_template_value y,
                         rmr_point origin, rmr_point* out) {
   double px, py;
@@ -128,6 +144,8 @@ static rmr_status point(builder* b, rmr_template_value x, rmr_template_value y,
              : fail(b, RMR_ERR_INVALID_ARGUMENT, "invalid template coordinate");
 }
 
+/* Builds one path draw command from p, validating and resolving each
+ * element's coordinates relative to origin. */
 static rmr_status path(builder* b, const rmr_template_path* p,
                        rmr_point origin) {
   if (p->count && !p->elements)
@@ -202,6 +220,8 @@ static rmr_status path(builder* b, const rmr_template_path* p,
   return RMR_OK;
 }
 
+/* Builds one text draw command from t, measuring it through the
+ * builder's provider and temporarily binding textWidth for position. */
 static rmr_status text_item(builder* b, const rmr_template_text* t,
                             rmr_point origin) {
   if (!b->provider)
@@ -267,6 +287,8 @@ static rmr_status text_item(builder* b, const rmr_template_text* t,
   return RMR_OK;
 }
 
+/* Recursively builds draw commands for list, descending into repeated
+ * groups up to a nesting depth of 32. */
 static rmr_status items(builder* b, const rmr_template_item* list, size_t count,
                         rmr_point origin, unsigned depth) {
   if (count && !list)

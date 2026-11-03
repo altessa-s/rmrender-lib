@@ -44,6 +44,8 @@ RMR_API rmr_unit_raster rmr_apple_unit_raster(void);
     const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,
     rmr_bitmap* out, rmr_error* error);
 
+/* Like rmr_apple_pdf, but each page uses its own explicit sheet (size and
+ * transform) instead of a single shared scale. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_pdf_sheets(
     const rmr_plan* const* plans, const rmr_sheet* sheets, size_t count,
     const rmr_limits* limits, rmr_cancel_fn cancel, void* cancel_context,

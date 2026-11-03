@@ -50,6 +50,7 @@ typedef enum rmr_cap : uint32_t {
   RMR_CAP_SQUARE,
   RMR_CAP_BUTT
 } rmr_cap;
+
 typedef enum rmr_join : uint32_t {
   RMR_JOIN_ROUND,
   RMR_JOIN_BEVEL,
@@ -189,12 +190,22 @@ typedef struct {
  * calls. All output arguments are unchanged on failure. Error is optional and
  * unchanged on success. Owning results must not be copied; free before reusing
  * an output. */
+/* Library version string (e.g. "1.1.0"), statically owned. */
 RMR_API const char* rmr_version(void);
+
+/* Static, null-terminated description of status, for logging. */
 RMR_API const char* rmr_status_string(rmr_status status);
+
+/* Built-in default limits, used wherever a limits pointer is null. */
 RMR_API rmr_limits rmr_limits_default(void);
+
+/* Releases path's elements and zeroes it; a null pointer is a no-op. */
 RMR_API void rmr_path_free(rmr_path* path);
+
+/* Releases buffer's bytes and zeroes it; a null pointer is a no-op. */
 RMR_API void rmr_buffer_free(rmr_buffer* buffer);
 
+/* Calibrated stroke outline from sampled centerline points and widths. */
 [[nodiscard]] RMR_API rmr_status rmr_outline(const rmr_sample* points,
                                              size_t count, rmr_cap cap,
                                              rmr_join join,
@@ -214,21 +225,35 @@ rmr_plan_create(const rmr_draw* draws, size_t count, rmr_rect viewport,
 [[nodiscard]] RMR_API rmr_status
 rmr_plan_concat(const rmr_plan* const* plans, size_t count, rmr_rect viewport,
                 const rmr_limits* limits, rmr_plan** out, rmr_error* error);
+
+/* Releases plan's draws, elements, masks and eraser storage; a null pointer
+ * is a no-op. */
 RMR_API void rmr_plan_free(rmr_plan* plan);
 
 /* Accounted owned heap bytes; excludes allocator/native framework overhead. */
 RMR_API size_t rmr_plan_bytes(const rmr_plan* plan);
+
+/* Number of draw commands; null plan returns 0. */
 RMR_API size_t rmr_plan_count(const rmr_plan* plan);
+
+/* The viewport plan was created with, or {0,0,0,0} if plan is null. */
 RMR_API rmr_rect rmr_plan_viewport(const rmr_plan* plan);
+
+/* Borrowed draw at index, valid until plan is freed; out-of-range or null
+ * plan returns nullptr. */
 RMR_API const rmr_draw* rmr_plan_draw(const rmr_plan* plan, size_t index);
 
 /* Bounds conservatively include curve control points and stroked caps/joins. */
 RMR_API rmr_rect rmr_plan_bounds(const rmr_plan* plan);
 
+/* Maps a .rm viewport to a top-left-origin, y-down PDF transform at
+ * points_per_unit scale. */
 [[nodiscard]] RMR_API rmr_status rmr_page_to_pdf(rmr_rect viewport,
                                                  double points_per_unit,
                                                  rmr_transform* out,
                                                  rmr_error* error);
+
+/* Applies transform to point. */
 RMR_API rmr_point rmr_transform_point(rmr_transform transform, rmr_point point);
 
 /* Rounded output sheet and .rm -> bottom-left, y-up output transform.

@@ -18,6 +18,9 @@
 
 /* The source PDF's bytes, borrowed for the life of the source. */
 const uint8_t* rmr_linux_pdf_source_data(const rmr_linux_pdf_source* s);
+
+/* Length in bytes of the source PDF data returned by
+ * rmr_linux_pdf_source_data. */
 size_t rmr_linux_pdf_source_length(const rmr_linux_pdf_source* s);
 
 #endif

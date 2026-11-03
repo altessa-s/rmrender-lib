@@ -54,6 +54,7 @@ static bool cancel_group(void* context) {
   return ++*(unsigned int*)context == 3;
 }
 #endif
+
 static rmr_plan* plan_for(rm_stroke* strokes, size_t count) {
   rmr_plan* p = nullptr;
   OK(rmr_lines_plan(strokes, count, (rmr_rect){-32, 0, 64, 64}, nullptr, &p,
@@ -83,6 +84,7 @@ int main(void) {
   rmr_plan_free(p);
 
   p = plan_for(strokes, 2);
+
 #ifdef RMRENDER_TEST_APPLE
   rmr_bitmap b =
       render(p, (rmr_color){.red = .2, .green = .4, .blue = .6, .alpha = 1});
@@ -95,6 +97,7 @@ int main(void) {
   rmr_plan_free(p);
 
   p = plan_for(strokes, 3);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) == 255);
@@ -105,6 +108,7 @@ int main(void) {
 
   vertical[0].width = vertical[1].width = 400;
   p = plan_for(strokes, 2);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) == 0 && alpha(b, 20, 20) == 0);
@@ -117,6 +121,7 @@ int main(void) {
   rm_stroke doubled[] = {ink, eraser, eraser};
   p = plan_for(doubled, 3);
   CHECK(rmr_plan_draw(p, 0)->eraser_count == 2);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) == 0 && alpha(b, 20, 20) == 255);
@@ -148,6 +153,7 @@ int main(void) {
         rmr_plan_draw(p, 0)->group == rmr_plan_draw(p, 1)->group);
   CHECK(rmr_plan_draw(p, 0)->color.alpha == 1 &&
         rmr_plan_draw(p, 0)->group_alpha == .25098);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) >= 63 && alpha(b, 32, 20) <= 65);
@@ -164,6 +170,7 @@ int main(void) {
   fragments[1].source_id.counter = 43;
   p = plan_for(fragments, 2);
   CHECK(rmr_plan_draw(p, 0)->group != rmr_plan_draw(p, 1)->group);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) >= 111 && alpha(b, 32, 20) <= 113);
@@ -176,6 +183,7 @@ int main(void) {
   p = plan_for(interrupted, 3);
   CHECK(rmr_plan_draw(p, 0)->group != rmr_plan_draw(p, 2)->group &&
         !rmr_plan_draw(p, 1)->group);
+
 #ifdef RMRENDER_TEST_APPLE
   b = render(p, (rmr_color){0});
   CHECK(alpha(b, 32, 20) >= 111 && alpha(b, 32, 20) <= 113);

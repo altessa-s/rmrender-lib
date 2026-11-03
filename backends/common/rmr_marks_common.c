@@ -24,6 +24,8 @@ const rmm_marked_page* rmr_page_marks_view(const rmr_page_marks* m) {
   return m ? &m->page : nullptr;
 }
 
+/* Frees m's bands, highlights, string storage and m itself; a null
+ * pointer is a no-op. */
 void rmr_page_marks_free(rmr_page_marks* m) {
   if (m) {
     free(m->bands);
@@ -33,8 +35,11 @@ void rmr_page_marks_free(rmr_page_marks* m) {
   }
 }
 
+/* Clamps x to the unit interval. */
 static double held(double x) { return fmin(fmax(x, 0), 1); }
 
+/* Rectangle r as a page-relative box within frame, each edge held to the unit
+ * interval. */
 static rmm_page_box normalized(rmr_rect r, rmr_rect frame) {
   return (rmm_page_box){held((r.x - frame.x) / frame.width),
                         held((r.y - frame.y) / frame.height),
@@ -42,6 +47,7 @@ static rmm_page_box normalized(rmr_rect r, rmr_rect frame) {
                         held(((r.y + r.height) - frame.y) / frame.height)};
 }
 
+/* Packs c's red, green and blue channels into a 0xRRGGBB value. */
 static uint32_t rgb(rmr_color c) {
   return (uint32_t)(c.red * 255) << 16 | (uint32_t)(c.green * 255) << 8 |
          (uint32_t)(c.blue * 255);

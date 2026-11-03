@@ -9,10 +9,17 @@
 
 typedef struct rmr_apple_pdf_source rmr_apple_pdf_source;
 
+/* Opens bytes with CoreGraphics; bytes are copied. Encrypted/locked documents
+ * and a non-unit page UserUnit return UNSUPPORTED; too many pages returns
+ * LIMIT. */
 [[nodiscard]] RMR_API rmr_status rmr_apple_pdf_source_create(
     const uint8_t* bytes, size_t size, const rmr_limits* limits,
     rmr_apple_pdf_source** out, rmr_error* error);
+
+/* Releases source and its CoreGraphics objects; a null pointer is a no-op. */
 RMR_API void rmr_apple_pdf_source_free(rmr_apple_pdf_source* source);
+
+/* Page count; null source returns 0. */
 RMR_API size_t rmr_apple_pdf_source_count(const rmr_apple_pdf_source* source);
 
 /* Displayed media-box size in PDF points, after source rotation. */

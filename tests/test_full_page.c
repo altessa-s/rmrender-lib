@@ -15,6 +15,7 @@
 #define native(name) rmr_apple_##name
 #define CARET_TOLERANCE 1e-8
 #endif
+
 static void marks_contract(void) {
   rm_stroke_point points[] = {{.x = 10, .y = 20, .width = 40},
                               {.x = 80, .y = 20, .width = 40}};

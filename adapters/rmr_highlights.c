@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Fill *e (if given) with status s and a generic message, and return s. */
 static rmr_status fail(rmr_error* e, rmr_status s) {
   if (e) {
     *e = (rmr_error){.code = s};
@@ -16,6 +17,8 @@ static rmr_status fail(rmr_error* e, rmr_status s) {
   return s;
 }
 
+/* Opaque fill color for a highlight, derived from its stroke color/ARGB,
+ * with the legacy yellow family remapped to a fixed highlight yellow. */
 rmr_status rmr_lines_highlight_color(const rm_highlight* h, rmr_color* out,
                                      rmr_error* e) {
   if (!h || !out) return fail(e, RMR_ERR_INVALID_ARGUMENT);

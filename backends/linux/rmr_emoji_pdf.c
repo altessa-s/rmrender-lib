@@ -22,11 +22,13 @@ typedef struct {
 
 static const cairo_user_data_key_t emoji_key;
 
+/* Returns the emoji_font user data attached to font's face. */
 static emoji_font* font_data(cairo_scaled_font_t* font) {
   return cairo_font_face_get_user_data(cairo_scaled_font_get_font_face(font),
                                        &emoji_key);
 }
 
+/* Frees an emoji_font's retained native font and its alias/glyph arrays. */
 static void font_free(void* data) {
   emoji_font* font = data;
   cairo_scaled_font_destroy(font->native);
@@ -35,6 +37,8 @@ static void font_free(void* data) {
   free(font);
 }
 
+/* Cairo user-font init callback: converts the native scaled font's extents
+ * into the emoji font's (pre-inverse) coordinate space. */
 static cairo_status_t font_init(cairo_scaled_font_t* font, cairo_t* cr,
                                 cairo_font_extents_t* extents) {
   (void)cr;
@@ -57,6 +61,8 @@ static cairo_status_t font_init(cairo_scaled_font_t* font, cairo_t* cr,
   return cairo_scaled_font_status(data->native);
 }
 
+/* Cairo user-font render callback: fills extents for the aliased cluster at
+ * index and paints its underlying native glyphs at full native precision. */
 static cairo_status_t font_render(cairo_scaled_font_t* font,
                                   unsigned long index, cairo_t* cr,
                                   cairo_text_extents_t* extents) {
@@ -95,6 +101,8 @@ static cairo_status_t font_render(cairo_scaled_font_t* font,
   return cairo_status(cr);
 }
 
+/* Cairo user-font unicode-to-glyph callback: always reports no glyph, since
+ * glyphs are addressed only by explicit cluster index. */
 static cairo_status_t no_unicode(cairo_scaled_font_t* font,
                                  unsigned long unicode, unsigned long* glyph) {
   (void)font;
@@ -103,6 +111,7 @@ static cairo_status_t no_unicode(cairo_scaled_font_t* font,
   return CAIRO_STATUS_SUCCESS;
 }
 
+/* Returns whether run's glyphs come from the Noto Emoji font. */
 static bool is_emoji(PangoGlyphItem* run) {
   PangoFontDescription* description =
       pango_font_describe(run->item->analysis.font);
@@ -112,6 +121,10 @@ static bool is_emoji(PangoGlyphItem* run) {
   return result;
 }
 
+/* Draws one Pango glyph run as a cairo user font, so each cluster becomes a
+ * single PDF glyph carrying its original text. Falls back to Pango's own
+ * glyph-item renderer for clusters it cannot alias or past resource limits.
+ */
 static rmr_status show_emoji(cairo_t* cr, const char* text, PangoGlyphItem* run,
                              const rmr_limits* limits, size_t* retained) {
   bool rtl = (run->item->analysis.level & 1) != 0;

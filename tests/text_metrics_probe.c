@@ -31,6 +31,7 @@
 #define line_get rmr_linux_layout_line
 #define layout_free rmr_linux_layout_free
 #endif
+
 int main(int argc, char** argv) {
   F* fonts = 0;
   rmr_error e = {0};
@@ -77,6 +78,7 @@ int main(int argc, char** argv) {
 
   layout_free(l);
   release(fonts);
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
   FcFini();
 #endif

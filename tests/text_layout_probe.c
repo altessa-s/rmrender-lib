@@ -28,6 +28,7 @@
 #define line_get rmr_linux_layout_line
 #define layout_free rmr_linux_layout_free
 #endif
+
 static const char* samples[] = {"office ffi affine",
                                 "é ä ô é ä",
                                 "مرحبا بالعالم مرحبا بالعالم",
@@ -55,9 +56,11 @@ typedef struct {
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
 #include "text_layout_reference.h"
 #endif
+
 int main(int argc, char** argv) {
   CHECK(argc == 2 || (argc == 3 && strcmp(argv[2], "--dump") == 0));
   bool dump = argc == 3;
+
 #if defined(__APPLE__) && !defined(RMR_TEST_CAIRO)
   dump = true;
 #else
@@ -81,6 +84,7 @@ int main(int argc, char** argv) {
       size_t count = a->paragraphs[0].line_count;
 
       CHECK(count <= 32);
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
       const layout_reference* expected = &apple_layouts[sample * 4 + column];
       CHECK(count == expected->count);
@@ -93,6 +97,7 @@ int main(int argc, char** argv) {
         rmr_caret_offsets begin, finish;
         OK(a->caret->measure(a->caret->context, 0, i, line.from, &begin));
         OK(a->caret->measure(a->caret->context, 0, i, line.to, &finish));
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
         line_reference ref = expected->lines[i];
         CHECK(line.from == ref.from && line.to == ref.to);
@@ -124,6 +129,7 @@ int main(int argc, char** argv) {
     }
 
   release(fonts);
+
 #if !defined(__APPLE__) || defined(RMR_TEST_CAIRO)
   FcFini();
 #endif

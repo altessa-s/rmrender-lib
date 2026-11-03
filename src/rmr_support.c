@@ -8,6 +8,8 @@ static thread_local size_t remaining = SIZE_MAX;
 
 void rmr_test_fail_after(size_t n) { remaining = n; }
 
+/* Test hook: true once the countdown set by rmr_test_fail_after reaches
+ * zero, simulating an allocation failure. */
 static bool fail(void) {
   if (remaining == SIZE_MAX) return false;
   if (!remaining) return true;
@@ -15,8 +17,10 @@ static bool fail(void) {
   return false;
 }
 #else
+/* Allocation failures are never simulated outside RMRENDER_TESTING. */
 static bool fail(void) { return false; }
 #endif
+
 void* rmr_alloc(size_t n) { return fail() ? nullptr : malloc(n ? n : 1); }
 
 void* rmr_calloc(size_t n, size_t size) {

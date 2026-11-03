@@ -19,6 +19,8 @@ typedef struct {
   rmr_status status;
 } builder;
 
+/* Unit direction from a to b; invalid if they coincide or the length isn't
+ * finite. */
 static direction between(rmr_point a, rmr_point b) {
   double x = b.x - a.x, y = b.y - a.y, length = sqrt(x * x + y * y);
   return length > 0 && isfinite(length)
@@ -26,16 +28,22 @@ static direction between(rmr_point a, rmr_point b) {
              : (direction){0};
 }
 
+/* Direction d rotated 90 degrees, giving the rightward normal in a
+ * y-down space. */
 static direction right(direction d) { return (direction){-d.y, d.x, d.valid}; }
 
+/* Angle in radians between two unit directions. */
 static double angle(direction a, direction b) {
   return acos(rmr_clamp(a.x * b.x + a.y * b.y, -1, 1));
 }
 
+/* Point p displaced by distance along direction d. */
 static rmr_point moved(rmr_point p, direction d, double distance) {
   return (rmr_point){p.x + d.x * distance, p.y + d.y * distance};
 }
 
+/* Appends element e to b's path, failing b with RMR_ERR_LIMIT if the
+ * element or byte limit would be exceeded. */
 static void emit(builder* b, rmr_element e) {
   if (b->status != RMR_OK) return;
   if (b->path.count == b->maximum || b->path.count >= b->bytes / sizeof e) {
@@ -62,6 +70,9 @@ static void emit(builder* b, rmr_element e) {
   b->path.elements[b->path.count++] = e;
 }
 
+/* Emits a closed polygon from corners; if wind, the winding is reversed
+ * when the input is counterclockwise so output orientation is
+ * consistent. */
 static void polygon(builder* b, rmr_point* corners, size_t n, bool wind) {
   if (n < 3) return;
 
@@ -78,6 +89,8 @@ static void polygon(builder* b, rmr_point* corners, size_t n, bool wind) {
   emit(b, (rmr_element){.kind = RMR_CLOSE});
 }
 
+/* Emits a full circle of radius centered at p, approximated by four
+ * Bezier curves. */
 static void disc(builder* b, rmr_point p, double radius) {
   if (radius <= 0) return;
 
@@ -102,12 +115,16 @@ static void disc(builder* b, rmr_point p, double radius) {
   emit(b, (rmr_element){.kind = RMR_CLOSE});
 }
 
+/* Number of polygon segments approximating an arc of radius and sweep
+ * within a fixed chord-error tolerance, clamped to [1, 64]. */
 static size_t arc_steps(double radius, double sweep) {
   if (radius <= 0.1) return 1;
   double steps = ceil(fabs(sweep) / (2 * acos(1 - 0.1 / radius)));
   return (size_t)fmin(fmax(steps, 1), 64);
 }
 
+/* Emits an end cap of the given kind at p, spanning half-width r, facing
+ * outward; RMR_CAP_BUTT or a nonpositive radius emits nothing. */
 static void cap(builder* b, rmr_cap kind, rmr_point p, double r,
                 direction outward) {
   if (kind == RMR_CAP_BUTT || r <= 0) return;
@@ -133,6 +150,8 @@ static void cap(builder* b, rmr_cap kind, rmr_point p, double r,
   polygon(b, corners, n, true);
 }
 
+/* Emits a corner join at p bridging before/after at half-width r in the
+ * given style; emits nothing for a zero radius or a negligible turn. */
 static void join(builder* b, rmr_point p, double r, direction before,
                  direction after, rmr_join kind) {
   double turn = angle(before, after);
@@ -168,6 +187,9 @@ static void join(builder* b, rmr_point p, double r, direction before,
   polygon(b, corners, n, true);
 }
 
+/* True if the points strictly between from and to deviate from the
+ * straight line and linear width taper between them by no more than a
+ * fixed tolerance. */
 static bool fits(const rmr_sample* points, size_t from, size_t to) {
   rmr_point start = points[from].position, end = points[to].position;
   direction along = between(start, end), normal = right(along);

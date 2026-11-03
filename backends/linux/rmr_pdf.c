@@ -17,6 +17,7 @@ struct rmr_linux_pdf_source {
   rmr_pdf_page_geometry* geometry;
 };
 
+/* Frees a parsed PDF source and its page geometry table; accepts null. */
 void rmr_linux_pdf_source_free(rmr_linux_pdf_source* s) {
   if (s) {
     rmr_buffer_free(&s->data);
@@ -25,6 +26,7 @@ void rmr_linux_pdf_source_free(rmr_linux_pdf_source* s) {
   }
 }
 
+/* Returns the source's page count, or 0 for a null source. */
 size_t rmr_linux_pdf_source_count(const rmr_linux_pdf_source* s) {
   return s ? s->count : 0;
 }
@@ -104,6 +106,7 @@ rmr_status rmr_linux_pdf_source_size(const rmr_linux_pdf_source* s, size_t page,
   return RMR_OK;
 }
 
+/* Composes two affine transforms, applying a then b. */
 static rmr_transform concat(rmr_transform a, rmr_transform b) {
   return (rmr_transform){
       b.a * a.a + b.c * a.b,          b.b * a.a + b.d * a.b,
@@ -111,6 +114,8 @@ static rmr_transform concat(rmr_transform a, rmr_transform b) {
       b.a * a.tx + b.c * a.ty + b.tx, b.b * a.tx + b.d * a.ty + b.ty};
 }
 
+/* Maps a source page's media box, through its rotation, into page p's
+ * placement rectangle and sheet transform. */
 static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page* p) {
   rmr_rect m = g.media, r = p->source_rect;
   rmr_transform t;
@@ -138,6 +143,7 @@ static rmr_transform placement(rmr_pdf_page_geometry g, const rmr_pdf_page* p) {
                 p->sheet.transform);
 }
 
+/* Returns the inverse of an invertible affine transform. */
 static rmr_transform inverse(rmr_transform t) {
   double det = t.a * t.d - t.b * t.c;
   return (rmr_transform){t.d / det,
@@ -148,6 +154,8 @@ static rmr_transform inverse(rmr_transform t) {
                          (t.b * t.tx - t.a * t.ty) / det};
 }
 
+/* Returns the axis-aligned bounding box of a w by h rectangle under
+ * transform t. */
 static rmr_rect box(rmr_transform t, double w, double h) {
   double x[] = {t.tx, t.a * w + t.tx, t.c * h + t.tx, t.a * w + t.c * h + t.tx},
          y[] = {t.ty, t.b * w + t.ty, t.d * h + t.ty, t.b * w + t.d * h + t.ty};
@@ -260,6 +268,7 @@ typedef struct {
   size_t link_count, outline_count, bytes, work;
 } navigation;
 
+/* Frees a navigation collection's outline titles and arrays. */
 static void navigation_free(navigation* n) {
   for (size_t i = 0; i < n->outline_count; i++)
     free((void*)(uintptr_t)n->outline[i].title);
@@ -269,6 +278,9 @@ static void navigation_free(navigation* n) {
   free(n->page_map);
 }
 
+/* Resolves dest to an output page and point through source geometry and the
+ * target page's placement; returns false when dest is absent or its page is
+ * not visible in the output. */
 static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest,
                               const rmr_linux_pdf_source* source,
                               const rmr_pdf_page* pages, size_t count,
@@ -300,6 +312,8 @@ static bool local_destination(FPDF_DOCUMENT src, FPDF_DEST dest,
   return true;
 }
 
+/* Returns link's destination, following a GoTo action when the link has no
+ * direct destination. */
 static FPDF_DEST link_destination(FPDF_DOCUMENT doc, FPDF_LINK link) {
   FPDF_DEST dest = FPDFLink_GetDest(doc, link);
   FPDF_ACTION action = FPDFLink_GetAction(link);
@@ -308,6 +322,8 @@ static FPDF_DEST link_destination(FPDF_DOCUMENT doc, FPDF_LINK link) {
   return dest;
 }
 
+/* Collects preserved local links and the bookmark outline from src, remapped
+ * onto the output pages described by pages/count. */
 static rmr_status navigation_collect(navigation* n, FPDF_DOCUMENT src,
                                      const rmr_linux_pdf_source* source,
                                      const rmr_pdf_page* pages, size_t count,

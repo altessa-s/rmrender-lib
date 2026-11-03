@@ -41,6 +41,9 @@ typedef struct {
 [[nodiscard]] RMR_API rmr_status rmr_expression_evaluate(
     const rmr_expression* expression, const rmr_binding* bindings, size_t count,
     double* out, rmr_error* error);
+
+/* Releases expression, its source and compiled code; a null pointer is a
+ * no-op. */
 RMR_API void rmr_expression_free(rmr_expression* expression);
 
 /* Borrowed vector-template model. Expressions must remain alive through plan
@@ -160,6 +163,8 @@ rmr_template_plan(const rmr_template* value, rmr_point canvas, rmr_point extent,
     const rmr_plan* foreground, bool visible, const rmr_limits* limits,
     rmr_plan** out, rmr_error* error);
 
+typedef struct rmr_template_document rmr_template_document;
+
 /* Owned JSON document. The input is borrowed only during decoding. Model and
  * metadata remain valid until document_free. Strings are UTF-8, NUL-terminated.
  * Missing orientation returns nullptr; categories may be empty. Unknown JSON
@@ -174,21 +179,33 @@ rmr_template_plan(const rmr_template* value, rmr_point canvas, rmr_point extent,
  * Error index is a JSON byte offset (expression failures point to their
  * string). Other rmr_limits fields apply when constructing a plan, not
  * decoding. */
-typedef struct rmr_template_document rmr_template_document;
-
 [[nodiscard]] RMR_API rmr_status rmr_template_document_decode(
     const char* json, size_t length, const rmr_limits* limits,
     rmr_template_document** out, rmr_error* error);
+
+/* Releases document, its compiled expressions and model storage; a null
+ * pointer is a no-op. */
 RMR_API void rmr_template_document_free(rmr_template_document* document);
+
+/* Borrowed model view into document, valid until it is freed; null document
+ * returns nullptr. */
 RMR_API const rmr_template* rmr_template_document_model(
     const rmr_template_document* document);
+
+/* Borrowed name string; null document returns nullptr. */
 RMR_API const char* rmr_template_document_name(
     const rmr_template_document* document);
+
+/* Borrowed orientation string, or nullptr if absent or document is null. */
 RMR_API const char* rmr_template_document_orientation(
     const rmr_template_document* document);
+
+/* Number of declared categories; null document returns 0. */
 RMR_API size_t
 rmr_template_document_category_count(const rmr_template_document* document);
 
+/* Borrowed category string at index; out-of-range or null document returns
+ * nullptr. */
 RMR_API const char* rmr_template_document_category(
     const rmr_template_document* document, size_t index);
 
@@ -224,6 +241,8 @@ typedef struct {
     rmr_rect viewport, const rmr_text_provider* provider,
     const rmr_limits* limits, rmr_plan** out, rmr_error* error);
 
+/* Like rmr_template_background_plan, but renders template text items
+ * through provider instead of returning UNSUPPORTED for them. */
 [[nodiscard]] RMR_API rmr_status rmr_template_background_plan_with_text(
     const rmr_template* value, rmr_point canvas, rmr_point extent,
     const rmr_plan* foreground, bool visible, const rmr_text_provider* provider,

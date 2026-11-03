@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Exit with the status's message printed to stderr, unless it is RMR_OK. */
 static void check(rmr_status status) {
   if (status != RMR_OK) {
     fprintf(stderr, "%s\n", rmr_status_string(status));
@@ -17,6 +18,7 @@ static void check(rmr_status status) {
   }
 }
 
+/* Write bytes to path, exiting with an error message on any I/O failure. */
 static void save(const char* path, const void* bytes, size_t size) {
   FILE* file = fopen(path, "wb");
   if (!file) {
@@ -30,6 +32,7 @@ static void save(const char* path, const void* bytes, size_t size) {
   }
 }
 
+/* Render three pressure-swept grain strokes to a PPM bitmap and a PDF. */
 int main(int argc, char** argv) {
   if (argc != 3 && argc != 4) {
     fprintf(stderr,

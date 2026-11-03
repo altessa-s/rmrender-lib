@@ -8,6 +8,7 @@
 #ifdef RMRENDER_TEST_APPLE
 #include <rmrender/apple.h>
 #endif
+
 int main(void) {
   rm_stroke_point points[] = {{.x = -10, .y = 10, .width = 40, .pressure = 128},
                               {.x = 10, .y = 20, .width = 40, .pressure = 128}};

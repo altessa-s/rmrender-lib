@@ -28,6 +28,7 @@ struct rmr_apple_fonts {
   CTFontDescriptorRef descriptors[13];
 };
 
+/* Release fonts and the descriptors it holds; a no-op for nullptr. */
 void rmr_apple_fonts_free(rmr_apple_fonts* f) {
   if (!f) return;
   for (size_t i = 0; i < 13; i++)
@@ -35,6 +36,7 @@ void rmr_apple_fonts_free(rmr_apple_fonts* f) {
   free(f);
 }
 
+/* Resolve and load the fixed set of bundled font resources via resolve. */
 rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void* context,
                                   const rmr_limits* given,
                                   rmr_apple_fonts** out, rmr_error* e) {
@@ -92,6 +94,7 @@ rmr_status rmr_apple_fonts_create(rmr_font_resolve_fn resolve, void* context,
   return RMR_OK;
 }
 
+/* Copy of d with its weight variation axis set to weight. */
 static CTFontDescriptorRef weighted(CTFontDescriptorRef d, double weight) {
   int axis = 0x77676874;
   CFNumberRef key =
@@ -232,6 +235,8 @@ typedef struct {
   size_t maximum;
 } font_directory;
 
+/* rmr_font_resolve_fn callback: read name+".ttf" from the configured
+ * directory into current, reusing its buffer across calls. */
 static rmr_status directory_font(void* context, const char* name,
                                  rmr_asset_view* out) {
   font_directory* d = context;
