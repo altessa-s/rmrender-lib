@@ -194,14 +194,17 @@ rmr_status rmr_linux_pdf_incremental(const rmr_linux_pdf_source *source, const r
                                            .box = {left, bottom, right - left, top - bottom}};
         used++;
     }
-    if (s == RMR_OK)
+    bool reported = false;
+    if (s == RMR_OK) {
         s = rmr_pdf_incremental(source->data.bytes, source->data.size, overlays, used, &l, cancel,
                                 ctx, out, report, e);
+        reported = s != RMR_OK;
+    }
     for (size_t i = 0; i < count; i++)
         rmr_buffer_free(&pdfs[i]);
     free(pdfs);
     free(overlays);
-    return s == RMR_OK ? s : rmr_linux_error(e, s, "incremental PDF export failed");
+    return s == RMR_OK || reported ? s : rmr_linux_error(e, s, "incremental PDF export failed");
 }
 typedef struct {
     rmr_pdf_local_link *links;

@@ -17,6 +17,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
     rmr_asset_view pdf = rmr_archive_document_pdf(document);
     rmr_linux_pdf_source *source = nullptr;
     rmr_status status = RMR_OK;
+    bool reported = false; /* set once a PDF entry point has filled the error */
     if (pdf.bytes) {
         status = rmr_linux_pdf_source_create(pdf.bytes, pdf.size, &limits, &source, e);
         if (status != RMR_OK)
@@ -143,6 +144,7 @@ static rmr_status document_pdf(const rmr_archive_document *document,
     else
         status = rmr_linux_pdf_overlay(source, pages, count, &remaining, cancel, context, out,
                                        &result.pdf, e);
+    reported = status != RMR_OK;
     if (status == RMR_OK && report)
         *report = result;
 done:
@@ -153,7 +155,7 @@ done:
     free(parsed);
     free(pages);
     rmr_linux_pdf_source_free(source);
-    return status == RMR_OK ? RMR_OK : text_error(e, status, "document render failed");
+    return status == RMR_OK || reported ? status : text_error(e, status, "document render failed");
 }
 
 rmr_status rmr_linux_document_pdf(const rmr_archive_document *document,
