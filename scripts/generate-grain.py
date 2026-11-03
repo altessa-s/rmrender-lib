@@ -4,7 +4,7 @@
 # found in the LICENSE file.
 """Generate RMRender's original grain assets; Python standard library only.
 
-No reference images, firmware resources or permutation tables are read.
+No reference images, third-party resources or permutation tables are read.
 The stable integer PRNG and toroidal sampling make the tiles reproducible
 and periodic. Run with --check to verify committed PNGs without writing.
 """
