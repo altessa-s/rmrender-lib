@@ -2255,15 +2255,15 @@ static node *select_labels(file *f, const size_t *indices, size_t count) {
         }
         uint64_t start = 1;
         node *st = resolve(f, get(best->dict, "St"), 0);
-        if (st && !uint_value(st, &start)) {
+        if (st && (!uint_value(st, &start) || !start || start > INT32_MAX)) {
             stop(j, RMR_ERR_INVALID_ARGUMENT, "invalid page label start");
             break;
         }
-        start += indices[i] - best->key;
-        if (start > INT32_MAX) {
+        if (indices[i] - best->key > INT32_MAX - start) {
             stop(j, RMR_ERR_LIMIT, "page label start limit");
             break;
         }
+        start += indices[i] - best->key;
         node *d = select_clone(j, best->dict, 0);
         snprintf(raw, sizeof raw, "%llu", (unsigned long long)start);
         select_set(j, d, "St", select_token(j, SCALAR, raw));

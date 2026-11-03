@@ -250,11 +250,14 @@ static void select_labels_check(void) {
     rmr_buffer_free(&out);
     char *start = strstr(f.bytes, "/St 5 >>");
     assert(start);
-    memcpy(start, "/St(5)>>", 8);
-    out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
-    assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr, &out,
-                                nullptr) == RMR_ERR_INVALID_ARGUMENT);
-    assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    const char *invalid[] = {"/St(5)>>", "/St 0 >>"};
+    for (size_t i = 0; i < 2; i++) {
+        memcpy(start, invalid[i], 8);
+        out = (rmr_buffer){(uint8_t *)(uintptr_t)1, 19};
+        assert(rmr_pdf_select_pages((uint8_t *)f.bytes, f.n, order, 4, nullptr, nullptr, nullptr,
+                                    &out, nullptr) == RMR_ERR_INVALID_ARGUMENT);
+        assert(out.bytes == (uint8_t *)(uintptr_t)1 && out.size == 19);
+    }
 }
 /* Object 0 heads the free list and a catalog must be an indirect object; a
  * fresh file keeps a well-formed declared version and normalizes any other. */
