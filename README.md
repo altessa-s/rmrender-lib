@@ -63,6 +63,7 @@ cmake --install build --prefix "$PWD/stage"
 | `BUILD_SHARED_LIBS` | `OFF` | Build shared libraries |
 | `RMRENDER_BUILD_TESTS` | on for a top-level build | Build tests and the `check` target |
 | `RMRENDER_WERROR` | `OFF` | Treat compiler warnings as errors |
+| `RMRENDER_LTO` | `ON` | Link-time optimization for optimized shared builds |
 | `RMRENDER_BUILD_APPLE` | on with an Apple SDK | Build the CoreGraphics/CoreText backend |
 | `RMRENDER_BUILD_CAIRO` | `OFF` | Build the Cairo/Pango/PDFium backend on Linux or macOS (needs `RMRENDER_BUILD_APPLE=OFF`) |
 | `RMRENDER_BUILD_LINUX` | `OFF` | Same as `RMRENDER_BUILD_CAIRO` |
