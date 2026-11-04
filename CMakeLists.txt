@@ -387,9 +387,9 @@ if(RMRENDER_BUILD_TESTS)
         target_compile_definitions(test_linux_svg_visual PRIVATE RMR_TEST_LINUX _GNU_SOURCE)
         target_link_libraries(test_linux_svg_visual PRIVATE RMRender::linux)
         if(TARGET PkgConfig::RMR_PANGO)
-            # Lets the test release Fontconfig's global caches for LSan.
+            # Lets the test release Pango's and Fontconfig's global caches for LSan.
             target_compile_definitions(test_linux_svg_visual PRIVATE RMR_TEST_FONTCONFIG)
-            target_link_libraries(test_linux_svg_visual PRIVATE PkgConfig::RMR_PANGO)
+            target_link_libraries(test_linux_svg_visual PRIVATE PkgConfig::RMR_CAIRO PkgConfig::RMR_PANGO)
         endif()
         add_test(NAME linux_svg_visual COMMAND test_linux_svg_visual)
         set_tests_properties(linux_svg_visual PROPERTIES SKIP_RETURN_CODE 77)

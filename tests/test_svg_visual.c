@@ -9,6 +9,7 @@
 #include "test.h"
 #ifdef RMR_TEST_FONTCONFIG
 #include <fontconfig/fontconfig.h>
+#include <pango/pangocairo.h>
 #endif
 #ifdef RMR_TEST_LINUX
 #include <rmrender/linux.h>
@@ -175,8 +176,9 @@ int main(void) {
   free(image.bytes);
 
 #ifdef RMR_TEST_FONTCONFIG
-  /* Standalone test owns the process: release Fontconfig's global caches for
-   * LSan. */
+  /* Standalone test owns the process: release the default Pango font map the
+   * TEXT label created, then Fontconfig's global caches, for LSan. */
+  pango_cairo_font_map_set_default(nullptr);
   FcFini();
 #endif
   return 0;
