@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/@RMR_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rmrender-linux-text
+Description: @PROJECT_DESCRIPTION@ (linux-text)
+Version: @PROJECT_VERSION@
+Requires: rmrender-linux rmrender-rmlines
+Requires.private: pangoft2 fontconfig harfbuzz >= 3.3
+Libs: -L${libdir} -lrmrender_linux_text
+Libs.private:
+Cflags: -I${includedir}

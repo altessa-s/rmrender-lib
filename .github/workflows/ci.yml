@@ -24,18 +24,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
+          ref: v1.0.1
           path: .deps/rmlines
       - run: cmake -S .deps/rmlines -B build-rmlines -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMLINES_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmlines --target install
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmdoc-lib
+          ref: v1.0.0
           path: .deps/rmdoc
       - run: cmake -S .deps/rmdoc -B build-rmdoc -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMDOC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmdoc --target install
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmmarks-lib
+          ref: v1.0.1
           path: .deps/rmmarks
       - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmmarks --target install
@@ -44,3 +47,61 @@ jobs:
       - run: python3 scripts/embed-pencil.py --check
       - run: cmake --build build --target all check
       - run: python3 tests/verify_pdf_signature.py --writer build/test_pdf_incremental --openssl "$(brew --prefix openssl@3)/bin/openssl"
+      - run: brew install cairo pango fontconfig harfbuzz gdk-pixbuf poppler
+      - run: python3 scripts/fetch-pdfium.py --platform "mac-$(python3 -c 'import platform; print({"arm64":"arm64", "x86_64":"x64"}[platform.machine()])')" --output .deps/pdfium
+      - run: cmake -S . -B build-cairo -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build-cairo --target all check
+      - run: cmake --install build-cairo --prefix "$RUNNER_TEMP/rmr-deps"
+      - run: cmake -S tests/installed_consumer -B build-cairo-consumer -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build-cairo-consumer
+      - run: ./build-cairo-consumer/consumer
+  linux:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: debian:trixie
+    strategy:
+      matrix:
+        arch: ["x64", "arm64"]
+        shared: ["ON", "OFF"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update
+      - run: apt-get install -y clang libclang-rt-19-dev cmake ninja-build pkg-config python3 ca-certificates libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libfontconfig1-dev zlib1g-dev poppler-utils
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmlines-lib
+          ref: v1.0.1
+          path: .deps/rmlines
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmdoc-lib
+          ref: v1.0.0
+          path: .deps/rmdoc
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmmarks-lib
+          ref: v1.0.1
+          path: .deps/rmmarks
+      - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER=clang -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmmarks --target install
+      - run: python3 scripts/fetch-pdfium.py --platform linux-${{ matrix.arch }} --output .deps/pdfium
+      - run: cmake -S .deps/rmlines -B build-rmlines -G Ninja -DCMAKE_C_COMPILER=clang -DRMLINES_BUILD_TESTS=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmlines --target install
+      - run: cmake -S .deps/rmdoc -B build-rmdoc -G Ninja -DCMAKE_C_COMPILER=clang -DRMDOC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
+      - run: cmake --build build-rmdoc --target install
+      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DRMRENDER_BUILD_LINUX=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build --target all check
+      - run: cmake --install build --prefix "$RUNNER_TEMP/rmr-deps"
+      - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build-consumer
+      - run: LD_LIBRARY_PATH="$RUNNER_TEMP/rmr-deps/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib" ./build-consumer/consumer
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # The same clang-format release on every machine; .clang-format-ignore
+      # keeps generated and third-party files out.
+      - run: python3 -m pip install clang-format==21.1.8
+      - run: git ls-files '*.c' '*.h' | xargs clang-format --dry-run --Werror

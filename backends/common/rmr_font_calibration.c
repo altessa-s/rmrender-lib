@@ -1,11 +1,13 @@
 /* Copyright 2026 ALTESSA SOLUTIONS INC.
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
-#include <CoreFoundation/CoreFoundation.h>
+
 /* Per-face, per-size width calibration, the same table as rmrender-swift's
  * Calibration.swift; no device font assets. */
-typedef struct { const char *key; double size, width; } stretch_entry;
-static const stretch_entry stretches[] = {
+
+#include "rmr_font_calibration.h"
+
+const rmr_stretch_entry rmr_stretches[] = {
 {"reMarkableSans-Regular",32,0.9687},
 {"reMarkableSans-Bold",32,0.9528},
 {"reMarkableSans-Bold",36,0.9711},
@@ -74,10 +76,11 @@ static const stretch_entry stretches[] = {
 {"NotoSansDevanagari-Bold",64,1.0},
 {"NotoSansDevanagari-Light",64,1.0},
 };
-static double notoGlyphShare(UniChar c) { switch(c) {
+const size_t rmr_stretch_count = sizeof rmr_stretches / sizeof *rmr_stretches;
+double rmr_noto_glyph_share(uint16_t c) { switch(c) {
 case 0x20: return -0.0234;
 default: return 0; } }
-static double sansGlyphShare(UniChar c) { switch(c) {
+double rmr_sans_glyph_share(uint16_t c) { switch(c) {
 case 0x31: return -0.1313;
 case 0x20ac: return 0.1217;
 case 0x43: return 0.0890;
@@ -118,7 +121,7 @@ case 0xfa: return -0.0159;
 case 0x20: return -0.0153;
 case 0x6e: return -0.0144;
 default: return 0; } }
-static double serifGlyphShare(UniChar c) { switch(c) {
+double rmr_serif_glyph_share(uint16_t c) { switch(c) {
 case 0xbb: return -0.2912;
 case 0x54: return -0.2255;
 case 0x201d: return -0.1635;
@@ -200,7 +203,7 @@ case 0x6a: return -0.0115;
 case 0x6f: return 0.0110;
 case 0xf8: return 0.0105;
 default: return 0; } }
-static double sansBoldGlyphShare(UniChar c) { switch(c) {
+double rmr_sans_bold_glyph_share(uint16_t c) { switch(c) {
 case 0x30: return 0.0835;
 case 0x10d: return 0.0735;
 case 0x63: return 0.0735;
@@ -234,12 +237,12 @@ case 0x62: return 0.0017;
 case 0x77: return 0.0012;
 case 0x64: return -0.0006;
 default: return 0; } }
-static double sansMediumGlyphShare(UniChar c) { switch(c) {
+double rmr_sans_medium_glyph_share(uint16_t c) { switch(c) {
 case 0x72: return -0.0317;
 case 0x6f: return -0.0271;
 case 0x20: return -0.0245;
 default: return 0; } }
-static double sansItalicGlyphShare(UniChar c) { switch(c) {
+double rmr_sans_italic_glyph_share(uint16_t c) { switch(c) {
 case 0x63: return 0.0674;
 case 0x67: return -0.0534;
 case 0x72: return -0.0511;
@@ -254,7 +257,7 @@ case 0x6e: return -0.0162;
 case 0x68: return -0.0158;
 case 0x74: return 0.0130;
 default: return 0; } }
-static double serifBoldGlyphShare(UniChar c) { switch(c) {
+double rmr_serif_bold_glyph_share(uint16_t c) { switch(c) {
 case 0x73: return 0.0703;
 case 0x72: return -0.0638;
 case 0x65: return 0.0596;
@@ -273,7 +276,7 @@ case 0x6b: return -0.0189;
 case 0x6d: return 0.0144;
 case 0x6e: return -0.0129;
 default: return 0; } }
-static double serifItalicGlyphShare(UniChar c) { switch(c) {
+double rmr_serif_italic_glyph_share(uint16_t c) { switch(c) {
 case 0xbb: return -0.3413;
 case 0x4b: return -0.1838;
 case 0x54: return -0.1778;

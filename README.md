@@ -2,9 +2,10 @@
 
 Rendering for reMarkable pages and documents: handwriting with its pen
 textures, typed text, highlights, images and page templates, drawn to a bitmap
-or a vector PDF. A C23 library with a portable core and an Apple
-CoreGraphics/CoreText backend, plus adapters for the sibling C packages that
-read `.rm` pages, `.rmdoc` archives and highlighted text.
+or a vector PDF. A C23 library with a portable core, a CoreGraphics/CoreText
+backend for Apple platforms and a Cairo/Pango/PDFium backend for Linux and
+macOS, plus adapters for the sibling C packages that read `.rm` pages,
+`.rmdoc` archives and highlighted text.
 
 The C libraries need no Swift runtime. The build and ownership conventions
 follow [rmlines-lib](https://github.com/altessa-s/rmlines-lib): CMake, static or
@@ -16,8 +17,10 @@ Part of **[Slate Drive](https://slatedrive.app)**
 ([repository](https://github.com/altessa-s/slatedrive)), the macOS app that
 shows a reMarkable library in Finder.
 
-The version is 1.0.0. The API and ABI stay compatible within a major version;
-the shared-library ABI name is the major version.
+The API and ABI stay compatible within a major version; the shared-library
+ABI name is the major version. The version is declared once in
+`include/rmrender/rmrender.h`; the release workflow requires the pushed tag to
+match it.
 
 ## What it renders
 
@@ -25,18 +28,22 @@ the shared-library ABI name is the major version.
 |---|---|---|---|
 | Core | `RMRender::core` | zlib | Stroke outlines, grain masks, owning render plans, the backend ABI, paper and sheet sizing, template expressions and JSON templates, `.content` page order, PDF overlay import and structure-preserving PDF updates |
 | Apple | `RMRender::apple` | CoreGraphics, CoreText | RGBA bitmaps, multipage vector PDF, sheet output, PDF source pages with remapped links and outlines |
+| Cairo | `RMRender::linux` | Cairo, Pango, GdkPixbuf, PDFium | RGBA bitmaps, vector PDF and source-page composition |
+| Cairo text | `RMRender::linux_text` | Cairo + RMLines + Fontconfig | Pango paragraph layout with the bundled open fonts, anchors and complete notebook pages |
+| Cairo document | `RMRender::linux_document` | Cairo text + RMDoc | A whole document to PDF, fresh, preserving or recomposed |
 | RMLines | `RMRender::rmlines` | [rmlines-lib](https://github.com/altessa-s/rmlines-lib) | Tool calibration and palettes, stroke/scene/page plans, page growth, anchors, highlights, template store |
 | Apple text | `RMRender::apple_text` | Apple + RMLines | CoreText paragraph layout with the bundled open fonts, complete notebook pages |
 | RMDoc | `RMRender::rmdoc` | RMLines + [rmdoc-lib](https://github.com/altessa-s/rmdoc-lib) | Pages, templates, tombstones and source-page mapping from an unpacked archive |
 | Apple document | `RMRender::apple_document` | Apple text + RMDoc | A whole document to PDF, fresh or as an incremental update of its source PDF |
+| Cairo marks | `RMRender::linux_marks` | Cairo text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlight extraction and stacked OCR sheets |
 | Apple marks | `RMRender::apple_marks` | Apple text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlighted text on a rendered page and stacked mark sheets for OCR |
 
 Pen textures are sampled in portable C for every grain family (the pencils,
 the paintbrush and both ballpoints): pressure maps along each segment,
 SplitMix64 lattice hashes, and 16 procedural 64×64 tiles embedded as packed
 bits. Nothing is loaded at run time and no platform rasterizer is
-involved. Only the Apple backend draws output; the core builds and is tested on
-Linux without it.
+involved. Apple and Cairo backends draw output; the core can also be built
+without either backend.
 
 ## Build and install
 
@@ -58,10 +65,13 @@ cmake --install build --prefix "$PWD/stage"
 | `BUILD_SHARED_LIBS` | `OFF` | Build shared libraries |
 | `RMRENDER_BUILD_TESTS` | on for a top-level build | Build tests and the `check` target |
 | `RMRENDER_WERROR` | `OFF` | Treat compiler warnings as errors |
+| `RMRENDER_LTO` | `ON` | Link-time optimization for optimized shared builds |
 | `RMRENDER_BUILD_APPLE` | on with an Apple SDK | Build the CoreGraphics/CoreText backend |
+| `RMRENDER_BUILD_CAIRO` | `OFF` | Build the Cairo/Pango/PDFium backend on Linux or macOS (needs `RMRENDER_BUILD_APPLE=OFF`) |
+| `RMRENDER_BUILD_LINUX` | `OFF` | Same as `RMRENDER_BUILD_CAIRO` |
 | `RMRENDER_BUILD_RMLINES` | `OFF` | Build the RMLines adapter |
 | `RMRENDER_BUILD_RMDOC` | `OFF` | Build the RMDoc adapter (needs RMLines) |
-| `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs Apple and RMLines) |
+| `RMRENDER_BUILD_RMMARKS` | `OFF` | Build the RMMarks adapter (needs RMLines and a backend) |
 | `RMRENDER_BUILD_EXAMPLES` | `OFF` | Build `rmrender_grain`, an Apple example that draws each grain |
 
 The adapters find installed `RMLines`, `RMDoc` and `RMMarks` CMake packages;
@@ -86,6 +96,47 @@ pkg-config names use `rmrender-` and hyphens (`rmrender-core`,
 `rmrender-apple-text`, …); `rmrender-apple-full` brings in the document and
 marks components. `add_subdirectory` is supported; tests default to off when
 embedded. Public names use `rmr_`/`RMR_` and coexist with RMLines' `rm_` names.
+
+The examples below use Apple entry points. The Cairo backend uses the matching
+`linux*.h` headers and the `rmr_linux_` prefix.
+
+## Cairo backend
+
+The Cairo backend builds on Linux and macOS, one backend per build. It needs
+Cairo 1.16+, Pango 1.50+, Fontconfig, HarfBuzz 3.3+, GdkPixbuf, zlib and
+PDFium; only PDFium's C API is used. CMake never downloads anything;
+`scripts/fetch-pdfium.py` fetches a pinned, checksum-verified PDFium build
+(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`). On Debian 13:
+
+```sh
+apt-get install clang cmake ninja-build pkg-config python3 libcairo2-dev libpango1.0-dev \
+    libgdk-pixbuf-2.0-dev libfontconfig1-dev libharfbuzz-dev zlib1g-dev
+python3 scripts/fetch-pdfium.py --platform linux-x64 --output /path/to/pdfium
+cmake -S . -B build -G Ninja -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_APPLE=OFF \
+    -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON \
+    -DPDFium_ROOT=/path/to/pdfium -DCMAKE_PREFIX_PATH=/path/to/dependencies
+```
+
+The targets are `RMRender::linux`, `linux_text`, `linux_document` and
+`linux_marks`, with `RMRender::cairo*` aliases; pkg-config names are
+`rmrender-linux`, `rmrender-linux-text`, `rmrender-linux-document` and
+`rmrender-linux-marks`. The installed package finds PDFium through
+`PDFium_ROOT`. RMRender does not bundle PDFium or the graphics libraries;
+ship them and their licenses with the application.
+
+Text always uses the bundled fonts through a private Fontconfig/Pango font
+map, never system font registration. PDFium is process-global and not thread
+safe: RMRender initializes it once, serializes its own PDFium calls and keeps
+it alive for the life of the process, so applications must not call
+`FPDF_DestroyLibrary` and must coordinate their own PDFium use. A font
+provider and its layouts serve one thread at a time.
+
+`rmr_pdf_rewrite` writes a document's current object graph as a new
+single-revision PDF, and `rmr_pdf_select_pages` reorders, omits or repeats
+pages along the way. The `pdf_recompose` and `document_pdf_recomposed` entry
+points combine page selection, overlays and rewriting. A rewrite invalidates
+existing signatures and is not redaction; use the incremental routes to keep a
+signed revision.
 
 ## Draw a plan
 
@@ -188,7 +239,7 @@ rmr_status page_pdf(const uint8_t *bytes, size_t size, const char *fonts_dir,
   directories should take precedence over the bundled ones. The adapters do no
   I/O of their own beyond these stores.
 - **Handwriting only.** `rmr_apple_page_ink_plan` draws ink alone, for OCR, and
-  `rmr_apple_page_marks` returns the highlighted text for
+  `rmr_apple_page_marks` / `rmr_linux_page_marks` return the highlighted text for
   [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib).
 
 ## Documents and PDFs
@@ -247,49 +298,53 @@ caller callbacks are outside them. Cancellation is cooperative between draw
 operations and cannot interrupt a native call.
 
 Immutable plans can be shared between threads; each render call uses its own
-backend context. The library keeps no global caches or mutable state and emits
-no logs. A template store serves one synchronous render at a time.
+backend context. The library emits no logs and keeps no global caches; the one
+process-wide state is the Cairo backend's PDFium engine, described above. A
+template store serves one synchronous render at a time.
 
 ## Validation
 
-With every component enabled on macOS, `check` runs 31 suites: geometry, the
-backend lifecycle, invalid inputs, grain masks, allocation failure injected at
-each allocation, templates and JSON decoding, PDF parsing and incremental
-updates, Apple bitmap/PDF/text output, page composition, archives and full
+With every component enabled, `check` runs 34 suites with the Apple backend
+and 37 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
+grain masks, allocation failure injected at each allocation, templates and JSON
+decoding, hostile and incremental PDFs, page selection and rewriting, bitmap,
+PDF and text output, Unicode layout, page composition, archives and full
 pages. The core alone builds and passes its suites on Linux with GCC.
 
-CI builds the core on Linux and the full package on macOS with ASan/UBSan, and
-checks that the generated tiles are current. Generated files are reproducible:
+CI builds the portable core, the Cairo backend on Linux x64 and arm64 and on
+macOS in static and shared configurations, and the full Apple package, with
+ASan/UBSan. A second workflow builds a pinned Cairo/Pango stack and patched
+PDFium on Linux and macOS and requires their rasters to match pixel for pixel.
+CodeQL analyses the portable core, and a format check holds the sources to
+`.clang-format`. Generated files are reproducible:
 
 ```sh
 python3 scripts/generate-grain.py --check       # grain tile PNGs
 python3 scripts/embed-marker.py --check         # embedded marker tiles
 python3 scripts/embed-pencil.py --check         # embedded pencil tiles
 python3 scripts/generate-templates.py --check   # page templates
+swift scripts/generate-unicode.swift | cmp - backends/apple/rmr_alphabetic.c
 ```
 
 `tests/verify_pdf_signature.py --writer build/test_pdf_incremental` signs a
 generated PDF locally, applies two incremental updates and verifies the
 original signed bytes with OpenSSL.
 
-## See also
+## Bindings
 
 - **[rmrender-swift](https://github.com/altessa-s/rmrender-swift)** — the same
-  renderer as a Swift package.
+  renderer as a Swift package for Apple platforms.
+- **[rmrender-go](https://github.com/altessa-s/rmrender-go)** — Go bindings over
+  this library.
+
+## See also
+
 - **[rmlines-lib](https://github.com/altessa-s/rmlines-lib)** — the `.rm` v6
-  page format as a C23 library; the pages this library renders.
-- **[rmlines-swift](https://github.com/altessa-s/rmlines-swift)** and
-  **[rmlines-go](https://github.com/altessa-s/rmlines-go)** — the same page
-  format for Swift and Go.
-- **[rmdoc-lib](https://github.com/altessa-s/rmdoc-lib)** and
-  **[rmdoc-swift](https://github.com/altessa-s/rmdoc-swift)** — the `.rmdoc`
+  page format: pages, strokes, typed text and highlights, read and written.
+- **[rmdoc-lib](https://github.com/altessa-s/rmdoc-lib)** — the `.rmdoc`
   container a document and its pages travel in.
-- **[rmmarks-lib](https://github.com/altessa-s/rmmarks-lib)** and
-  **[rmmarks-swift](https://github.com/altessa-s/rmmarks-swift)** — which
-  words a highlight covers, and OCR from cropped strips.
-- **[Slate Drive](https://slatedrive.app)**
-  ([repository](https://github.com/altessa-s/slatedrive)) — the app these
-  packages are part of.
+- **[rmmarks-lib](https://github.com/altessa-s/rmmarks-lib)** — which words a
+  highlight covers, and how OCR from cropped strips returns to the page.
 
 ## Acknowledgements
 

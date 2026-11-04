@@ -1,4 +1,1 @@
-BasedOnStyle: LLVM
-IndentWidth: 4
-ColumnLimit: 100
-BreakBeforeBraces: Attach
+BasedOnStyle: Google

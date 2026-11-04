@@ -1,0 +1,62 @@
+# Copyright 2026 ALTESSA SOLUTIONS INC.
+# Use of this source code is governed by an MIT-style license that can be
+# found in the LICENSE file.
+
+# GitHub's own static analysis over the portable C core, the part that parses
+# untrusted PDFs and templates. The build is spelled out rather than left to
+# autobuild, so that the analysed objects are the ones the library ships: the
+# tests are built too, and every warning the project turns on is on here as
+# well.
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * 1"
+
+# The results are kept as an artifact rather than uploaded, as in the sibling
+# packages, and a finding of level error or warning fails the job, so the
+# analysis cannot pass in silence.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyse C
+    runs-on: ubuntu-24.04
+    container: gcc:15
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update
+      - run: apt-get install -y cmake ninja-build python3 zlib1g-dev jq
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DRMRENDER_BUILD_APPLE=OFF
+          cmake --build build --target all check
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: c
+          upload: never
+          output: sarif-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codeql-sarif
+          path: sarif-results
+      - name: Fail on findings
+        run: |
+          results=$(jq -r '.runs[].results[]
+            | "\(.level // "warning")\t\(.ruleId)\t\(.locations[0].physicalLocation.artifactLocation.uri // "-"):\(.locations[0].physicalLocation.region.startLine // 0)\t\(.message.text | split("\n")[0])"' \
+            sarif-results/*.sarif)
+          if [ -n "$results" ]; then echo "$results"; fi
+          blocking=$(echo "$results" | awk -F'\t' '$1 == "error" || $1 == "warning"' | grep -c . || true)
+          echo "CodeQL: $(echo "$results" | grep -c . || true) results, $blocking of level error or warning"
+          test "$blocking" -eq 0
