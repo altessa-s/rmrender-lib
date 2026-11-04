@@ -1,0 +1,91 @@
+# Copyright 2026 ALTESSA SOLUTIONS INC.
+# Use of this source code is governed by an MIT-style license that can be
+# found in the LICENSE file.
+
+# A release is a tag. Pushing `v1.2.3` checks that the header says 1.2.3 —
+# the version lives there and nowhere else, and a tag that disagrees with it
+# is refused before anything is built — then builds and tests the portable
+# core with GCC and the full Apple package, and publishes a GitHub release
+# with generated notes. The release is source only: the backends depend on
+# platform graphics libraries the application ships.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: The tag names the header's version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.header.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: header
+        run: |
+          read_part() { sed -n "s/^#define RMRENDER_VERSION_$1 \([0-9]*\)$/\1/p" include/rmrender/rmrender.h; }
+          version="$(read_part MAJOR).$(read_part MINOR).$(read_part PATCH)"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "header says $version, tag says $tag"
+          test "$version" = "$tag" || { echo "::error::the tag does not match include/rmrender/rmrender.h"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  core:
+    needs: verify
+    runs-on: ubuntu-24.04
+    container: gcc:15
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update
+      - run: apt-get install -y cmake ninja-build python3 zlib1g-dev
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_WERROR=ON
+      - run: cmake --build build --target all check
+
+  apple:
+    needs: verify
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install llvm ninja
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmlines-lib
+          ref: v1.1.0
+          path: .deps/rmlines
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmdoc-lib
+          ref: v1.1.0
+          path: .deps/rmdoc
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmmarks-lib
+          ref: v1.1.0
+          path: .deps/rmmarks
+      - name: Build the sibling libraries
+        run: |
+          for name in rmlines rmdoc rmmarks; do
+            upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -D"${upper}_BUILD_TESTS"=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/deps"
+            cmake --build "build-$name" --target install
+          done
+      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_BUILD_TYPE=Release -DRMRENDER_WERROR=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps"
+      - run: cmake --build build --target all check
+
+  publish:
+    name: Publish the release
+    needs: [verify, core, apple]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "rmrender ${{ needs.verify.outputs.version }}" \
+            --generate-notes --verify-tag
