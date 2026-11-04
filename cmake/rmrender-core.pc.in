@@ -8,4 +8,4 @@ Version: @PROJECT_VERSION@
 Requires:
 Libs: -L${libdir} -lrmrender
 Libs.private: -lm -lz
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

@@ -17,6 +17,6 @@ with tempfile.TemporaryDirectory(prefix="rmrender-emoji-") as directory:
         for mode in ([], ["-raw"]):
             result = subprocess.check_output(
                 [sys.argv[3], *mode, "-enc", "UTF-8", str(expected_path.with_suffix(".pdf")), "-"]
-            ).decode("utf-8").rstrip("\r\n\f")
+            ).decode("utf-8").replace("\r\n", "\n").rstrip("\r\n\f")
             assert result == expected, (expected_path.name, mode, result, expected)
     print(f"{len(cases)} PDFs: exact default and raw Poppler extraction")

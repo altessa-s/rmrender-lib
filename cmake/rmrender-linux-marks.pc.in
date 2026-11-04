@@ -8,4 +8,4 @@ Requires: rmrender-linux-text rmmarks
 Requires.private: cairo pangoft2
 Libs: -L${libdir} -lrmrender_linux_marks
 Libs.private:
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

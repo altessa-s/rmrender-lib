@@ -6,16 +6,23 @@
  * optional xmllint pass when the tool is installed. */
 #ifndef SVG_CHECK_H
 #define SVG_CHECK_H
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <errno.h>
+#include <limits.h>
+#include <process.h>
+#include <windows.h>
+#else
 #include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+/* The environment xmllint is started with; not declared by every libc. */
+extern char** environ;
+#endif
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-/* The environment xmllint is started with; not declared by every libc. */
-extern char** environ;
 
 /* Whether name is an XML name made of the characters the writer uses. */
 static bool svg_name_char(char c) {
@@ -129,10 +136,46 @@ static bool svg_well_formed(const char* x, size_t n) {
   return true;
 }
 
-/* Writes bytes to a fresh temporary file named with suffix; the caller
- * removes it. */
+#ifdef _WIN32
+/* Converts UTF-8 text to UTF-16 in out, which holds capacity characters. */
+static bool svg_wide(const char* text, wchar_t* out, size_t capacity) {
+  return capacity <= INT_MAX &&
+         MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, out,
+                             (int)capacity) > 0;
+}
+#endif
+
+/* Removes the file at the UTF-8 path. */
+static void svg_remove(const char* path) {
+#ifdef _WIN32
+  wchar_t wide[MAX_PATH];
+  if (svg_wide(path, wide, MAX_PATH)) _wremove(wide);
+#else
+  remove(path);
+#endif
+}
+
+/* Writes bytes to a fresh temporary file named with suffix (Windows keeps its
+ * .tmp name) and stores its UTF-8 path; the caller removes it. */
 static bool svg_temporary(const uint8_t* bytes, size_t size, char* path,
                           size_t capacity, const char* suffix) {
+#ifdef _WIN32
+  /* Wide APIs, so a non-ASCII %TEMP% works. */
+  (void)suffix;
+  wchar_t directory[MAX_PATH], temporary[MAX_PATH];
+  DWORD n = GetTempPathW(MAX_PATH, directory);
+  if (!n || n >= MAX_PATH || !GetTempFileNameW(directory, L"rmr", 0, temporary))
+    return false;
+  FILE* f = nullptr;
+  if (capacity <= INT_MAX &&
+      WideCharToMultiByte(CP_UTF8, 0, temporary, -1, path, (int)capacity,
+                          nullptr, nullptr))
+    f = _wfopen(temporary, L"wb");
+  if (!f) {
+    DeleteFileW(temporary);
+    return false;
+  }
+#else
   const char* directory = getenv("TMPDIR");
   snprintf(path, capacity, "%s/rmr-svg-XXXXXX%s",
            directory && *directory ? directory : "/tmp", suffix);
@@ -143,16 +186,29 @@ static bool svg_temporary(const uint8_t* bytes, size_t size, char* path,
     close(fd);
     return false;
   }
+#endif
   bool ok = fwrite(bytes, 1, size, f) == size;
   return fclose(f) == 0 && ok;
 }
 
 /* Runs xmllint --noout over the document when available; true otherwise.
- * The tool is started without a shell, so the path is passed as is. */
+ * POSIX passes the path to the tool as is; the Windows CRT joins arguments
+ * into one command line, so the path is quoted there. */
 static bool svg_xmllint(const uint8_t* bytes, size_t size) {
   char path[512];
   if (!svg_temporary(bytes, size, path, sizeof path, ".svg")) return false;
 
+#ifdef _WIN32
+  char quoted[sizeof path + 2];
+  snprintf(quoted, sizeof quoted, "\"%s\"", path);
+  wchar_t wide[sizeof quoted];
+  bool ok = false;
+  if (svg_wide(quoted, wide, sizeof quoted)) {
+    const wchar_t* argv[] = {L"xmllint", L"--noout", wide, nullptr};
+    intptr_t status = _wspawnvp(_P_WAIT, L"xmllint", argv);
+    ok = status == 0 || (status == -1 && errno == ENOENT);
+  }
+#else
   char* argv[] = {"xmllint", "--noout", path, nullptr};
   pid_t child;
   int spawned =
@@ -162,7 +218,8 @@ static bool svg_xmllint(const uint8_t* bytes, size_t size) {
   if (spawned == 0)
     ok = waitpid(child, &status, 0) == child && WIFEXITED(status) &&
          WEXITSTATUS(status) == 0;
-  remove(path);
+#endif
+  svg_remove(path);
   return ok;
 }
 

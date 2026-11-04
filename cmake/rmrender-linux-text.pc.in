@@ -8,4 +8,4 @@ Requires: rmrender-linux rmrender-rmlines
 Requires.private: pangoft2 fontconfig harfbuzz >= 3.3
 Libs: -L${libdir} -lrmrender_linux_text
 Libs.private:
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

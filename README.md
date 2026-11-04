@@ -3,8 +3,8 @@
 Rendering for reMarkable pages and documents: handwriting with its pen
 textures, typed text, highlights, images and page templates, drawn to a bitmap,
 a vector PDF or SVG. A C23 library with a portable core, a CoreGraphics/CoreText
-backend for Apple platforms and a Cairo/Pango/PDFium backend for Linux and
-macOS, plus adapters for the sibling C packages that read `.rm` pages,
+backend for Apple platforms and a Cairo/Pango/PDFium backend for Linux, macOS
+and Windows, plus adapters for the sibling C packages that read `.rm` pages,
 `.rmdoc` archives and highlighted text.
 
 The C libraries need no Swift runtime. The build and ownership conventions
@@ -50,8 +50,8 @@ without either backend.
 CMake 3.21 or newer and a C23 compiler are required. The headers use
 `constexpr`, fixed-underlying-type enums, `nullptr` and `[[nodiscard]]`; use a
 recent Apple Clang, clang 19+ or GCC 15+. The core links zlib. Template
-expressions use the POSIX `newlocale`/`strtod_l` APIs and never change the
-process locale.
+expressions use a private C locale (POSIX `newlocale`/`strtod_l`, or Windows
+`_create_locale`/`_strtod_l`) and never change the process locale.
 
 ```sh
 cmake -S . -B build -G Ninja -DRMRENDER_WERROR=ON
@@ -67,7 +67,7 @@ cmake --install build --prefix "$PWD/stage"
 | `RMRENDER_WERROR` | `OFF` | Treat compiler warnings as errors |
 | `RMRENDER_LTO` | `ON` | Link-time optimization for optimized shared builds |
 | `RMRENDER_BUILD_APPLE` | on with an Apple SDK | Build the CoreGraphics/CoreText backend |
-| `RMRENDER_BUILD_CAIRO` | `OFF` | Build the Cairo/Pango/PDFium backend on Linux or macOS (needs `RMRENDER_BUILD_APPLE=OFF`) |
+| `RMRENDER_BUILD_CAIRO` | `OFF` | Build the Cairo/Pango/PDFium backend on Linux, macOS or Windows (needs `RMRENDER_BUILD_APPLE=OFF`) |
 | `RMRENDER_BUILD_LINUX` | `OFF` | Same as `RMRENDER_BUILD_CAIRO` |
 | `RMRENDER_BUILD_RMLINES` | `OFF` | Build the RMLines adapter |
 | `RMRENDER_BUILD_RMDOC` | `OFF` | Build the RMDoc adapter (needs RMLines) |
@@ -102,11 +102,11 @@ The examples below use Apple entry points. The Cairo backend uses the matching
 
 ## Cairo backend
 
-The Cairo backend builds on Linux and macOS, one backend per build. It needs
-Cairo 1.16+, Pango 1.50+, Fontconfig, HarfBuzz 3.3+, GdkPixbuf, zlib and
-PDFium; only PDFium's C API is used. CMake never downloads anything;
+The Cairo backend builds on Linux, macOS and Windows, one backend per build.
+It needs Cairo 1.16+, Pango 1.50+, Fontconfig, HarfBuzz 3.3+, GdkPixbuf, zlib
+and PDFium; only PDFium's C API is used. CMake never downloads anything;
 `scripts/fetch-pdfium.py` fetches a pinned, checksum-verified PDFium build
-(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`). On Debian 13:
+(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`, `win-x64`). On Debian 13:
 
 ```sh
 apt-get install clang cmake ninja-build pkg-config python3 libcairo2-dev libpango1.0-dev \
@@ -137,6 +137,36 @@ pages along the way. The `pdf_recompose` and `document_pdf_recomposed` entry
 points combine page selection, overlays and rewriting. A rewrite invalidates
 existing signatures and is not redaction; use the incremental routes to keep a
 signed revision.
+
+### Windows
+
+Windows x64 is supported with Clang and the UCRT: build in an MSYS2 CLANG64
+shell with the `mingw-w64-clang-x86_64-*` packages for clang, cmake, ninja,
+pkgconf, python, cairo, pango, fontconfig, harfbuzz, gdk-pixbuf2 and zlib, and
+build rmlines-lib, rmdoc-lib and rmmarks-lib with the same toolchain; do not
+mix CLANG64 with MINGW64 or UCRT64 packages. MSVC, clang-cl and ARM64 are not
+supported.
+
+```sh
+python scripts/fetch-pdfium.py --platform win-x64 --output /path/to/pdfium
+cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=ON \
+    -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_APPLE=OFF \
+    -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON \
+    -DPDFium_ROOT=/path/to/pdfium -DCMAKE_PREFIX_PATH=/path/to/dependencies
+```
+
+The PDFium SDK must hold both `pdfium.dll` and its import library. Shared
+builds install `librmrender-1.dll` and its siblings to `bin`; the DLL name
+carries the ABI major version, the import library does not. At run time
+`pdfium.dll`, the RMRender DLLs and the CLANG64 runtime DLLs (Cairo, Pango,
+GLib, FreeType, Fontconfig, HarfBuzz and their dependencies) must sit next to
+the executable or on `PATH`; a static RMRender build still needs them. An
+application deploys these transitive DLLs together with their license notices.
+Resource paths are UTF-8. The bundled fonts are written once to
+`%LOCALAPPDATA%\rmrender\fonts`, named by content and shared by every process;
+Fontconfig opens them through ANSI APIs, so a non-ASCII profile path is
+reached through its 8.3 alias, or `XDG_DATA_HOME` can point to an ASCII
+directory.
 
 ## Draw a plan
 
@@ -364,7 +394,7 @@ template store serves one synchronous render at a time.
 ## Validation
 
 With every component enabled, `check` runs 37 suites with the Apple backend
-and 40 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
+and 41 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
 grain masks, allocation failure injected at each allocation, templates and JSON
 decoding, hostile and incremental PDFs, page selection and rewriting, bitmap,
 PDF, SVG and text output, Unicode layout, page composition, archives and full
@@ -373,6 +403,12 @@ output is checked for well-formed XML (with `xmllint` when installed) and, when
 `rsvg-convert` or `resvg` is installed, rasterized and compared with the
 backend's own bitmap of the same plan; without a rasterizer that suite is
 skipped.
+
+The Windows workflow builds static and DLL variants, checks that font files do
+not accumulate across runs, repeats the suites with non-ASCII temporary and
+cache directories and checks an installed SDK consumer. It records the MSYS2
+dependency versions; Windows pixel parity with the pinned Linux/macOS stack is
+not yet a release gate.
 
 CI builds the portable core, the Cairo backend on Linux x64 and arm64 and on
 macOS in static and shared configurations, and the full Apple package, with

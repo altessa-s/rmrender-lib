@@ -7,5 +7,6 @@ Version: @PROJECT_VERSION@
 Requires: rmrender-core
 Requires.private: cairo pangocairo gdk-pixbuf-2.0
 Libs: -L${libdir} -lrmrender_linux
-Libs.private: -lpdfium -pthread
-Cflags: -I${includedir}
+# PDFium is not installed with rmrender; static users pass -L for its SDK.
+Libs.private: @RMR_PC_PDFIUM@
+Cflags: -I${includedir}@RMR_PC_CFLAGS@
