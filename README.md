@@ -17,8 +17,10 @@ Part of **[Slate Drive](https://slatedrive.app)**
 ([repository](https://github.com/altessa-s/slatedrive)), the macOS app that
 shows a reMarkable library in Finder.
 
-The version is 1.1.0. The API and ABI stay compatible within a major version;
-the shared-library ABI name is the major version.
+The API and ABI stay compatible within a major version; the shared-library
+ABI name is the major version. The version is declared once in
+`include/rmrender/rmrender.h`; the release workflow requires the pushed tag to
+match it.
 
 ## What it renders
 
@@ -313,7 +315,8 @@ CI builds the portable core, the Cairo backend on Linux x64 and arm64 and on
 macOS in static and shared configurations, and the full Apple package, with
 ASan/UBSan. A second workflow builds a pinned Cairo/Pango stack and patched
 PDFium on Linux and macOS and requires their rasters to match pixel for pixel.
-Generated files are reproducible:
+CodeQL analyses the portable core, and a format check holds the sources to
+`.clang-format`. Generated files are reproducible:
 
 ```sh
 python3 scripts/generate-grain.py --check       # grain tile PNGs
