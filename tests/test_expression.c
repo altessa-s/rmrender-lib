@@ -124,12 +124,19 @@ int main(void) {
   char saved[128];
   CHECK(current && strlen(current) < sizeof saved);
   strcpy(saved, current);
-  const char* locales[] = {"de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
-  for (size_t i = 0; i < 3; i++)
+  const char* locales[] = {"German_Germany.1252", "de_DE.UTF-8", "de_DE.utf8",
+                           "fr_FR.UTF-8"};
+  bool comma = false;
+  for (size_t i = 0; i < sizeof locales / sizeof *locales && !comma; i++)
     if (setlocale(LC_NUMERIC, locales[i])) {
+      comma = !strcmp(localeconv()->decimal_point, ",");
+      CHECK(comma);
       CHECK(eval("1.25+2.5") == 3.75);
-      break;
     }
+#ifdef _WIN32
+  /* The Windows CRT always has German; other hosts may lack these locales. */
+  CHECK(comma);
+#endif
   CHECK(setlocale(LC_NUMERIC, saved));
 
   puts(

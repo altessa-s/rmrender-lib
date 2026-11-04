@@ -9,7 +9,8 @@
 #include "test.h"
 
 /* Standalone process: this test owns PDFium initialization. Extraction uses
- * Unicode scalars; FPDFText_GetText's legacy UCS-2 API cannot represent these.
+ * Unicode scalars. Windows PDFium stores wchar_t UTF-16 units in CharInfo;
+ * combine only valid surrogate pairs before comparing the logical text.
  */
 static const struct {
   const char* hex;
@@ -63,18 +64,33 @@ int main(void) {
     CHECK(page);
     FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
     CHECK(text);
-    int count = FPDFText_CountChars(text);
+    int raw_count = FPDFText_CountChars(text);
+    CHECK(raw_count >= 0 && raw_count <= 32);
+    unsigned scalars[32] = {0};
+    int count = 0;
+    for (int k = 0; k < raw_count; k++) {
+      unsigned c = FPDFText_GetUnicode(text, k);
+#ifdef _WIN32
+      if (c >= 0xd800 && c <= 0xdbff) {
+        CHECK(k + 1 < raw_count);
+        unsigned low = FPDFText_GetUnicode(text, ++k);
+        CHECK(low >= 0xdc00 && low <= 0xdfff);
+        c = 0x10000 + ((c - 0xd800) << 10) + low - 0xdc00;
+      }
+#endif
+      CHECK(c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff));
+      scalars[count++] = c;
+    }
     bool correct = count == (int)cases[i].count;
     for (int k = 0; correct && k < count; k++)
-      correct = FPDFText_GetUnicode(text, k) == cases[i].codepoints[k];
+      correct = scalars[k] == cases[i].codepoints[k];
     if (!correct) {
       /* Accept as a known missing capability only the exact upstream
        * behavior: BMP characters survive, supplementary scalars vanish. */
       int k = 0;
       for (size_t j = 0; j < cases[i].count; j++)
         if (cases[i].codepoints[j] < 0x10000) {
-          CHECK(k < count &&
-                FPDFText_GetUnicode(text, k) == cases[i].codepoints[j]);
+          CHECK(k < count && scalars[k] == cases[i].codepoints[j]);
           k++;
         }
       CHECK(k == count);

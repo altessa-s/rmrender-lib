@@ -1,0 +1,120 @@
+# Native Windows C23 build of the shared software backend.
+name: Windows Cairo
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shared: ['OFF', 'ON']
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: CLANG64
+          update: false
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-cairo
+            mingw-w64-clang-x86_64-pango
+            mingw-w64-clang-x86_64-fontconfig
+            mingw-w64-clang-x86_64-harfbuzz
+            mingw-w64-clang-x86_64-gdk-pixbuf2
+            mingw-w64-clang-x86_64-zlib
+            mingw-w64-clang-x86_64-poppler
+            mingw-w64-clang-x86_64-libxml2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: altessa-s/rmlines-lib
+          ref: 14ea47353d4881aefd4987ab332765cd06609296 # v1.1.0
+          path: .deps/rmlines
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: altessa-s/rmdoc-lib
+          ref: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
+          path: .deps/rmdoc
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: altessa-s/rmmarks-lib
+          ref: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
+          path: .deps/rmmarks
+      - name: Build dependencies
+        run: |
+          for name in rmlines rmdoc rmmarks
+          do
+            upper=$(echo "$name" | tr '[:lower:]' '[:upper:]')
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=OFF -D"${upper}_BUILD_TESTS"=OFF -D"${upper}_BUILD_TOOLS"=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/.deps/install"
+            cmake --build "build-$name" --target install -j4
+          done
+      - run: python scripts/fetch-pdfium.py --platform win-x64 --output .deps/pdfium
+      - name: Configure and test
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/.deps/install"
+          cmake --build build --target all -j4
+          # Font files must not pile up: none in the temporary directories, and
+          # the shared cache must not grow when the same fonts load again.
+          temporary() {
+            find "$(cygpath -u "$TMP")" "$(cygpath -u "$TEMP")" -maxdepth 1 -name 'rmrender-font-*' 2>/dev/null | sort -u | wc -l
+          }
+          cache="$(cygpath -u "$LOCALAPPDATA")/rmrender/fonts"
+          cached() {
+            find "$cache" -type f 2>/dev/null | wc -l
+          }
+          before=$(temporary)
+          cmake --build build --target check -j4
+          first=$(cached)
+          ctest --test-dir build --output-on-failure
+          second=$(cached)
+          after=$(temporary)
+          echo "temporary font files: $before before, $after after; cached fonts: $first, then $second"
+          test "$after" -le "$before"
+          test "$first" -gt 0
+          test "$second" -eq "$first"
+          cmake --install build --prefix "$GITHUB_WORKSPACE/.deps/install"
+      - name: Test with non-ASCII temporary and cache directories
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
+          # On the system volume, where Windows creates the 8.3 aliases the
+          # font cache falls back to for a non-ASCII directory.
+          root="$(cygpath -u "$LOCALAPPDATA")/rmrender-ci"
+          mkdir -p "$root/Временные" "$root/Данные"
+          cmd //c "fsutil 8dot3name query C:"
+          TMP="$(cygpath -w "$root/Временные")"
+          TEMP="$TMP"
+          XDG_DATA_HOME="$(cygpath -w "$root/Данные")"
+          export TMP TEMP XDG_DATA_HOME
+          ctest --test-dir build --output-on-failure
+          test "$(find "$root/Данные/rmrender/fonts" -name '*.ttf' | wc -l)" -gt 0
+          test "$(find "$root/Временные" -maxdepth 1 -name 'rmrender-font-*' | wc -l)" -eq 0
+      - name: Installed SDK consumer
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/.deps/install/bin:$PATH"
+          cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/.deps/install" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium"
+          cmake --build build-consumer -j4
+          build-consumer/consumer.exe
+      - name: Record toolchain and render sample
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
+          mkdir -p artifacts
+          pacman -Q > artifacts/packages.txt
+          clang --version > artifacts/compiler.txt
+          build/test_linux_emoji.exe resources/fonts artifacts/windows.png
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-cairo-${{ matrix.shared }}
+          path: |
+            artifacts/
+            build/Testing/Temporary/LastTest.log

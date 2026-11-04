@@ -16,6 +16,7 @@
 #include "image_jpeg_fixture.h"
 #include "pdf_fixture.h"
 #include "test.h"
+#include "test_paths.h"
 
 static bool cancelled(void* ctx) {
   (void)ctx;
@@ -269,12 +270,12 @@ static void imported_actual_text(const char* preview) {
       char path[512];
       int n = snprintf(path, sizeof path, "%s-%u.pdf", preview, route);
       CHECK(n > 0 && (size_t)n < sizeof path);
-      FILE* file = fopen(path, "wb");
+      FILE* file = test_fopen(path, "wb");
       CHECK(file && fwrite(pdf.bytes, 1, pdf.size, file) == pdf.size);
       CHECK(fclose(file) == 0);
       n = snprintf(path, sizeof path, "%s-%u.txt", preview, route);
       CHECK(n > 0 && (size_t)n < sizeof path);
-      file = fopen(path, "wb");
+      file = test_fopen(path, "wb");
       const char* text = "👍🏽";
       CHECK(file && fwrite(text, 1, strlen(text), file) == strlen(text));
       CHECK(fclose(file) == 0);
@@ -858,6 +859,7 @@ static void contour_test(void) {
 }
 
 int main(int argc, char** argv) {
+  argv = test_arguments(argc, argv);
   CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
 
   graphics();

@@ -8,4 +8,4 @@ Requires: rmrender-linux-text rmrender-rmdoc
 Requires.private:
 Libs: -L${libdir} -lrmrender_linux_document
 Libs.private:
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

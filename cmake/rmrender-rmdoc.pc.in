@@ -6,4 +6,4 @@ Description: @PROJECT_DESCRIPTION@ (rmdoc)
 Version: @PROJECT_VERSION@
 Requires: rmrender-rmlines rmdoc
 Libs: -L${libdir} -lrmrender_rmdoc
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

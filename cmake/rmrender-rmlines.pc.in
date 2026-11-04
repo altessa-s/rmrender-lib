@@ -8,4 +8,4 @@ Version: @PROJECT_VERSION@
 Requires: rmrender-core rmlines
 Libs: -L${libdir} -lrmrender_rmlines
 Libs.private:
-Cflags: -I${includedir}
+Cflags: -I${includedir}@RMR_PC_CFLAGS@

@@ -9,6 +9,7 @@
 #include "../adapters/rmr_files.h"
 #include "../backends/linux/rmr_typography_internal.h"
 #include "test.h"
+#include "test_paths.h"
 
 static const char* samples[] = {"😀",
                                 "👍🏽",
@@ -159,13 +160,13 @@ static void pdf_roundtrip(const rmr_linux_fonts* fonts, const char* preview) {
       char path[512];
       int n = snprintf(path, sizeof path, "%s-%zu.pdf", preview, i);
       CHECK(n > 0 && (size_t)n < sizeof path);
-      FILE* file = fopen(path, "wb");
+      FILE* file = test_fopen(path, "wb");
       CHECK(file);
       CHECK(fwrite(pdf.bytes, 1, pdf.size, file) == pdf.size);
       CHECK(fclose(file) == 0);
       n = snprintf(path, sizeof path, "%s-%zu.txt", preview, i);
       CHECK(n > 0 && (size_t)n < sizeof path);
-      file = fopen(path, "wb");
+      file = test_fopen(path, "wb");
       CHECK(file);
       CHECK(fwrite(sample, 1, strlen(sample), file) == strlen(sample));
       CHECK(fclose(file) == 0);
@@ -268,6 +269,7 @@ static rmr_status resolve(void* context, const char* name,
 }
 
 int main(int argc, char** argv) {
+  argv = test_arguments(argc, argv);
   CHECK(argc == 2 || argc == 3);
   rmr_linux_fonts* fonts = nullptr;
   OK(rmr_linux_fonts_create_directory(argv[1], nullptr, &fonts, nullptr));
