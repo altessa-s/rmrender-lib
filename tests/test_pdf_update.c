@@ -325,6 +325,42 @@ static void select_labels_check(void) {
   }
 }
 
+/* Quartz writes an in-use xref row at offset 0 for an object number it never
+ * emits; the file is still read, updated, rewritten and paged. */
+static void quartz_row_check(void) {
+  fixture f = overlay_fixture();
+  char* xref = strstr(f.bytes, "xref\n0 6\n");
+  char* trailer = strstr(f.bytes, "trailer\n<< /Size 6 ");
+  assert(xref && trailer);
+  char rest[512];
+  snprintf(rest, sizeof rest, "%s", trailer + strlen("trailer\n<< /Size 6 "));
+  xref[7] = '7';
+  f.n = (size_t)(trailer - f.bytes);
+  add(&f, "0000000000 00000 n \ntrailer\n<< /Size 7 %s", rest);
+
+  size_t count = 0;
+  assert(rmr_pdf_pages((uint8_t*)f.bytes, f.n, nullptr, nullptr, 0, &count,
+                       nullptr) == RMR_OK);
+  assert(count == 1);
+
+  fixture ov = overlay_fixture();
+  rmr_pdf_overlay o = {
+      .pdf = (uint8_t*)ov.bytes, .size = ov.n, .transform = {1, 0, 0, 1, 0, 0}};
+  rmr_buffer out = {0};
+  assert(rmr_pdf_incremental((uint8_t*)f.bytes, f.n, &o, 1, nullptr, nullptr,
+                             nullptr, &out, nullptr, nullptr) == RMR_OK);
+  rmr_buffer_free(&out);
+
+  assert(rmr_pdf_rewrite((uint8_t*)f.bytes, f.n, nullptr, nullptr, nullptr,
+                         &out, nullptr) == RMR_OK);
+  rmr_buffer_free(&out);
+
+  const size_t order[] = {0, 0};
+  assert(rmr_pdf_select_pages((uint8_t*)f.bytes, f.n, order, 2, nullptr,
+                              nullptr, nullptr, &out, nullptr) == RMR_OK);
+  rmr_buffer_free(&out);
+}
+
 /* Object 0 heads the free list and a catalog must be an indirect object; a
  * fresh file keeps a well-formed declared version and normalizes any other. */
 static void reserved_check(void) {
@@ -368,6 +404,7 @@ int main(void) {
   select_check();
   select_labels_check();
   reserved_check();
+  quartz_row_check();
 
   fixture f = source(false), ov = overlay_fixture();
   rmr_pdf_overlay o = {
@@ -419,8 +456,9 @@ int main(void) {
   fixture invalid_index = stream_fixture(true, true, true, true, true);
   assert(run(&invalid_index, &o, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
 
-  /* Quartz's unused live offset-zero row is allowed only in an overlay.
-   * If reachable, it remains a hard error; source validation stays strict. */
+  /* Quartz's unused live offset-zero row is an absent object, in an overlay
+   * and in a source alike. Once reachable, here by shadowing the overlay's
+   * content stream in a later revision, it is a hard error. */
   fixture reserved = ov;
   revision(&reserved, "6 1\n0000000000 00000 n ", "");
   rmr_pdf_overlay unused = o;
@@ -428,7 +466,8 @@ int main(void) {
   unused.size = reserved.n;
   assert(run(&f, &unused, nullptr, &output) == RMR_OK);
   rmr_buffer_free(&output);
-  assert(run(&reserved, nullptr, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
+  assert(run(&reserved, nullptr, nullptr, &output) == RMR_OK);
+  rmr_buffer_free(&output);
   revision(&reserved, "4 1\n0000000000 00000 n ", "");
   unused.size = reserved.n;
   assert(run(&f, &unused, nullptr, &output) == RMR_ERR_INVALID_ARGUMENT);
