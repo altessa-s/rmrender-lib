@@ -330,26 +330,21 @@ swift scripts/generate-unicode.swift | cmp - backends/apple/rmr_alphabetic.c
 generated PDF locally, applies two incremental updates and verifies the
 original signed bytes with OpenSSL.
 
-## See also
+## Bindings
 
 - **[rmrender-swift](https://github.com/altessa-s/rmrender-swift)** — the same
-  renderer as a Swift package.
+  renderer as a Swift package for Apple platforms.
+- **[rmrender-go](https://github.com/altessa-s/rmrender-go)** — Go bindings over
+  this library.
+
+## See also
+
 - **[rmlines-lib](https://github.com/altessa-s/rmlines-lib)** — the `.rm` v6
-  page format as a C23 library; the pages this library renders.
-- **[rmlines-swift](https://github.com/altessa-s/rmlines-swift)** and
-  **[rmlines-go](https://github.com/altessa-s/rmlines-go)** — the same page
-  format for Swift and Go.
-- **[rmdoc-lib](https://github.com/altessa-s/rmdoc-lib)**,
-  **[rmdoc-swift](https://github.com/altessa-s/rmdoc-swift)** and
-  **[rmdoc-go](https://github.com/altessa-s/rmdoc-go)** — the `.rmdoc`
+  page format: pages, strokes, typed text and highlights, read and written.
+- **[rmdoc-lib](https://github.com/altessa-s/rmdoc-lib)** — the `.rmdoc`
   container a document and its pages travel in.
-- **[rmmarks-lib](https://github.com/altessa-s/rmmarks-lib)**,
-  **[rmmarks-swift](https://github.com/altessa-s/rmmarks-swift)** and
-  **[rmmarks-go](https://github.com/altessa-s/rmmarks-go)** — which words a
-  highlight covers, and OCR from cropped strips.
-- **[Slate Drive](https://slatedrive.app)**
-  ([repository](https://github.com/altessa-s/slatedrive)) — the app these
-  packages are part of.
+- **[rmmarks-lib](https://github.com/altessa-s/rmmarks-lib)** — which words a
+  highlight covers, and how OCR from cropped strips returns to the page.
 
 ## Acknowledgements
 
