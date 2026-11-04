@@ -6,11 +6,16 @@
  * optional xmllint pass when the tool is installed. */
 #ifndef SVG_CHECK_H
 #define SVG_CHECK_H
+#include <spawn.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
+
+/* The environment xmllint is started with; not declared by every libc. */
+extern char** environ;
 
 /* Whether name is an XML name made of the characters the writer uses. */
 static bool svg_name_char(char c) {
@@ -142,16 +147,23 @@ static bool svg_temporary(const uint8_t* bytes, size_t size, char* path,
   return fclose(f) == 0 && ok;
 }
 
-/* Runs xmllint --noout over the document when available; true otherwise. */
+/* Runs xmllint --noout over the document when available; true otherwise.
+ * The tool is started without a shell, so the path is passed as is. */
 static bool svg_xmllint(const uint8_t* bytes, size_t size) {
-  if (system("command -v xmllint >/dev/null 2>&1") != 0) return true;
-
-  char path[512], command[600];
+  char path[512];
   if (!svg_temporary(bytes, size, path, sizeof path, ".svg")) return false;
-  snprintf(command, sizeof command, "xmllint --noout '%s'", path);
-  int status = system(command);
+
+  char* argv[] = {"xmllint", "--noout", path, nullptr};
+  pid_t child;
+  int spawned =
+      posix_spawnp(&child, "xmllint", nullptr, nullptr, argv, environ);
+  int status = 0;
+  bool ok = true;
+  if (spawned == 0)
+    ok = waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+         WEXITSTATUS(status) == 0;
   remove(path);
-  return status == 0;
+  return ok;
 }
 
 #endif

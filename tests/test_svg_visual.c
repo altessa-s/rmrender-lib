@@ -7,6 +7,9 @@
 #include "pdf_fixture.h"
 #include "svg_raster.h"
 #include "test.h"
+#ifdef RMR_TEST_FONTCONFIG
+#include <fontconfig/fontconfig.h>
+#endif
 #ifdef RMR_TEST_LINUX
 #include <rmrender/linux.h>
 #define native(name) rmr_linux_##name
@@ -170,5 +173,11 @@ int main(void) {
   rmr_plan_free(plan);
   rmr_mask_free(&grain);
   free(image.bytes);
+
+#ifdef RMR_TEST_FONTCONFIG
+  /* Standalone test owns the process: release Fontconfig's global caches for
+   * LSan. */
+  FcFini();
+#endif
   return 0;
 }
