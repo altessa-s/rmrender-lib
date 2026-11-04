@@ -24,21 +24,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmlines
       - run: cmake -S .deps/rmlines -B build-rmlines -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMLINES_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmlines --target install
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmdoc-lib
-          ref: v1.0.0
+          ref: v1.1.0
           path: .deps/rmdoc
       - run: cmake -S .deps/rmdoc -B build-rmdoc -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMDOC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmdoc --target install
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmmarks-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmmarks
       - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmmarks --target install
@@ -69,17 +69,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmlines
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmdoc-lib
-          ref: v1.0.0
+          ref: v1.1.0
           path: .deps/rmdoc
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmmarks-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmmarks
       - run: cmake -S .deps/rmmarks -B build-rmmarks -G Ninja -DCMAKE_C_COMPILER=clang -DRMMARKS_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/rmr-deps"
       - run: cmake --build build-rmmarks --target install
