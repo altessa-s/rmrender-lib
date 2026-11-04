@@ -1,8 +1,8 @@
 # RMRender (C23)
 
 Rendering for reMarkable pages and documents: handwriting with its pen
-textures, typed text, highlights, images and page templates, drawn to a bitmap
-or a vector PDF. A C23 library with a portable core, a CoreGraphics/CoreText
+textures, typed text, highlights, images and page templates, drawn to a bitmap,
+a vector PDF or SVG. A C23 library with a portable core, a CoreGraphics/CoreText
 backend for Apple platforms and a Cairo/Pango/PDFium backend for Linux and
 macOS, plus adapters for the sibling C packages that read `.rm` pages,
 `.rmdoc` archives and highlighted text.
@@ -26,15 +26,15 @@ match it.
 
 | Component | CMake target | Needs | Provides |
 |---|---|---|---|
-| Core | `RMRender::core` | zlib | Stroke outlines, grain masks, owning render plans, the backend ABI, paper and sheet sizing, template expressions and JSON templates, `.content` page order, PDF overlay import and structure-preserving PDF updates |
-| Apple | `RMRender::apple` | CoreGraphics, CoreText | RGBA bitmaps, multipage vector PDF, sheet output, PDF source pages with remapped links and outlines |
-| Cairo | `RMRender::linux` | Cairo, Pango, GdkPixbuf, PDFium | RGBA bitmaps, vector PDF and source-page composition |
+| Core | `RMRender::core` | zlib | Stroke outlines, grain masks, owning render plans, the backend ABI, a portable SVG writer, paper and sheet sizing, template expressions and JSON templates, `.content` page order, PDF overlay import and structure-preserving PDF updates |
+| Apple | `RMRender::apple` | CoreGraphics, CoreText | RGBA bitmaps, multipage vector PDF, SVG, sheet output, PDF source pages with remapped links and outlines |
+| Cairo | `RMRender::linux` | Cairo, Pango, GdkPixbuf, PDFium | RGBA bitmaps, vector PDF, SVG and source-page composition |
 | Cairo text | `RMRender::linux_text` | Cairo + RMLines + Fontconfig | Pango paragraph layout with the bundled open fonts, anchors and complete notebook pages |
-| Cairo document | `RMRender::linux_document` | Cairo text + RMDoc | A whole document to PDF, fresh, preserving or recomposed |
+| Cairo document | `RMRender::linux_document` | Cairo text + RMDoc | A whole document to PDF, fresh, preserving or recomposed, or to SVG pages |
 | RMLines | `RMRender::rmlines` | [rmlines-lib](https://github.com/altessa-s/rmlines-lib) | Tool calibration and palettes, stroke/scene/page plans, page growth, anchors, highlights, template store |
 | Apple text | `RMRender::apple_text` | Apple + RMLines | CoreText paragraph layout with the bundled open fonts, complete notebook pages |
 | RMDoc | `RMRender::rmdoc` | RMLines + [rmdoc-lib](https://github.com/altessa-s/rmdoc-lib) | Pages, templates, tombstones and source-page mapping from an unpacked archive |
-| Apple document | `RMRender::apple_document` | Apple text + RMDoc | A whole document to PDF, fresh or as an incremental update of its source PDF |
+| Apple document | `RMRender::apple_document` | Apple text + RMDoc | A whole document to PDF, fresh or as an incremental update of its source PDF, or to SVG pages |
 | Cairo marks | `RMRender::linux_marks` | Cairo text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlight extraction and stacked OCR sheets |
 | Apple marks | `RMRender::apple_marks` | Apple text + [rmmarks-lib](https://github.com/altessa-s/rmmarks-lib) | Highlighted text on a rendered page and stacked mark sheets for OCR |
 
@@ -269,6 +269,65 @@ signature can still verify for its own revision. The appended revision is
 **not signed**, and the library does not validate certificates, signature
 policies or permissions.
 
+## SVG output
+
+Version 1.2.0 adds SVG output. Each page becomes one standalone SVG 1.1
+document in an owned buffer, sized to its `rmr_sheet` like the PDF and bitmap
+paths: the sheet's units are PDF points, so `width`/`height` are written in
+`pt` and the `viewBox` spans the sheet, which clips the page. The writer is in
+the portable core and executes plans through the ordinary backend ABI; the
+same plan gives the same bytes on macOS and Linux, except where a platform
+supplies text outlines or rasters.
+
+- Paths stay vector: fills, strokes with their width, caps, joins and miter
+  limit, combined fill/stroke, colors with alpha, isolated groups with group
+  opacity (`isolation:isolate`), multiply and darken (`mix-blend-mode`), and
+  erasers as luminance masks that remove their contours before the command is
+  composited, as the native backends do.
+- Grain textures (pencils, brushes, ballpoints) are masks holding their
+  one-bit raster as an embedded PNG, sampled without smoothing.
+- Images keep their PNG/JPEG bytes as `data:` URIs, placed by the plan's
+  transform and clipped to the command's path; they are not decoded.
+- Text has no font dependency: glyphs become filled outline paths. The core
+  asks a platform provider (`rmr_svg_provider`) for the outlines of TEXT
+  commands; `rmr_apple_page_svg` and `rmr_linux_page_svg` lay typed text out
+  with CoreText or Pango exactly as the PDF output does and draw its glyph
+  outlines instead of embedding a text PDF. The original string of a TEXT
+  command is kept in `aria-label`; text is not selectable.
+- Imported PDF pages cannot stay vector in SVG. They are rasterized through
+  the platform renderer (CoreGraphics, or PDFium on Cairo) at `raster_dpi`
+  pixels per inch of sheet (zero selects 150) and embedded as PNG under the
+  vector marks. Crop boxes, links and outlines of a source PDF are not
+  represented.
+
+```c
+#include <rmrender/apple_document.h>
+
+rmr_svg_pages pages = {0};
+rmr_error error = {0};
+if (rmr_apple_document_svg(document, nullptr, fonts, RMR_PAPER_A4, 0, 0,
+                           nullptr, nullptr, nullptr, &pages, nullptr,
+                           &error) == RMR_OK) {
+  for (size_t i = 0; i < pages.count; i++)
+    fwrite(pages.pages[i].bytes, 1, pages.pages[i].size, files[i]);
+  rmr_svg_pages_free(&pages);
+}
+```
+
+| Entry point | Input |
+|---|---|
+| `rmr_svg_sheets` | Plans and sheets, with an optional `rmr_svg_provider` for TEXT outlines and PDF rasters |
+| `rmr_apple_svg`, `rmr_linux_svg` | Plans and sheets, with the platform's text outlines and PDF rasterizer |
+| `rmr_apple_page_svg`, `rmr_linux_page_svg` | A notebook page on its paper sheet, typed text as outlines |
+| `rmr_apple_document_svg`, `rmr_linux_document_svg` | Every page of an archive document, on the sheets of the document PDF |
+
+Output follows the PDF contract: `maximum_pdf_bytes` bounds the total SVG
+bytes, `maximum_draws` the page count, rasters the bitmap limits; cancellation
+is checked between draws and nothing is returned on failure. Output is
+deterministic, escapes attribute text and refers to nothing outside the
+document. Browsers, librsvg and resvg render it; renderers without
+`mix-blend-mode` draw multiply and darken highlights as normal paint.
+
 ## Ownership and failures
 
 All inputs are borrowed for the duration of a call. Plans deep-copy their
@@ -304,12 +363,16 @@ template store serves one synchronous render at a time.
 
 ## Validation
 
-With every component enabled, `check` runs 34 suites with the Apple backend
-and 37 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
+With every component enabled, `check` runs 37 suites with the Apple backend
+and 40 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
 grain masks, allocation failure injected at each allocation, templates and JSON
 decoding, hostile and incremental PDFs, page selection and rewriting, bitmap,
-PDF and text output, Unicode layout, page composition, archives and full
-pages. The core alone builds and passes its suites on Linux with GCC.
+PDF, SVG and text output, Unicode layout, page composition, archives and full
+pages. The core alone builds and passes its suites on Linux with GCC. SVG
+output is checked for well-formed XML (with `xmllint` when installed) and, when
+`rsvg-convert` or `resvg` is installed, rasterized and compared with the
+backend's own bitmap of the same plan; without a rasterizer that suite is
+skipped.
 
 CI builds the portable core, the Cairo backend on Linux x64 and arm64 and on
 macOS in static and shared configurations, and the full Apple package, with

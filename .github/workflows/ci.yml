@@ -20,7 +20,7 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: brew install llvm ninja openssl@3
+      - run: brew install llvm ninja openssl@3 librsvg
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: apt-get update
-      - run: apt-get install -y clang libclang-rt-19-dev cmake ninja-build pkg-config python3 ca-certificates libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libfontconfig1-dev zlib1g-dev poppler-utils
+      - run: apt-get install -y clang libclang-rt-19-dev cmake ninja-build pkg-config python3 ca-certificates libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libfontconfig1-dev zlib1g-dev poppler-utils librsvg2-bin libxml2-utils
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
