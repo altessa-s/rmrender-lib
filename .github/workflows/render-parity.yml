@@ -51,17 +51,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmlines
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmdoc-lib
-          ref: v1.0.0
+          ref: v1.1.0
           path: .deps/rmdoc
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmmarks-lib
-          ref: v1.0.1
+          ref: v1.1.0
           path: .deps/rmmarks
       - name: Build and test
         shell: bash

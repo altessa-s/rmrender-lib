@@ -28,6 +28,14 @@ int main(void) {
   else if (!pdf.bytes || !pdf.size)
     result = 4;
 
+  rmr_sheet sheet = {100, 100, {1, 0, 0, -1, 50, 100}};
+  rmr_svg_pages svg = {0};
+  if (!result && (rmr_linux_svg(plans, &sheet, 1, 0, nullptr, nullptr, nullptr,
+                                &svg, nullptr) != RMR_OK ||
+                  svg.count != 1))
+    result = 5;
+
+  rmr_svg_pages_free(&svg);
   rmr_buffer_free(&pdf);
   rmr_plan_free(plan);
   return result;
