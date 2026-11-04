@@ -37,17 +37,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmlines-lib
-          ref: v1.1.0
+          ref: 14ea47353d4881aefd4987ab332765cd06609296 # v1.1.0
           path: .deps/rmlines
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmdoc-lib
-          ref: v1.1.0
+          ref: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
           path: .deps/rmdoc
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmmarks-lib
-          ref: v1.1.0
+          ref: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
           path: .deps/rmmarks
       - name: Build dependencies
         run: |
