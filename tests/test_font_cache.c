@@ -226,6 +226,18 @@ int main(void) {
   CHECK(!rmr_font_cache_file(cache, first, 0, nullptr));
 
   CHECK(g_unlink(path) == 0 && g_unlink(replaced) == 0);
+
+  /* The empty Fontconfig configuration is kept like a font, by content. */
+  char* config = rmr_font_cache_config(cache, nullptr);
+  CHECK(config && g_str_has_suffix(config, ".conf"));
+  static const char empty[] = "<?xml version=\"1.0\"?>\n<fontconfig/>\n";
+  CHECK(holds(config, (const uint8_t*)empty, sizeof empty - 1));
+  char* same = rmr_font_cache_config(cache, nullptr);
+  CHECK(same && !strcmp(same, config) && entries(cache) == 1);
+  CHECK(!rmr_font_cache_config(nullptr, nullptr));
+  CHECK(g_unlink(config) == 0);
+  g_free(same);
+  g_free(config);
   concurrency(root);
   CHECK(g_rmdir(cyrillic) == 0 && g_rmdir(fonts) == 0);
   char* parent = g_path_get_dirname(fonts);
