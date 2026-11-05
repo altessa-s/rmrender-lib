@@ -5,12 +5,25 @@ permissions:
   contents: read
 jobs:
   windows:
-    runs-on: windows-2022
+    name: windows (${{ matrix.arch }}, shared ${{ matrix.shared }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
+        arch: ['x64', 'arm64']
         shared: ['OFF', 'ON']
+        # Per-architecture runner, MSYS2 environment and package prefix; the
+        # PDFium platform is win-<arch>.
+        include:
+          - arch: x64
+            runner: windows-2022
+            msystem: CLANG64
+            pkg: mingw-w64-clang-x86_64
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            pkg: mingw-w64-clang-aarch64
     defaults:
       run:
         shell: msys2 {0}
@@ -18,22 +31,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         with:
-          msystem: CLANG64
+          msystem: ${{ matrix.msystem }}
           update: false
           install: >-
-            mingw-w64-clang-x86_64-clang
-            mingw-w64-clang-x86_64-cmake
-            mingw-w64-clang-x86_64-ninja
-            mingw-w64-clang-x86_64-pkgconf
-            mingw-w64-clang-x86_64-python
-            mingw-w64-clang-x86_64-cairo
-            mingw-w64-clang-x86_64-pango
-            mingw-w64-clang-x86_64-fontconfig
-            mingw-w64-clang-x86_64-harfbuzz
-            mingw-w64-clang-x86_64-gdk-pixbuf2
-            mingw-w64-clang-x86_64-zlib
-            mingw-w64-clang-x86_64-poppler
-            mingw-w64-clang-x86_64-libxml2
+            ${{ matrix.pkg }}-clang
+            ${{ matrix.pkg }}-cmake
+            ${{ matrix.pkg }}-ninja
+            ${{ matrix.pkg }}-pkgconf
+            ${{ matrix.pkg }}-python
+            ${{ matrix.pkg }}-cairo
+            ${{ matrix.pkg }}-pango
+            ${{ matrix.pkg }}-fontconfig
+            ${{ matrix.pkg }}-harfbuzz
+            ${{ matrix.pkg }}-gdk-pixbuf2
+            ${{ matrix.pkg }}-zlib
+            ${{ matrix.pkg }}-poppler
+            ${{ matrix.pkg }}-libxml2
+            ${{ matrix.pkg }}-ntldd
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmlines-lib
@@ -57,7 +71,7 @@ jobs:
             cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=OFF -D"${upper}_BUILD_TESTS"=OFF -D"${upper}_BUILD_TOOLS"=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/.deps/install"
             cmake --build "build-$name" --target install -j4
           done
-      - run: python scripts/fetch-pdfium.py --platform win-x64 --output .deps/pdfium
+      - run: python scripts/fetch-pdfium.py --platform win-${{ matrix.arch }} --output .deps/pdfium
       - name: Configure and test
         run: |
           export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
@@ -108,7 +122,10 @@ jobs:
           rm -rf "$app"
           mkdir -p "$app"
           cp build/test_fontconfig_default.exe "$app/"
-          ldd build/test_fontconfig_default.exe | awk '$3 ~ /^\// && tolower($3) !~ /^\/c\/windows\// {print $3}' | sort -u > "$RUNNER_TEMP/shipped.dlls"
+          # ntldd reads the import tables natively on both architectures; the
+          # MSYS ldd runs x64-emulated on ARM64 and traces the program through
+          # the debug API instead. Keep resolved DLLs outside the Windows tree.
+          ntldd -R build/test_fontconfig_default.exe | tr -d '\r' | awk '$2 == "=>" && $3 ~ /^[A-Za-z]:\\/ && tolower($3) !~ /^[a-z]:\\windows\\/ {print $3}' | sort -u | cygpath -u -f - > "$RUNNER_TEMP/shipped.dlls"
           cat "$RUNNER_TEMP/shipped.dlls"
           xargs -a "$RUNNER_TEMP/shipped.dlls" cp -t "$app/"
           test -f "$app/libfontconfig-1.dll"
@@ -128,11 +145,11 @@ jobs:
           mkdir -p artifacts
           pacman -Q > artifacts/packages.txt
           clang --version > artifacts/compiler.txt
-          build/test_linux_emoji.exe resources/fonts artifacts/windows.png
+          build/test_linux_emoji.exe resources/fonts artifacts/windows-${{ matrix.arch }}.png
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: windows-cairo-${{ matrix.shared }}
+          name: windows-cairo-${{ matrix.arch }}-${{ matrix.shared }}
           path: |
             artifacts/
             build/Testing/Temporary/LastTest.log
