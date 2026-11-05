@@ -54,17 +54,19 @@ typedef struct {
 } race;
 
 /* One writer's result: the path, whether it then read back the expected
- * bytes, and the file's identity right after. */
+ * bytes, why not, and the file's identity right after. */
 typedef struct {
   race* race;
   const uint8_t* expected;
   char* path;
   bool intact;
+  char failure[256];
   uint64_t inode;
 } writer;
 
 /* Waits for every writer, caches the bytes and reads the file straight back,
- * as a font map does. */
+ * as a font map does: through the C runtime, which on Windows does not share
+ * deletion and so fails while a concurrent rename still holds the file. */
 static void* cache_concurrently(void* data) {
   writer* w = data;
   race* r = w->race;
@@ -73,11 +75,22 @@ static void* cache_concurrently(void* data) {
   while (r->waiting < WRITERS) g_cond_wait(&r->start, &r->lock);
   g_mutex_unlock(&r->lock);
 
-  w->path = rmr_font_cache_file(r->directory, r->bytes, r->size);
+  GError* error = nullptr;
+  w->path = rmr_font_cache_file(r->directory, r->bytes, r->size, &error);
   GStatBuf status;
   if (w->path && g_stat(w->path, &status) == 0)
     w->inode = (uint64_t)status.st_ino;
-  w->intact = w->path && holds(w->path, w->expected, r->size);
+  char* contents = nullptr;
+  gsize length = 0;
+  if (w->path && g_file_get_contents(w->path, &contents, &length, &error)) {
+    w->intact = length == r->size && !memcmp(contents, w->expected, r->size);
+    if (!w->intact)
+      snprintf(w->failure, sizeof w->failure, "read %zu other bytes",
+               (size_t)length);
+  }
+  if (error) snprintf(w->failure, sizeof w->failure, "%s", error->message);
+  g_clear_error(&error);
+  g_free(contents);
   return nullptr;
 }
 
@@ -101,6 +114,8 @@ static void race_writers(const char* directory, const uint8_t* bytes,
   GStatBuf status;
   CHECK(writers[0].path && g_stat(writers[0].path, &status) == 0);
   for (int i = 0; i < WRITERS; i++) {
+    if (!writers[i].path || !writers[i].intact)
+      fprintf(stderr, "writer %d: %s\n", i, writers[i].failure);
     CHECK(writers[i].path && !strcmp(writers[i].path, writers[0].path));
     CHECK(writers[i].intact);
     CHECK(writers[i].inode == (uint64_t)status.st_ino);
@@ -132,7 +147,7 @@ static void concurrency(const char* root) {
     race_writers(cache, bytes, bytes, size);
 
     /* The name is taken: the existing file is kept, not replaced. */
-    char* path = rmr_font_cache_file(cache, bytes, size);
+    char* path = rmr_font_cache_file(cache, bytes, size, nullptr);
     CHECK(path);
     put(path, other, size);
     race_writers(cache, bytes, other, size);
@@ -176,7 +191,7 @@ int main(void) {
   memset(other, 0xEE, sizeof other);
 
   /* The file is named by the SHA-256 of its bytes. */
-  char* path = rmr_font_cache_file(cache, first, sizeof first);
+  char* path = rmr_font_cache_file(cache, first, sizeof first, nullptr);
   CHECK(path && holds(path, first, sizeof first));
   char* digest =
       g_compute_checksum_for_data(G_CHECKSUM_SHA256, first, sizeof first);
@@ -189,24 +204,26 @@ int main(void) {
 
   /* A present file of the right size is reused, never rewritten. */
   put(path, other, sizeof other);
-  char* again = rmr_font_cache_file(cache, first, sizeof first);
+  char* again = rmr_font_cache_file(cache, first, sizeof first, nullptr);
   CHECK(again && !strcmp(again, path) && holds(again, other, sizeof other));
   g_free(again);
 
   /* A file of the wrong size is replaced. */
-  char* replaced = rmr_font_cache_file(cache, second, sizeof second);
+  char* replaced = rmr_font_cache_file(cache, second, sizeof second, nullptr);
   CHECK(replaced && holds(replaced, second, sizeof second));
   put(replaced, second, sizeof second / 2);
   g_free(replaced);
-  replaced = rmr_font_cache_file(cache, second, sizeof second);
+  replaced = rmr_font_cache_file(cache, second, sizeof second, nullptr);
   CHECK(replaced && holds(replaced, second, sizeof second));
 
   /* No temporary files are left beside the two fonts. */
   CHECK(entries(cache) == 2);
 
-  CHECK(!rmr_font_cache_file(nullptr, first, sizeof first));
-  CHECK(!rmr_font_cache_file(cache, nullptr, 1));
-  CHECK(!rmr_font_cache_file(cache, first, 0));
+  GError* error = nullptr;
+  CHECK(!rmr_font_cache_file(nullptr, first, sizeof first, &error) && error);
+  g_clear_error(&error);
+  CHECK(!rmr_font_cache_file(cache, nullptr, 1, nullptr));
+  CHECK(!rmr_font_cache_file(cache, first, 0, nullptr));
 
   CHECK(g_unlink(path) == 0 && g_unlink(replaced) == 0);
   concurrency(root);

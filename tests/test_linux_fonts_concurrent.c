@@ -9,6 +9,11 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <rmrender/linux_text.h>
+#ifdef RMR_TEST_FONTCONFIG
+#include <fontconfig/fontconfig.h>
+#include <pango/pangocairo.h>
+#include <pango/pangofc-fontmap.h>
+#endif
 
 #include "test.h"
 #include "test_paths.h"
@@ -88,8 +93,8 @@ int main(int argc, char** argv) {
     for (int i = 0; i < CREATORS; i++) g_thread_join(threads[i]);
     for (int i = 0; i < CREATORS; i++) {
       if (creators[i].status != RMR_OK)
-        fprintf(stderr, "round %d, creator %d: %s\n", round, i,
-                creators[i].error.message);
+        fprintf(stderr, "round %d, creator %d: status %d: %s\n", round, i,
+                (int)creators[i].status, creators[i].error.message);
       CHECK(creators[i].status == RMR_OK);
       CHECK(creators[i].width > 0 && creators[i].width == creators[0].width);
     }
@@ -119,6 +124,19 @@ int main(int argc, char** argv) {
   g_free(data);
   g_free(root);
 
+#ifdef RMR_TEST_FONTCONFIG
+  /* Standalone test owns the process. Pango loads Fontconfig's default
+   * configuration in a thread of its own; wait for that through a font map,
+   * then release the default map and Fontconfig's global caches for LSan. */
+  PangoFontMap* map =
+      pango_cairo_font_map_new_for_font_type(CAIRO_FONT_TYPE_FT);
+  if (map) {
+    (void)pango_fc_font_map_get_config(PANGO_FC_FONT_MAP(map));
+    g_object_unref(map);
+  }
+  pango_cairo_font_map_set_default(nullptr);
+  FcFini();
+#endif
   puts("concurrent font map creation passed");
   return 0;
 }
