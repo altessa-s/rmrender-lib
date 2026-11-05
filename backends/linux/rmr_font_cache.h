@@ -18,9 +18,12 @@
  * caller frees the result with g_free. */
 char* rmr_font_cache_directory(const char* directory);
 
-/* Returns the path of directory/<SHA-256 of bytes>.ttf, first writing bytes
- * there through a temporary file and rename unless a file of that size is
- * already present; nullptr on failure. The caller frees it with g_free. */
+/* Returns the path of directory/<SHA-256 of bytes>.ttf, which holds bytes. A
+ * file of that size there is used as is; otherwise bytes are written to a
+ * unique temporary file that takes the name only if it is still free, so a
+ * cached file is never replaced while another thread or process reads it.
+ * Safe to call concurrently. Returns nullptr on failure; the caller frees the
+ * result with g_free. */
 char* rmr_font_cache_file(const char* directory, const uint8_t* bytes,
                           size_t size);
 
