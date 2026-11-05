@@ -98,6 +98,24 @@ jobs:
           ctest --test-dir build --output-on-failure
           test "$(find "$root/Данные/rmrender/fonts" -name '*.ttf' | wc -l)" -gt 0
           test "$(find "$root/Временные" -maxdepth 1 -name 'rmrender-font-*' | wc -l)" -eq 0
+      - name: Fonts with only the DLLs shipped
+        run: |
+          # An application that ships just the DLLs has no etc/fonts beside
+          # Fontconfig's DLL, so Fontconfig finds no default fonts.conf; font
+          # map creation must still leave stderr empty.
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
+          app="$RUNNER_TEMP/shipped"
+          rm -rf "$app"
+          mkdir -p "$app"
+          cp build/test_fontconfig_default.exe "$app/"
+          ldd build/test_fontconfig_default.exe | awk '$3 ~ /^\// && tolower($3) !~ /^\/c\/windows\// {print $3}' | sort -u > "$RUNNER_TEMP/shipped.dlls"
+          cat "$RUNNER_TEMP/shipped.dlls"
+          xargs -a "$RUNNER_TEMP/shipped.dlls" cp -t "$app/"
+          test -f "$app/libfontconfig-1.dll"
+          fonts="$(cygpath -w "$PWD/resources/fonts")"
+          PATH="$app:/c/Windows/System32:/c/Windows" "$app/test_fontconfig_default.exe" "$fonts" 2> "$RUNNER_TEMP/shipped.stderr"
+          cat "$RUNNER_TEMP/shipped.stderr"
+          test ! -s "$RUNNER_TEMP/shipped.stderr"
       - name: Installed SDK consumer
         run: |
           export PATH="$PWD/.deps/pdfium/bin:$PWD/.deps/install/bin:$PATH"

@@ -166,7 +166,10 @@ Resource paths are UTF-8. The bundled fonts are written once to
 `%LOCALAPPDATA%\rmrender\fonts`, named by content and shared by every process;
 Fontconfig opens them through ANSI APIs, so a non-ASCII profile path is
 reached through its 8.3 alias, or `XDG_DATA_HOME` can point to an ASCII
-directory.
+directory. Where Fontconfig finds no `fonts.conf` of its own, as when only the
+DLLs ship, `FONTCONFIG_FILE` is pointed at an empty configuration in that
+directory unless `FONTCONFIG_FILE`, `FONTCONFIG_PATH` or `FONTCONFIG_SYSROOT`
+is set; rendering never uses Fontconfig's default configuration.
 
 ## Draw a plan
 
