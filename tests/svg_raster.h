@@ -12,17 +12,40 @@
 
 #include "svg_check.h"
 
-/* Name of the available SVG rasterizer, or nullptr when none is installed. */
+/* Name of the available SVG rasterizer, or nullptr when none is installed
+ * or, on Windows, the temporary directory has no ASCII spelling for it. */
 static const char* svg_rasterizer(void) {
+#ifdef _WIN32
+  const char* tool = nullptr;
+  if (system("where rsvg-convert >NUL 2>&1") == 0)
+    tool = "rsvg-convert";
+  else if (system("where resvg >NUL 2>&1") == 0)
+    tool = "resvg";
+  char path[512], alias[512];
+  if (tool && svg_temporary((const uint8_t*)"", 0, path, sizeof path, "")) {
+    bool ascii = svg_tool_path(path, alias, sizeof alias);
+    svg_remove(path);
+    if (ascii) return tool;
+    printf("note: %s skipped; the temporary directory has no ASCII path\n",
+           tool);
+  }
+  return nullptr;
+#else
   if (system("command -v rsvg-convert >/dev/null 2>&1") == 0)
     return "rsvg-convert";
   if (system("command -v resvg >/dev/null 2>&1") == 0) return "resvg";
+#endif
   return nullptr;
 }
 
-/* Reads a whole file into a malloc'd buffer. */
+/* Reads the whole file at the UTF-8 path into a malloc'd buffer. */
 static uint8_t* svg_read(const char* path, size_t* size) {
+#ifdef _WIN32
+  wchar_t wide[MAX_PATH];
+  FILE* f = svg_wide(path, wide, MAX_PATH) ? _wfopen(wide, L"rb") : nullptr;
+#else
   FILE* f = fopen(path, "rb");
+#endif
   if (!f) return nullptr;
   size_t capacity = 1 << 16, used = 0;
   uint8_t* bytes = malloc(capacity);
@@ -165,18 +188,34 @@ static bool svg_rasterize(const char* tool, const rmr_buffer* svg, size_t width,
   if (!svg_temporary(svg->bytes, svg->size, input, sizeof input, ".svg"))
     return false;
   if (!svg_temporary((const uint8_t*)"", 0, output, sizeof output, ".png")) {
-    remove(input);
+    svg_remove(input);
     return false;
   }
 
+#ifdef _WIN32
+  /* The tools take narrow arguments: pass the ASCII aliases. */
+  char input_alias[512], output_alias[512];
+  if (!svg_tool_path(input, input_alias, sizeof input_alias) ||
+      !svg_tool_path(output, output_alias, sizeof output_alias)) {
+    svg_remove(input);
+    svg_remove(output);
+    return false;
+  }
+  const char* resvg_format =
+      "resvg --background white -w %zu -h %zu \"%s\" \"%s\"";
+  const char* rsvg_format =
+      "rsvg-convert -b white -w %zu -h %zu -o \"%s\" \"%s\"";
+#else
+  const char* resvg_format = "resvg --background white -w %zu -h %zu '%s' '%s'";
+  const char* rsvg_format = "rsvg-convert -b white -w %zu -h %zu -o '%s' '%s'";
+  const char *input_alias = input, *output_alias = output;
+#endif
   if (!strcmp(tool, "resvg"))
-    snprintf(command, sizeof command,
-             "resvg --background white -w %zu -h %zu '%s' '%s'", width, height,
-             input, output);
+    snprintf(command, sizeof command, resvg_format, width, height, input_alias,
+             output_alias);
   else
-    snprintf(command, sizeof command,
-             "rsvg-convert -b white -w %zu -h %zu -o '%s' '%s'", width, height,
-             output, input);
+    snprintf(command, sizeof command, rsvg_format, width, height, output_alias,
+             input_alias);
   bool ok = system(command) == 0;
 
   size_t size = 0;
@@ -184,8 +223,8 @@ static bool svg_rasterize(const char* tool, const rmr_buffer* svg, size_t width,
   ok = png && svg_png_decode(png, size, out) && out->width == width &&
        out->height == height;
   free(png);
-  remove(input);
-  remove(output);
+  svg_remove(input);
+  svg_remove(output);
   return ok;
 }
 
