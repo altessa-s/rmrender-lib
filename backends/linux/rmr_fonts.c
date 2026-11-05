@@ -208,9 +208,9 @@ static gboolean spacing_equal(const PangoAttribute* a,
   return ((const PangoAttrInt*)a)->value == ((const PangoAttrInt*)b)->value;
 }
 
-/* Creates a calibrated-spacing Pango attribute carrying value, registering
- * the attribute class on first use. */
-static PangoAttribute* spacing_new(int value) {
+/* The calibrated-spacing attribute class, registered on first use by any
+ * thread. */
+static const PangoAttrClass* spacing_klass(void) {
   static gsize initialized;
   if (g_once_init_enter(&initialized)) {
     spacing_class =
@@ -218,9 +218,13 @@ static PangoAttribute* spacing_new(int value) {
                          spacing_copy, spacing_destroy, spacing_equal};
     g_once_init_leave(&initialized, 1);
   }
+  return &spacing_class;
+}
 
+/* Creates a calibrated-spacing Pango attribute carrying value. */
+static PangoAttribute* spacing_new(int value) {
   PangoAttrInt* a = g_new0(PangoAttrInt, 1);
-  pango_attribute_init(&a->attr, &spacing_class);
+  pango_attribute_init(&a->attr, spacing_klass());
   a->value = value;
   return &a->attr;
 }
@@ -544,7 +548,7 @@ double rmr_pango_cluster_spacing(PangoLayout* layout, size_t from, size_t to) {
     pango_attr_iterator_range(it, &start, &end);
     while (index >= (size_t)end && pango_attr_iterator_next(it))
       pango_attr_iterator_range(it, &start, &end);
-    PangoAttribute* a = pango_attr_iterator_get(it, spacing_class.type);
+    PangoAttribute* a = pango_attr_iterator_get(it, spacing_klass()->type);
     if (a) spacing = ((PangoAttrInt*)a)->value;
     if (at == text + from) first = spacing;
     uniform &= spacing == first;
@@ -611,7 +615,7 @@ double rmr_pango_caret_adjustment(PangoLayout* layout, size_t index) {
     int start, end;
     pango_attr_iterator_range(it, &start, &end);
     if (start >= 0 && (size_t)start <= at && end >= 0 && at < (size_t)end) {
-      PangoAttribute* a = pango_attr_iterator_get(it, spacing_class.type);
+      PangoAttribute* a = pango_attr_iterator_get(it, spacing_klass()->type);
       if (a)
         adjustment = -(double)((PangoAttrInt*)a)->value / PANGO_SCALE *
                      (index == length ? 1 : .5);
@@ -675,7 +679,7 @@ void rmr_pango_attributes(const rmr_linux_fonts* fonts, PangoAttrList* attrs,
              pango_attr_iterator_next(previous_it))
         pango_attr_iterator_range(previous_it, &from, &to);
       PangoAttribute* previous =
-          pango_attr_iterator_get(previous_it, spacing_class.type);
+          pango_attr_iterator_get(previous_it, spacing_klass()->type);
       if (previous) applied = ((PangoAttrInt*)previous)->value;
     }
 
