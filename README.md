@@ -106,7 +106,8 @@ The Cairo backend builds on Linux, macOS and Windows, one backend per build.
 It needs Cairo 1.16+, Pango 1.50+, Fontconfig, HarfBuzz 3.3+, GdkPixbuf, zlib
 and PDFium; only PDFium's C API is used. CMake never downloads anything;
 `scripts/fetch-pdfium.py` fetches a pinned, checksum-verified PDFium build
-(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`, `win-x64`). On Debian 13:
+(`linux-x64`, `linux-arm64`, `mac-arm64`, `mac-x64`, `win-x64`, `win-arm64`). On
+Debian 13:
 
 ```sh
 apt-get install clang cmake ninja-build pkg-config python3 libcairo2-dev libpango1.0-dev \
@@ -140,14 +141,17 @@ signed revision.
 
 ### Windows
 
-Windows x64 is supported with Clang and the UCRT: build in an MSYS2 CLANG64
-shell with the `mingw-w64-clang-x86_64-*` packages for clang, cmake, ninja,
-pkgconf, python, cairo, pango, fontconfig, harfbuzz, gdk-pixbuf2 and zlib, and
-build rmlines-lib, rmdoc-lib and rmmarks-lib with the same toolchain; do not
-mix CLANG64 with MINGW64 or UCRT64 packages. MSVC, clang-cl and ARM64 are not
+Windows x64 and ARM64 are supported with Clang and the UCRT: build in an MSYS2
+CLANG64 shell with the `mingw-w64-clang-x86_64-*` packages (x64), or in a
+CLANGARM64 shell with the `mingw-w64-clang-aarch64-*` packages (ARM64), for
+clang, cmake, ninja, pkgconf, python, cairo, pango, fontconfig, harfbuzz,
+gdk-pixbuf2 and zlib, and build rmlines-lib, rmdoc-lib and rmmarks-lib with the
+same toolchain; do not mix CLANG64 or CLANGARM64 with MINGW64 or UCRT64
+packages, or one architecture with the other. MSVC and clang-cl are not
 supported.
 
 ```sh
+# --platform win-arm64 in a CLANGARM64 shell
 python scripts/fetch-pdfium.py --platform win-x64 --output /path/to/pdfium
 cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=ON \
     -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_APPLE=OFF \
@@ -158,9 +162,10 @@ cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=ON \
 The PDFium SDK must hold both `pdfium.dll` and its import library. Shared
 builds install `librmrender-1.dll` and its siblings to `bin`; the DLL name
 carries the ABI major version, the import library does not. At run time
-`pdfium.dll`, the RMRender DLLs and the CLANG64 runtime DLLs (Cairo, Pango,
-GLib, FreeType, Fontconfig, HarfBuzz and their dependencies) must sit next to
-the executable or on `PATH`; a static RMRender build still needs them. An
+`pdfium.dll`, the RMRender DLLs and the CLANG64 or CLANGARM64 runtime DLLs
+(Cairo, Pango, GLib, FreeType, Fontconfig, HarfBuzz and their dependencies)
+must sit next to the executable or on `PATH`; a static RMRender build still
+needs them; all of them must match the executable's architecture. An
 application deploys these transitive DLLs together with their license notices.
 Resource paths are UTF-8. The bundled fonts are written once to
 `%LOCALAPPDATA%\rmrender\fonts`, named by content and shared by every process;
@@ -407,10 +412,11 @@ output is checked for well-formed XML (with `xmllint` when installed) and, when
 backend's own bitmap of the same plan; without a rasterizer that suite is
 skipped.
 
-The Windows workflow builds static and DLL variants, checks that font files do
-not accumulate across runs, repeats the suites with non-ASCII temporary and
-cache directories and checks an installed SDK consumer. It records the MSYS2
-dependency versions; Windows pixel parity with the pinned Linux/macOS stack is
+The Windows workflow builds static and DLL variants on x64 (CLANG64) and ARM64
+(CLANGARM64), checks that font files do not accumulate across runs, repeats the
+suites with non-ASCII temporary and cache directories, checks that only the
+shipped DLLs suffice for Fontconfig and checks an installed SDK consumer. It
+records the MSYS2 dependency versions; Windows pixel parity with the pinned Linux/macOS stack is
 not yet a release gate.
 
 CI builds the portable core, the Cairo backend on Linux x64 and arm64 and on
