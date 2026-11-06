@@ -151,6 +151,173 @@ static void graphics(void) {
   rmr_plan_free(plan);
 }
 
+/* Counts the forms nested in object and the images anywhere within it. */
+static void count_objects(FPDF_PAGEOBJECT object, int* forms, int* images) {
+  for (int i = 0; i < FPDFFormObj_CountObjects(object); i++) {
+    FPDF_PAGEOBJECT inner = FPDFFormObj_GetObject(object, (unsigned)i);
+    int type = FPDFPageObj_GetType(inner);
+    *images += type == FPDF_PAGEOBJ_IMAGE;
+    if (type == FPDF_PAGEOBJ_FORM) {
+      ++*forms;
+      count_objects(inner, forms, images);
+    }
+  }
+}
+
+/* The forms nested in the marks form of pdf's only page and the images in
+ * them, and the alpha its pixel (4, 4) renders with at 4 pixels per unit. */
+static void grain_shape(rmr_buffer pdf, int* forms, int* images,
+                        uint8_t* alpha) {
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc);
+  FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+  CHECK(page && FPDFPage_CountObjects(page) == 1);
+  FPDF_PAGEOBJECT marks = FPDFPage_GetObject(page, 0);
+  CHECK(FPDFPageObj_GetType(marks) == FPDF_PAGEOBJ_FORM);
+  *forms = *images = 0;
+  count_objects(marks, forms, images);
+  FPDF_BITMAP bm = FPDFBitmap_Create(32, 32, 1);
+  CHECK(bm);
+  FPDFBitmap_FillRect(bm, 0, 0, 32, 32, 0);
+  FPDF_RenderPageBitmap(bm, page, 0, 0, 32, 32, 0, 0);
+  const uint8_t* px = FPDFBitmap_GetBuffer(bm);
+  *alpha = px[4 * 128 + 4 * 4 + 3];
+  CHECK(px[4 * 128 + 4 * 4 + 2] == 255 && px[4 * 128 + 14 * 4 + 3] == 0);
+  FPDFBitmap_Destroy(bm);
+  FPDF_ClosePage(page);
+  FPDF_CloseDocument(doc);
+}
+
+/* Whether a and b hold the same PDF once their dates and document IDs are
+ * blanked; they are blanked in place, at their width, so both stay readable. */
+static bool same_pdf(rmr_buffer a, rmr_buffer b) {
+  rmr_buffer both[] = {a, b};
+  for (size_t k = 0; k < 2; k++)
+    for (size_t i = 0; i + 3 < both[k].size; i++)
+      if (!memcmp(both[k].bytes + i, "(D:", 3) ||
+          !memcmp(both[k].bytes + i, "/ID", 3))
+        for (i += 3; i < both[k].size && both[k].bytes[i] != ')' &&
+                     both[k].bytes[i] != ']';
+             i++)
+          both[k].bytes[i] = '0';
+  return a.size == b.size && !memcmp(a.bytes, b.bytes, a.size);
+}
+
+/* Grained ink by rmr_pdf_options: MASK, the default, draws opaque ink's
+ * stencil straight among the page's marks under one clip, as the Apple
+ * backend does; GROUP wraps each stroke in a transparency group of its own,
+ * as 1.4 did. Translucent ink is grouped either way. The entry points without
+ * options draw the defaults, and invalid options are refused before output. */
+static void grain_options(void) {
+  rmr_element shape[] = {{.kind = RMR_MOVE, .end = {0, 0}},
+                         {.kind = RMR_LINE, .end = {3, 0}},
+                         {.kind = RMR_LINE, .end = {3, 8}},
+                         {.kind = RMR_LINE, .end = {0, 8}},
+                         {.kind = RMR_CLOSE}};
+  uint8_t bits[] = {0x0f, 0x0f, 255, 255, 255, 255, 255, 255};
+  rmr_draw d = {.path = {shape, 5},
+                .color = {1, 0, 0, 1},
+                .mask = {bits, 8, 8, 1, {0, 0, 8, 8}}};
+  rmr_plan *plan = nullptr, *faint = nullptr;
+  OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &plan, nullptr));
+  d.color.alpha = .5;
+  OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &faint, nullptr));
+  const rmr_plan* plans[] = {plan};
+  const rmr_plan* faint_plans[] = {faint};
+
+  rmr_pdf_options options = rmr_pdf_options_default();
+  CHECK(options.abi_version == RMR_PDF_OPTIONS_ABI &&
+        options.struct_size == sizeof options &&
+        options.grain == RMR_PDF_GRAIN_MASK);
+  rmr_buffer plain = {0}, unset = {0}, mask = {0}, group = {0};
+  OK(rmr_linux_pdf(plans, 1, 1, nullptr, nullptr, nullptr, &plain, nullptr));
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, nullptr, nullptr, nullptr,
+                                &unset, nullptr));
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &mask, nullptr));
+  options.grain = RMR_PDF_GRAIN_GROUP;
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &group, nullptr));
+  CHECK(same_pdf(plain, unset) && same_pdf(plain, mask));
+  CHECK(group.size > mask.size);
+
+  int forms = 0, images = 0;
+  uint8_t alpha = 0;
+  grain_shape(mask, &forms, &images, &alpha);
+  CHECK(forms == 0 && images == 1 && alpha == 255);
+  grain_shape(group, &forms, &images, &alpha);
+  CHECK(forms == 1 && images == 1 && alpha == 255);
+
+  rmr_buffer faint_mask = {0}, faint_group = {0};
+  OK(rmr_linux_pdf(faint_plans, 1, 1, nullptr, nullptr, nullptr, &faint_mask,
+                   nullptr));
+  OK(rmr_linux_pdf_with_options(faint_plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &faint_group, nullptr));
+  CHECK(same_pdf(faint_mask, faint_group));
+  grain_shape(faint_mask, &forms, &images, &alpha);
+  CHECK(forms == 1 && images == 1 && alpha >= 126 && alpha <= 129);
+  rmr_buffer_free(&faint_mask);
+  rmr_buffer_free(&faint_group);
+
+  /* A newer caller's longer struct is read up to the fields known here. */
+  struct {
+    rmr_pdf_options known;
+    double later;
+  } longer = {options, 1};
+  longer.known.struct_size = sizeof longer;
+  rmr_buffer read = {0};
+  OK(rmr_linux_pdf_sheets_with_options(
+      plans,
+      &(rmr_sheet){.width = 8, .height = 8, .transform = {1, 0, 0, -1, 0, 8}},
+      1, nullptr, &longer.known, nullptr, nullptr, &read, nullptr));
+  grain_shape(read, &forms, &images, &alpha);
+  CHECK(forms == 1);
+  rmr_buffer_free(&read);
+
+  rmr_pdf_options wrong[] = {options, options, options};
+  wrong[0].abi_version = RMR_PDF_OPTIONS_ABI + 1;
+  wrong[1].struct_size = offsetof(rmr_pdf_options, grain);
+  wrong[2].grain = RMR_PDF_GRAIN_GROUP + 1;
+  for (size_t i = 0; i < 3; i++) {
+    rmr_error error = {0};
+    CHECK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &wrong[i], nullptr,
+                                     nullptr, &read,
+                                     &error) == RMR_ERR_INVALID_ARGUMENT &&
+          !read.bytes && !strcmp(error.message, "invalid PDF options"));
+  }
+
+  /* Pages after the first are composed apart and imported, in order. */
+  rmr_plan* blank = nullptr;
+  OK(rmr_plan_create(nullptr, 0, (rmr_rect){0, 0, 8, 8}, nullptr, &blank,
+                     nullptr));
+  const rmr_plan* pages[] = {blank, plan, blank, plan};
+  rmr_buffer pdf = {0};
+  OK(rmr_linux_pdf(pages, 4, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc && FPDF_GetPageCount(doc) == 4);
+  for (int i = 0; i < 4; i++) {
+    FPDF_PAGE page = FPDF_LoadPage(doc, i);
+    CHECK(page);
+    FPDF_BITMAP bm = FPDFBitmap_Create(32, 32, 1);
+    CHECK(bm);
+    FPDFBitmap_FillRect(bm, 0, 0, 32, 32, 0);
+    FPDF_RenderPageBitmap(bm, page, 0, 0, 32, 32, 0, 0);
+    const uint8_t* px = FPDFBitmap_GetBuffer(bm);
+    CHECK(px[4 * 128 + 4 * 4 + 3] == (i % 2 ? 255 : 0));
+    FPDFBitmap_Destroy(bm);
+    FPDF_ClosePage(page);
+  }
+  FPDF_CloseDocument(doc);
+  rmr_buffer_free(&pdf);
+  rmr_buffer_free(&plain);
+  rmr_buffer_free(&unset);
+  rmr_buffer_free(&mask);
+  rmr_buffer_free(&group);
+  rmr_plan_free(blank);
+  rmr_plan_free(faint);
+  rmr_plan_free(plan);
+}
+
 static void preserved_objects(FPDF_DOCUMENT doc) {
   CHECK(FPDF_GetPageCount(doc) == 2);
   CHECK(FPDFDoc_GetAttachmentCount(doc) == 1);
@@ -671,6 +838,13 @@ static void rotations(void) {
       CHECK(pa && pb);
       CHECK(fabs(FPDF_GetPageWidthF(pa) - FPDF_GetPageWidthF(pb)) < .01);
       CHECK(fabs(FPDF_GetPageHeightF(pa) - FPDF_GetPageHeightF(pb)) < .01);
+      /* The page is composed on its own and imported, links included. */
+      int at = 0;
+      FPDF_LINK link = nullptr;
+      CHECK(FPDFLink_Enumerate(pb, &at, &link));
+      FPDF_ACTION action = FPDFLink_GetAction(link);
+      CHECK(action && FPDFAction_GetType(action) == PDFACTION_URI &&
+            FPDFAction_GetURIPath(b, action, nullptr, 0) > 1);
 
       FPDF_BITMAP ba = FPDFBitmap_Create(60, 60, 1),
                   bb = FPDFBitmap_Create(60, 60, 1);
@@ -863,6 +1037,7 @@ int main(int argc, char** argv) {
   CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
 
   graphics();
+  grain_options();
   images();
   pdf_source();
   selected_objects_case(false);
