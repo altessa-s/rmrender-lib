@@ -312,6 +312,30 @@ signature can still verify for its own revision. The appended revision is
 **not signed**, and the library does not validate certificates, signature
 policies or permissions.
 
+Each page's marks are planned as the page is drawn and freed after it, so a
+document of thousands of pages needs `maximum_plan_bytes` for one page's plan,
+not the whole document's.
+
+Every PDF entry point has a `_with_options` variant (`rmr_apple_pdf`,
+`_pdf_sheets`, `_pdf_overlay`, `_pdf_incremental`, `_pdf_recompose`,
+`_document_pdf`, `_document_pdf_preserving`, `_document_pdf_recomposed`, and
+the same for `rmr_linux_`) taking an `rmr_pdf_options` from
+`rmr_pdf_options_default()`; null and the functions without options use the
+defaults. Its `grain` field picks how grained ink (pencils, brushes,
+ballpoints) is drawn. `RMR_PDF_GRAIN_MASK`, the default, puts each stroke's
+grain stencil straight on the page under its outline clip. `RMR_PDF_GRAIN_GROUP`
+gives each opaque stroke a transparency group of its own, as the Cairo backend
+did up to 1.4: about twice the bytes, and most viewers draw the stroke edges
+lighter. The Apple backend draws the mask way either way and accepts both.
+
+```c
+rmr_pdf_options options = rmr_pdf_options_default();
+options.grain = RMR_PDF_GRAIN_GROUP;
+rmr_status s = rmr_linux_document_pdf_with_options(
+    document, &resources, fonts, RMR_PAPER_A4, 0, nullptr, &options, nullptr,
+    nullptr, &out, &report, &error);
+```
+
 ## SVG output
 
 Version 1.2.0 adds SVG output. Each page becomes one standalone SVG 1.1

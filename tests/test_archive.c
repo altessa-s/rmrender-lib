@@ -9,6 +9,8 @@
 #include "test.h"
 #define DOCUMENT_PDF rmr_apple_document_pdf
 #define PAGE_PLAN rmr_apple_page_plan
+#define DOCUMENT_PDF_WITH_OPTIONS rmr_apple_document_pdf_with_options
+#define GRAIN_GROUPS false
 #include "archive_fixture.h"
 #define DOC "11111111-1111-1111-1111-111111111111"
 #define PAGE "22222222-2222-2222-2222-222222222222"
@@ -17,6 +19,7 @@ int main(void) {
   matching();
   many_files();
   dense_document();
+  document_options();
 
   const char content[] =
       "{\"cPages\":{\"pages\":[{\"id\":\"" PAGE "\"},{\"id\":\"" DEAD
