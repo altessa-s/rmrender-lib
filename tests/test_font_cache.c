@@ -173,7 +173,8 @@ int main(void) {
   if (ascii(fonts)) CHECK(!strcmp(cache, fonts));
   CHECK(!rmr_font_cache_directory(nullptr));
 
-  /* Only Windows has an ASCII alias for a non-ASCII directory. */
+  /* Windows may have an ASCII alias for a non-ASCII directory; elsewhere the
+   * path is opened as it is. */
   char* cyrillic =
       g_build_filename(root, "\xD0\xA8\xD1\x80\xD0\xB8\xD1\x84", nullptr);
   char* alias = rmr_font_cache_directory(cyrillic);
@@ -181,7 +182,7 @@ int main(void) {
 #ifdef _WIN32
   CHECK(!alias || ascii(alias));
 #else
-  CHECK(!alias);
+  CHECK(alias && !strcmp(alias, cyrillic));
 #endif
   g_free(alias);
 
