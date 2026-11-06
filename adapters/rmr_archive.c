@@ -82,21 +82,26 @@ static int by_name(const void* a, const void* b) {
   return c ? c : (x->index > y->index) - (x->index < y->index);
 }
 
-/* The run of files (sorted by base) whose base is exactly page ID id, or null
- * if none; charges the binary search's comparisons to *work. */
-static page_file* run(page_file* files, size_t found, const char* id,
-                      size_t* work) {
+/* Sets *out to the run of files (sorted by base) whose base is exactly page ID
+ * id, or null if none. Each comparison reads at most the ID's bytes and is
+ * charged that to *work; false, with *out unset, if limit would be passed. */
+static bool run(page_file* files, size_t found, const char* id, size_t limit,
+                size_t* work, page_file** out) {
   rmd_str key = {id, strlen(id)};
   size_t low = 0, high = found;
   while (low < high) {
+    if (key.length + 1 > limit - *work) return false;
+    *work += key.length + 1;
     size_t middle = low + (high - low) / 2;
-    ++*work;
     if (order(files[middle].base, key) < 0)
       low = middle + 1;
     else
       high = middle;
   }
-  return low < found && !order(files[low].base, key) ? &files[low] : nullptr;
+  if (low < found && key.length + 1 > limit - *work) return false;
+  if (low < found) *work += key.length + 1;
+  *out = low < found && !order(files[low].base, key) ? &files[low] : nullptr;
+  return true;
 }
 
 /* Units charged for sorting n entries: n*ceil(log2 n) comparisons. */
@@ -104,6 +109,13 @@ static size_t sorting(size_t n) {
   size_t depth = 0;
   while (depth < 64 && ((size_t)1 << depth) < n) depth++;
   return n * depth;
+}
+
+/* Adds units to *work; false, leaving it unchanged, past limit. */
+static bool charge(size_t units, size_t limit, size_t* work) {
+  if (units > limit - *work) return false;
+  *work += units;
+  return true;
 }
 
 /* Free a document and its owned index/string memory; d may be null. */
@@ -232,13 +244,13 @@ rmr_status rmr_archive_document_create(const rmd_archive* archive,
   /* Files sorted by base name, then archive position, form one run per base:
    * a page takes the last file of its run in archive order, and recovery
    * marks a run taken once a page has its base as ID. Sorting and binary
-   * searches keep both linear-logarithmic in the page and file counts. */
-  size_t depth = sorting(found + 1) / (found + 1) + 1;
-  if (sorting(found) > l.maximum_elements - work) {
+   * searches keep both linear-logarithmic in the page and file counts. A sort
+   * is charged a unit per comparison, the names' bytes having been charged
+   * once above; a search, the bytes of the ID it looks up per comparison. */
+  if (!charge(sorting(found), l.maximum_elements, &work)) {
     status = fail(e, RMR_ERR_LIMIT, "page match work limit");
     goto done;
   }
-  work += sorting(found);
   if (found > 1) qsort(files, found, sizeof *files, by_base);
   for (size_t i = 0; i < found; i++) {
     bool first = !i || order(files[i - 1].base, files[i].base);
@@ -247,31 +259,31 @@ rmr_status rmr_archive_document_create(const rmd_archive* archive,
   }
 
   for (size_t i = 0; i < listed; i++) {
-    if (depth > l.maximum_elements - work) {
+    d->pages[d->count] = *rmr_document_layout_page(d->layout, i);
+    page_file* match = nullptr;
+    if (!run(files, found, d->pages[d->count].id, l.maximum_elements, &work,
+             &match)) {
       status = fail(e, RMR_ERR_LIMIT, "page match work limit");
       goto done;
     }
-    d->pages[d->count] = *rmr_document_layout_page(d->layout, i);
-    page_file* match = run(files, found, d->pages[d->count].id, &work);
     d->files[d->count++] = match ? match->last : SIZE_MAX;
   }
 
   size_t at = 0;
   if ((recover || (!listed && !deleted)) && found) {
-    if (sorting(found) > l.maximum_elements - work ||
-        listed + deleted >
-            (l.maximum_elements - work - sorting(found)) / depth) {
+    if (!charge(sorting(found), l.maximum_elements, &work)) {
       status = fail(e, RMR_ERR_LIMIT, "page recovery work limit");
       goto done;
     }
-    work += sorting(found);
-    for (size_t i = 0; i < listed; i++) {
-      page_file* taken = run(files, found, d->pages[i].id, &work);
-      if (taken) taken->taken = true;
-    }
-    for (size_t i = 0; i < deleted; i++) {
-      page_file* taken =
-          run(files, found, rmr_document_layout_deleted(d->layout, i), &work);
+    for (size_t i = 0; i < listed + deleted; i++) {
+      const char* page =
+          i < listed ? d->pages[i].id
+                     : rmr_document_layout_deleted(d->layout, i - listed);
+      page_file* taken = nullptr;
+      if (!run(files, found, page, l.maximum_elements, &work, &taken)) {
+        status = fail(e, RMR_ERR_LIMIT, "page recovery work limit");
+        goto done;
+      }
       if (taken) taken->taken = true;
     }
 
@@ -280,10 +292,6 @@ rmr_status rmr_archive_document_create(const rmd_archive* archive,
     for (size_t i = 0; i < found; i++) {
       const page_file* f = named[i];
       if (files[f->run].taken) continue;
-      if (depth > l.maximum_elements - work) {
-        status = fail(e, RMR_ERR_LIMIT, "page recovery work limit");
-        goto done;
-      }
       char* name = d->strings + at;
       memcpy(name, f->base.bytes, f->base.length);
       name[f->base.length] = 0;
@@ -292,7 +300,11 @@ rmr_status rmr_archive_document_create(const rmd_archive* archive,
       d->files[d->count++] = f->index;
       /* Later files with this page ID as base are taken; a base holding a
        * NUL byte names the page only up to it. */
-      page_file* taken = run(files, found, name, &work);
+      page_file* taken = nullptr;
+      if (!run(files, found, name, l.maximum_elements, &work, &taken)) {
+        status = fail(e, RMR_ERR_LIMIT, "page recovery work limit");
+        goto done;
+      }
       if (taken) taken->taken = true;
     }
   }
