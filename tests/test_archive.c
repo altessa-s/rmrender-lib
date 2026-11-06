@@ -7,10 +7,17 @@
 
 #include "pdf_fixture.h"
 #include "test.h"
+#define DOCUMENT_PDF rmr_apple_document_pdf
+#define PAGE_PLAN rmr_apple_page_plan
+#include "archive_fixture.h"
 #define DOC "11111111-1111-1111-1111-111111111111"
 #define PAGE "22222222-2222-2222-2222-222222222222"
 #define DEAD "33333333-3333-3333-3333-333333333333"
 int main(void) {
+  matching();
+  many_files();
+  dense_document();
+
   const char content[] =
       "{\"cPages\":{\"pages\":[{\"id\":\"" PAGE "\"},{\"id\":\"" DEAD
       "\",\"deleted\":{\"value\":1}}]}}";
@@ -76,5 +83,27 @@ int main(void) {
             nullptr, &output, &report, &error) == RMR_ERR_UNSUPPORTED);
 
   rmr_archive_document_free(document);
+
+  /* Failures keep the message of the check that tripped, including the
+   * layout decoder's own, instead of a generic assembly failure. */
+  char many[512] = "{\"pages\":[\"p\"";
+  for (size_t i = 1; i < 100; i++) strcat(many, ",\"p\"");
+  strcat(many, "]}");
+  rmd_file many_file = {{name1, sizeof name1 - 1},
+                        {(const uint8_t*)many, strlen(many)}};
+  rmd_archive many_archive = {.files = &many_file, .count = 1};
+  rmr_limits tight = rmr_limits_default();
+  tight.maximum_elements = 64;
+  document = nullptr;
+  CHECK(rmr_archive_document_create(&many_archive, DOC, true, &tight, &document,
+                                    &error) == RMR_ERR_LIMIT);
+  CHECK(!document && !strcmp(error.message, "JSON work limit"));
+  tight = rmr_limits_default();
+  tight.maximum_draws = 0;
+  CHECK(rmr_archive_document_create(&many_archive, DOC, true, &tight, &document,
+                                    nullptr) == RMR_ERR_LIMIT);
+  CHECK(rmr_archive_document_create(&many_archive, DOC, true, &tight, &document,
+                                    &error) == RMR_ERR_LIMIT);
+  CHECK(!document && !strcmp(error.message, "page count limit"));
   return 0;
 }
