@@ -126,7 +126,12 @@ The targets are `RMRender::linux`, `linux_text`, `linux_document` and
 ship them and their licenses with the application.
 
 Text always uses the bundled fonts through a private Fontconfig/Pango font
-map, never system font registration. PDFium is process-global and not thread
+map, never system font registration. Pango still loads Fontconfig's default
+configuration; where Fontconfig finds no `fonts.conf` of its own, as in
+minimal Linux containers, `FONTCONFIG_FILE` is pointed at an empty
+configuration in `$XDG_CACHE_HOME/rmrender` (Windows: see below) unless
+`FONTCONFIG_FILE`, `FONTCONFIG_PATH` or `FONTCONFIG_SYSROOT` is set, so
+nothing is printed on stderr. PDFium is process-global and not thread
 safe: RMRender initializes it once, serializes its own PDFium calls and keeps
 it alive for the life of the process, so applications must not call
 `FPDF_DestroyLibrary` and must coordinate their own PDFium use. A font
