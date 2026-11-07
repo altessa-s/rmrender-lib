@@ -337,9 +337,9 @@ Its `decimals` field (0 by default) trades precision for size on the Apple
 backend: 1 to 6 round ink path coordinates to that many decimal places of a
 point. At the default the Apple backend writes ink exactly as CoreGraphics
 would, number for number; 2 is invisible at print resolution and makes
-ink-heavy files about a quarter smaller. Pages with text, images, embedded
-PDFs or transparency groups keep full precision for those marks, and the
-Cairo backend ignores the field. Callers built against the first version of
+ink-heavy files about a quarter smaller. Pages with text, images or embedded
+PDFs keep full precision for the marks from the first of them to the last,
+and the Cairo backend ignores the field. Callers built against the first version of
 `rmr_pdf_options`, without the field, get the default.
 
 Its `unreadable` field says what the document exports do with an **unreadable
@@ -367,11 +367,13 @@ Allocation failures and limits fail the export whatever the policy. Callers
 built against an earlier `rmr_pdf_options` get `STRICT`, as before.
 
 PDF export of long documents writes their pages as it goes. The Apple
-backend serializes fills, strokes, grain masks and erasers itself, printing
-every number exactly as CoreGraphics prints it, and deflates pages on worker
-threads (one fewer than the processors, at most eight), leaving CoreGraphics
-the source pages, text, images, embedded PDFs and transparency groups; output
-is byte for byte the same whatever the number of threads. The Cairo backend
+backend serializes fills, strokes, grain masks, erasers and transparency
+groups (erased shader strokes) itself, printing every number exactly as
+CoreGraphics prints it, writes each distinct page template once as a form
+the pages that use it share, and deflates pages on worker threads (one fewer
+than the processors, at most eight), leaving CoreGraphics the source pages,
+text, images and embedded PDFs; output is byte for byte the same whatever the
+number of threads. The Cairo backend
 finishes each page's Cairo PDF on worker threads and copies it into the
 output as it is, instead of re-parsing it with PDFium and holding the whole
 document there, so memory stays near the size of the output.
