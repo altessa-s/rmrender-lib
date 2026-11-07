@@ -727,6 +727,112 @@ static void pdf_source(void) {
   rmr_linux_pdf_source_free(src);
 }
 
+/* A source of count blank pages. */
+static rmr_buffer blank_source(size_t count) {
+  size_t capacity = 4096 + count * 160, n = 0;
+  char* bytes = malloc(capacity);
+  size_t* offsets = calloc(count + 3, sizeof *offsets);
+  CHECK(bytes && offsets);
+  n += (size_t)snprintf(bytes + n, capacity - n, "%%PDF-1.7\n");
+  offsets[1] = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  offsets[2] = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "2 0 obj\n<< /Type /Pages /Count %zu /Kids [", count);
+  for (size_t i = 0; i < count; i++)
+    n += (size_t)snprintf(bytes + n, capacity - n, "%zu 0 R ", i + 3);
+  n += (size_t)snprintf(bytes + n, capacity - n, "] >>\nendobj\n");
+  for (size_t i = 0; i < count; i++) {
+    offsets[i + 3] = n;
+    n += (size_t)snprintf(bytes + n, capacity - n,
+                          "%zu 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox "
+                          "[0 0 200 200] >>\nendobj\n",
+                          i + 3);
+  }
+  size_t x = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "xref\n0 %zu\n0000000000 65535 f \n", count + 3);
+  for (size_t i = 1; i < count + 3; i++)
+    n += (size_t)snprintf(bytes + n, capacity - n, "%010zu 00000 n \n",
+                          offsets[i]);
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "trailer\n<< /Size %zu /Root 1 0 R >>\nstartxref\n%zu\n"
+                        "%%%%EOF\n",
+                        count + 3, x);
+  CHECK(n < capacity);
+  free(offsets);
+  return (rmr_buffer){(uint8_t*)bytes, n};
+}
+
+/* Ink of distinct grain masks, a page's worth of overlay. */
+static rmr_plan* grain_marks(void) {
+  enum { MASKS = 300 };
+  static uint8_t bits[MASKS][32];
+  static rmr_element paths[MASKS][5];
+  static rmr_draw draws[MASKS];
+  for (size_t i = 0; i < MASKS; i++) {
+    for (size_t k = 0; k < 32; k++) bits[i][k] = (uint8_t)(i * 31 + k * 7);
+    double x = -90 + (double)(i % 30) * 6, y = 10 + (double)(i / 30) * 18;
+    rmr_element* e = paths[i];
+    e[0] = (rmr_element){.kind = RMR_MOVE, .end = {x, y}};
+    e[1] = (rmr_element){.kind = RMR_LINE, .end = {x + 5, y}};
+    e[2] = (rmr_element){.kind = RMR_LINE, .end = {x + 5, y + 16}};
+    e[3] = (rmr_element){.kind = RMR_LINE, .end = {x, y + 16}};
+    e[4] = (rmr_element){.kind = RMR_CLOSE};
+    draws[i] = (rmr_draw){.path = {e, 5},
+                          .mode = RMR_FILL,
+                          .color = {0.2, 0.2, 0.6, 1},
+                          .mask = {bits[i], 16, 16, 2, {x, y, 5, 16}}};
+  }
+  rmr_plan* p = nullptr;
+  OK(rmr_plan_create(draws, MASKS, (rmr_rect){-100, 0, 200, 200}, nullptr, &p,
+                     nullptr));
+  return p;
+}
+
+/* Overlays go into the update, or the recomposed file, as they are drawn: a
+ * document whose overlays together outgrow the plan budget, each well inside
+ * it, is written in both modes. */
+static void streamed_overlays(void) {
+  enum { PAGES = 100 };
+  rmr_buffer pdf = blank_source(PAGES);
+  rmr_linux_pdf_source* src = nullptr;
+  rmr_error error = {0};
+  OK(rmr_linux_pdf_source_create(pdf.bytes, pdf.size, nullptr, &src, &error));
+  rmr_plan* marks = grain_marks();
+  rmr_pdf_page pages[PAGES];
+  for (size_t i = 0; i < PAGES; i++)
+    pages[i] = (rmr_pdf_page){.marks = marks,
+                              .sheet = {.width = 200,
+                                        .height = 200,
+                                        .transform = {1, 0, 0, -1, 100, 200}},
+                              .source_rect = {-100, 0, 200, 200},
+                              .source_page = i,
+                              .has_source = true,
+                              .source_visible = true};
+  rmr_limits limits = rmr_limits_default();
+  limits.maximum_plan_bytes = 4 << 20;
+  for (int fresh = 0; fresh < 2; fresh++) {
+    rmr_buffer out = {0};
+    rmr_status s =
+        fresh ? rmr_linux_pdf_recompose(src, pages, PAGES, &limits, nullptr,
+                                        nullptr, &out, &error)
+              : rmr_linux_pdf_incremental(src, pages, PAGES, &limits, nullptr,
+                                          nullptr, &out, nullptr, &error);
+    if (s != RMR_OK) fprintf(stderr, "%s\n", error.message);
+    OK(s);
+    CHECK(out.size - pdf.size > limits.maximum_plan_bytes);
+    FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(out.bytes, out.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == PAGES);
+    FPDF_CloseDocument(doc);
+    rmr_buffer_free(&out);
+  }
+  rmr_plan_free(marks);
+  rmr_linux_pdf_source_free(src);
+  rmr_buffer_free(&pdf);
+}
+
 static void images(void) {
   rmr_element clip[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                         {.kind = RMR_LINE, .end = {8, 0}},
@@ -1176,6 +1282,7 @@ int main(int argc, char** argv) {
   grain_options();
   images();
   pdf_source();
+  streamed_overlays();
   selected_objects_case(false);
   selected_objects_case(true);
   selected_annotations();

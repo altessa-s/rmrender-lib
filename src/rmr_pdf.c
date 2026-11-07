@@ -179,8 +179,9 @@ static bool named(const node* n, const char* name) {
   return name[k] == 0;
 }
 
-/* Compares two validated name tokens after decoding #xx escapes. */
-static bool same_name(const node* a, const node* b) {
+/* Orders two validated name tokens by their bytes after decoding #xx
+ * escapes; 0 when they name the same thing. */
+static int name_order(const node* a, const node* b) {
   size_t i = 1, k = 1;
 
   while (i < a->length && k < b->length) {
@@ -193,10 +194,15 @@ static bool same_name(const node* a, const node* b) {
       y = (unsigned)(hex(b->raw[k]) * 16 + hex(b->raw[k + 1]));
       k += 2;
     }
-    if (x != y) return false;
+    if (x != y) return x < y ? -1 : 1;
   }
 
-  return i == a->length && k == b->length;
+  return (i < a->length) - (k < b->length);
+}
+
+/* Compares two validated name tokens after decoding #xx escapes. */
+static bool same_name(const node* a, const node* b) {
+  return !name_order(a, b);
 }
 
 /* Unresolved value of key in dictionary d; null if absent or d is not a
@@ -206,6 +212,60 @@ static node* get(node* d, const char* key) {
   for (node* n = d->child; n && n->next; n = n->next->next)
     if (named(n, key)) return n->next;
   return nullptr;
+}
+
+/* Charges n units of work at once, as n ticks would. */
+static bool charge(job* j, size_t n) {
+  if (!tick(j)) return false;
+  if (n > j->limits.maximum_elements - j->work) {
+    stop(j, RMR_ERR_LIMIT, "PDF work limit");
+    return false;
+  }
+  j->work += n;
+  return true;
+}
+
+/* qsort order of dictionary keys by decoded name. */
+static int key_order(const void* a, const void* b) {
+  return name_order(*(const node* const*)a, *(const node* const*)b);
+}
+
+/* False when dictionary d, of count keys, names a key twice (the job still
+ * fine) or the check fails the job. A small dictionary is checked pair by
+ * pair; a larger one sorted, so that its work grows as n log n rather than
+ * n², and a page's resources naming each of its thousands of images once
+ * stay well inside the work budget. */
+static bool unique_keys(job* j, node* d, size_t count) {
+  if (count <= 16) {
+    for (node* k = d->child; k; k = k->next->next)
+      for (node* other = k->next->next; other; other = other->next->next) {
+        if (!tick(j)) return false;
+        if (same_name(k, other)) return false;
+      }
+    return true;
+  }
+
+  size_t bytes = count * sizeof(node*), depth = 0;
+  for (size_t n = count; n; n >>= 1) depth++;
+  if (count > SIZE_MAX / sizeof(node*) / 2 ||
+      bytes > j->limits.maximum_plan_bytes - j->allocated) {
+    stop(j, RMR_ERR_LIMIT, "PDF scratch limit");
+    return false;
+  }
+  if (!charge(j, count * depth)) return false;
+  node** keys = rmr_alloc(bytes);
+  if (!keys) {
+    stop(j, RMR_ERR_OUT_OF_MEMORY, "PDF allocation failed");
+    return false;
+  }
+  size_t n = 0;
+  for (node* k = d->child; k; k = k->next->next) keys[n++] = k;
+  qsort(keys, n, sizeof *keys, key_order);
+  bool unique = true;
+  for (size_t i = 1; i < n && unique; i++)
+    unique = name_order(keys[i - 1], keys[i]) != 0;
+  free(keys);
+  return unique;
 }
 
 /* Parses one direct object into arena nodes. Strings, numbers and keywords
@@ -243,19 +303,17 @@ static node* parse(scan* s, unsigned depth) {
           s->data[s->pos + 1] == '>') {
         if (count % 2) goto bad;
         s->pos += 2;
+        if (!unique_keys(s->j, n, count / 2)) {
+          if (s->j->status != RMR_OK) return nullptr;
+          goto bad;
+        }
         break;
       }
 
       node* v = parse(s, depth + 1);
       if (!v) return nullptr;
 
-      if (n->type == DICT && count % 2 == 0) {
-        if (v->type != NAME) goto bad;
-        for (node* key = n->child; key; key = key->next->next) {
-          if (!tick(s->j)) return nullptr;
-          if (same_name(key, v)) goto bad;
-        }
-      }
+      if (n->type == DICT && count % 2 == 0 && v->type != NAME) goto bad;
 
       *tail = v;
       tail = &v->next;
@@ -1533,38 +1591,6 @@ static uint32_t stream_text(writer* w, const char* s) {
   return id;
 }
 
-/* Imports every object stored in the overlay, including objects packed in
- * object streams. Object stream containers and xref streams are file
- * structure, not content, and are not copied. Quartz reserves unused objects
- * as live generation-zero rows at offset zero; they have no object, and a
- * reference to one is rejected by value() (no mapped number). */
-static bool import_objects(writer* w, file* f) {
-  for (size_t i = 0; i < f->count && w->j->status == RMR_OK; i++) {
-    entry* e = &f->entries[i];
-    if (!e->live || absent(e)) continue;
-    node* n = object(f, e, 0);
-    if (!n) return false;
-    node* type = n->type == DICT ? get(n, "Type") : nullptr;
-    if (!e->stream || !(named(type, "ObjStm") || named(type, "XRef")))
-      e->mapped = reserve(w);
-  }
-
-  for (size_t i = 0; i < f->count && w->j->status == RMR_OK; i++) {
-    entry* e = &f->entries[i];
-    if (!e->mapped) continue;
-    begin(w, e->mapped, 0);
-    value(w, f, e->object, 0);
-    if (e->stream) {
-      text(w, "\nstream\n");
-      put(w, e->stream, e->stream_size);
-      text(w, "\nendstream");
-    }
-    end(w);
-  }
-
-  return w->j->status == RMR_OK;
-}
-
 /* Entry of the indirect content stream that contents refers to, either
  * directly or as a one-element array; null after failing the job
  * otherwise. */
@@ -1595,8 +1621,15 @@ static entry* single_stream(file* f, node* contents) {
   return e;
 }
 
-/* Imports a one-page overlay file and wraps its page as a Form XObject.
- * Returns the form's object number, or 0 on failure. */
+static bool import_reachable(writer* w, file* f, node* const* roots,
+                             size_t count);
+static size_t dict_values(node* d, const char* except, node** out, size_t room);
+
+/* Imports a one-page overlay file and wraps its page as a Form XObject: the
+ * objects its resources, box, group and content stream's other entries refer
+ * to come along, not the file's catalog, page tree, page or content stream
+ * object, which the form replaces. Returns the form's object number, or 0
+ * on failure. */
 static uint32_t form(writer* w, file* f) {
   page* p = f->pages;
   uint64_t rotation = 0;
@@ -1616,7 +1649,14 @@ static uint32_t form(writer* w, file* f) {
     return 0;
   }
 
-  if (!import_objects(w, f)) return 0;
+  node* group = get(p->object->object, "Group");
+  node* roots[64];
+  size_t n = 0;
+  roots[n++] = p->resources;
+  roots[n++] = box;
+  if (group) roots[n++] = group;
+  n += dict_values(e->object, "Length", roots + n, 64 - n);
+  if (!import_reachable(w, f, roots, n)) return 0;
 
   uint32_t id = reserve(w);
   begin(w, id, 0);
@@ -1629,7 +1669,6 @@ static uint32_t form(writer* w, file* f) {
   text(w, "\n");
   fields(w, f, e->object, skip, sizeof skip / sizeof *skip);
 
-  node* group = get(p->object->object, "Group");
   if (group) {
     text(w, "/Group ");
     value(w, f, group, 0);
@@ -1677,28 +1716,27 @@ static void rectangle(writer* w, rmr_rect b) {
   text(w, "]");
 }
 
-/* Rewrites one source page so it draws the overlay form, under its
- * transform, after the original contents wrapped in q/Q. With
- * replace_box, also replaces MediaBox/CropBox and keeps the old
- * MediaBox as ArtBox. */
-static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
-  page* p = source->pages;
-  for (size_t i = 0; i < o->page && p; i++) {
-    if (!tick(w->j)) return;
-    p = p->next;
-  }
-  if (!p) {
-    stop(w->j, RMR_ERR_INVALID_ARGUMENT, "overlay page outside source");
-    return;
-  }
+enum { MAXIMUM_PARTS = 8 };
 
-  file imported;
-  if (!open_file(&imported, w->j, o->pdf, o->size)) return;
-  if (imported.page_count != 1) {
-    stop(w->j, RMR_ERR_INVALID_ARGUMENT, "overlay PDF must have one page");
-    return;
+/* Rewrites source page p so that it draws the parts, one-page overlay files
+ * each imported with its objects as a Form XObject, in order under the
+ * first part's transform, after its own contents between the streams open
+ * ("q") and close ("Q"). With the first part's replace_box, also replaces
+ * MediaBox/CropBox and keeps the old MediaBox as ArtBox. */
+static void overlay(writer* w, file* source, page* p,
+                    const rmr_pdf_overlay* parts, size_t count, uint32_t open,
+                    uint32_t close) {
+  const rmr_pdf_overlay* o = &parts[0];
+  uint32_t forms[MAXIMUM_PARTS];
+  for (size_t i = 0; i < count && w->j->status == RMR_OK; i++) {
+    file imported;
+    if (!open_file(&imported, w->j, parts[i].pdf, parts[i].size)) return;
+    if (imported.page_count != 1) {
+      stop(w->j, RMR_ERR_INVALID_ARGUMENT, "overlay PDF must have one page");
+      return;
+    }
+    forms[i] = form(w, &imported);
   }
-  uint32_t form_id = form(w, &imported);
   if (w->j->status != RMR_OK) return;
 
   node *resources = resolve(source, p->resources, 0),
@@ -1709,12 +1747,14 @@ static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
     return;
   }
 
-  char name[80];
-  unsigned suffix = 0;
-  do {
-    if (!tick(w->j)) return;
-    snprintf(name, sizeof name, "RMR%u_%u", form_id, suffix++);
-  } while (get(objects, name));
+  char names[MAXIMUM_PARTS][32];
+  for (size_t i = 0; i < count; i++) {
+    unsigned suffix = 0;
+    do {
+      if (!tick(w->j)) return;
+      snprintf(names[i], sizeof names[i], "RMR%u_%u", forms[i], suffix++);
+    } while (get(objects, names[i]));
+  }
 
   /* The overlay lives in its own Form resource scope, so its gs/image/font
    * names can never replace names used by the original page. */
@@ -1727,7 +1767,9 @@ static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
     real(&content, m[i]);
     text(&content, " ");
   }
-  format(&content, "cm\n/%s Do\nQ\n", name);
+  text(&content, "cm\n");
+  for (size_t i = 0; i < count; i++) format(&content, "/%s Do\n", names[i]);
+  text(&content, "Q\n");
   begin(w, invoke, 0);
   format(w, "<< /Length %zu >>\nstream\n", content.data.size);
   put(w, content.data.bytes, content.data.size);
@@ -1735,7 +1777,6 @@ static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
   end(w);
   free(content.data.bytes);
 
-  uint32_t open = stream_text(w, "q\n"), close = stream_text(w, "Q\n");
   begin(w, p->object->number, p->object->generation);
   text(w, "<<\n");
   const char* skip[] = {"Contents", "Resources", "MediaBox", "CropBox",
@@ -1764,7 +1805,9 @@ static void overlay(writer* w, file* source, const rmr_pdf_overlay* o) {
   fields(w, nullptr, resources, xskip, 1);
   text(w, "/XObject <<\n");
   fields(w, nullptr, objects, nullptr, 0);
-  format(w, "/%s %u 0 R\n>>\n>>\n>>", name, form_id);
+  for (size_t i = 0; i < count; i++)
+    format(w, "/%s %u 0 R\n", names[i], forms[i]);
+  text(w, ">>\n>>\n>>");
   end(w);
 }
 
@@ -1887,82 +1930,6 @@ static void release(job* j) {
     free(j->memory);
     j->memory = next;
   }
-}
-
-rmr_status rmr_pdf_incremental(const uint8_t* source, size_t size,
-                               const rmr_pdf_overlay* overlays, size_t count,
-                               const rmr_limits* limits, rmr_cancel_fn cancel,
-                               void* context, rmr_buffer* out,
-                               rmr_pdf_incremental_report* report,
-                               rmr_error* error) {
-  if (!out)
-    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
-                    "missing PDF update input");
-  return rmr_pdf_incremental_output(source, size, overlays, count, limits,
-                                    cancel, context, nullptr, out, report,
-                                    error);
-}
-
-rmr_status rmr_pdf_incremental_output(const uint8_t* source, size_t size,
-                                      const rmr_pdf_overlay* overlays,
-                                      size_t count, const rmr_limits* given,
-                                      rmr_cancel_fn cancel, void* context,
-                                      const rmr_output* output, rmr_buffer* out,
-                                      rmr_pdf_incremental_report* report,
-                                      rmr_error* error) {
-  if (!source || !size || (!out && !output) || (count && !overlays))
-    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
-                    "missing PDF update input");
-
-  job j = {.limits = given ? *given : rmr_limits_default(),
-           .cancel = cancel,
-           .context = context};
-  writer w = {.j = &j, .output = output};
-  file f;
-  if (count > j.limits.maximum_draws)
-    stop(&j, RMR_ERR_LIMIT, "overlay count limit");
-
-  if (tick(&j) && open_file(&f, &j, source, size)) {
-    w.next_number = f.next_number;
-    put(&w, source, size);
-    if (count) text(&w, "\n");
-    for (size_t i = 0; i < count && tick(&j); i++) {
-      const rmr_pdf_overlay* o = &overlays[i];
-      if (!o->pdf || !o->size ||
-          !isfinite(o->transform.a * o->transform.d -
-                    o->transform.b * o->transform.c) ||
-          o->transform.a * o->transform.d == o->transform.b * o->transform.c ||
-          (o->replace_box &&
-           (!isfinite(o->box.x) || !isfinite(o->box.y) ||
-            !isfinite(o->box.width) || !isfinite(o->box.height) ||
-            o->box.width <= 0 || o->box.height <= 0))) {
-        stop(&j, RMR_ERR_INVALID_ARGUMENT, "invalid overlay transform/box");
-        break;
-      }
-      for (size_t k = 0; k < i && tick(&j); k++)
-        if (overlays[k].page == o->page)
-          stop(&j, RMR_ERR_INVALID_ARGUMENT, "duplicate page overlay");
-      if (j.status == RMR_OK) overlay(&w, &f, o);
-    }
-    if (count && j.status == RMR_OK) finish(&w, &f);
-  }
-
-  if (output) {
-    drain(&w);
-    free(w.data.bytes);
-    w.data = (rmr_buffer){0};
-  }
-  if (j.status == RMR_OK) {
-    if (!output) *out = w.data;
-    if (report) *report = (rmr_pdf_incremental_report){count, size, true};
-  } else
-    free(w.data.bytes);
-
-  release(&j);
-  return j.status == RMR_OK
-             ? RMR_OK
-             : rmr_fail(error, j.status, 0,
-                        j.reason ? j.reason : "PDF update failed");
 }
 
 /* A page's inherited MediaBox, normalised to positive size, and /Rotate
@@ -3373,7 +3340,8 @@ static bool reach(writer* w, file* f, node* n, entry** stack, size_t* top) {
   if (!n || !tick(f->j)) return f->j->status == RMR_OK;
   if (n->type == REF) {
     entry* e = lookup(f, n->number);
-    /* A reference to nothing fails when written, as in import_objects. */
+    /* A reference to nothing, such as an object Quartz reserves as a live
+     * row at offset zero and never writes, fails when written. */
     if (e && e->live && !absent(e) && e->generation == n->generation &&
         !e->mapped) {
       e->mapped = reserve(w);
@@ -3722,5 +3690,243 @@ rmr_status rmr_pdf_builder_finish(rmr_pdf_builder* b,
   if (j->status == RMR_OK) assemble(w, out);
   rmr_status s = built(b, error);
   stop(j, RMR_ERR_INVALID_ARGUMENT, "PDF builder already finished");
+  return s;
+}
+
+/* An incremental update or a fresh rewrite written page by page
+ * (rmr_pdf_edit.h). The source is parsed once under the update's own job,
+ * which also keeps the xref rows; each page's overlays are parsed and
+ * imported under a job of their own, released once they are written, so that
+ * neither memory nor work grows with the number of pages, and a page costs no
+ * more than its own overlays do. */
+struct rmr_pdf_update {
+  job j;
+  writer w;
+  file f;
+  page** pages;  /* source pages by index */
+  uint8_t* done; /* pages written: given overlays, or (fresh) at finish */
+  uint8_t* skip; /* fresh: source objects written with their pages */
+  uint32_t open, close;
+  size_t updated, original;
+  bool fresh, started;
+};
+
+/* The update's failure as an rmr_status, filling error. */
+static rmr_status update_status(rmr_pdf_update* u, rmr_error* error) {
+  job* j = &u->j;
+  return j->status == RMR_OK ? RMR_OK
+                             : rmr_fail(error, j->status, 0,
+                                        j->reason  ? j->reason
+                                        : u->fresh ? "PDF rewrite failed"
+                                                   : "PDF update failed");
+}
+
+void rmr_pdf_update_free(rmr_pdf_update* u) {
+  if (!u) return;
+  free(u->w.data.bytes);
+  for (chunk* c = u->w.chunks; c;) {
+    chunk* next = c->next;
+    chunk_free(c);
+    c = next;
+  }
+  release(&u->j);
+  free(u);
+}
+
+/* Writes source object e as it is. */
+static void copy_object(writer* w, file* f, entry* e) {
+  node* n = object(f, e, 0);
+  if (!n) return;
+  begin(w, e->number, e->generation);
+  value(w, nullptr, n, 0);
+  if (e->stream) {
+    text(w, "\nstream\n");
+    put(w, e->stream, e->stream_size);
+    text(w, "\nendstream");
+  }
+  end(w);
+}
+
+rmr_status rmr_pdf_update_create(const uint8_t* source, size_t size, bool fresh,
+                                 const rmr_limits* limits, rmr_cancel_fn cancel,
+                                 void* context, const rmr_output* output,
+                                 rmr_pdf_update** out, rmr_error* error) {
+  if (!source || !size || !out)
+    return rmr_fail(
+        error, RMR_ERR_INVALID_ARGUMENT, 0,
+        fresh ? "missing PDF rewrite input" : "missing PDF update input");
+  rmr_pdf_update* u = rmr_calloc(1, sizeof *u);
+  if (!u)
+    return rmr_fail(error, RMR_ERR_OUT_OF_MEMORY, 0, "PDF update allocation");
+  u->j = (job){.limits = limits ? *limits : rmr_limits_default(),
+               .cancel = cancel,
+               .context = context};
+  /* Without an output the file is collected in chunks, assembled once. */
+  u->w = (writer){.j = &u->j, .output = output, .chunked = !output};
+  u->fresh = fresh;
+  u->original = size;
+  job* j = &u->j;
+  file* f = &u->f;
+
+  if (tick(j) && open_file(f, j, source, size)) {
+    u->w.next_number = f->next_number;
+    if (f->page_count > SIZE_MAX / sizeof(page*))
+      stop(j, RMR_ERR_LIMIT, "PDF page limit");
+    u->pages = take(j, f->page_count * sizeof *u->pages);
+    u->done = take(j, f->page_count);
+    if (fresh) u->skip = take(j, f->count);
+    size_t at = 0;
+    for (page* p = f->pages; p && j->status == RMR_OK; p = p->next) {
+      u->pages[at++] = p;
+      if (fresh) u->skip[p->object - f->entries] = 1;
+    }
+  }
+
+  if (j->status == RMR_OK && !fresh) put(&u->w, source, size);
+  /* A fresh file keeps object identities and generations, but not historical
+   * revisions or object streams; its pages are written as they are given
+   * their overlays, the rest now. */
+  if (j->status == RMR_OK && fresh) {
+    header(&u->w, source, size);
+    for (size_t i = 0; i < f->count && tick(j); i++) {
+      entry* e = &f->entries[i];
+      if (!e->live || absent(e) || u->skip[i]) continue;
+      node* n = object(f, e, 0);
+      if (!n) break;
+      node* type = n->type == DICT ? get(n, "Type") : nullptr;
+      if (e->stream && (named(type, "ObjStm") || named(type, "XRef"))) continue;
+      copy_object(&u->w, f, e);
+    }
+  }
+
+  rmr_status s = update_status(u, error);
+  if (s != RMR_OK) {
+    rmr_pdf_update_free(u);
+    return s;
+  }
+  *out = u;
+  return RMR_OK;
+}
+
+rmr_status rmr_pdf_update_page(rmr_pdf_update* u, const rmr_pdf_overlay* parts,
+                               size_t count, rmr_error* error) {
+  job* j = &u->j;
+  writer* w = &u->w;
+  if (!parts || !count || count > MAXIMUM_PARTS)
+    stop(j, RMR_ERR_INVALID_ARGUMENT, "missing PDF update input");
+  else if (u->updated >= j->limits.maximum_draws)
+    stop(j, RMR_ERR_LIMIT, "overlay count limit");
+  if (!tick(j)) return update_status(u, error);
+
+  const rmr_pdf_overlay* o = &parts[0];
+  double determinant =
+      o->transform.a * o->transform.d - o->transform.b * o->transform.c;
+  bool valid =
+      isfinite(determinant) && determinant != 0 &&
+      (!o->replace_box ||
+       (isfinite(o->box.x) && isfinite(o->box.y) && isfinite(o->box.width) &&
+        isfinite(o->box.height) && o->box.width > 0 && o->box.height > 0));
+  for (size_t i = 0; i < count; i++)
+    valid = valid && parts[i].pdf && parts[i].size && parts[i].page == o->page;
+  if (!valid)
+    stop(j, RMR_ERR_INVALID_ARGUMENT, "invalid overlay transform/box");
+  else if (o->page >= u->f.page_count)
+    stop(j, RMR_ERR_INVALID_ARGUMENT, "overlay page outside source");
+  else if (u->done[o->page])
+    stop(j, RMR_ERR_INVALID_ARGUMENT, "duplicate page overlay");
+  if (j->status != RMR_OK) return update_status(u, error);
+  u->done[o->page] = 1;
+
+  /* An incremental update starts on a line of its own. */
+  if (!u->fresh && !u->started) text(w, "\n");
+  u->started = true;
+  if (!u->open) {
+    u->open = stream_text(w, "q\n");
+    u->close = stream_text(w, "Q\n");
+  }
+
+  /* The overlays' parse, import and work are this page's alone; their xref
+   * rows stay with the update. */
+  job scratch = {
+      .limits = j->limits, .cancel = j->cancel, .context = j->context};
+  if (j->status == RMR_OK) {
+    w->j = &scratch;
+    w->records = j;
+    overlay(w, &u->f, u->pages[o->page], parts, count, u->open, u->close);
+    w->j = j;
+    w->records = nullptr;
+    if (scratch.status != RMR_OK)
+      stop(j, scratch.status,
+           scratch.reason ? scratch.reason : "PDF update failed");
+    release(&scratch);
+  }
+  if (j->status == RMR_OK) u->updated++;
+  return update_status(u, error);
+}
+
+rmr_status rmr_pdf_update_finish(rmr_pdf_update* u, rmr_buffer* out,
+                                 rmr_pdf_incremental_report* report,
+                                 rmr_error* error) {
+  job* j = &u->j;
+  writer* w = &u->w;
+  file* f = &u->f;
+  if (!out && !w->output)
+    stop(j, RMR_ERR_INVALID_ARGUMENT, "missing PDF update output");
+
+  if (u->fresh) {
+    for (size_t i = 0; i < f->page_count && tick(j); i++)
+      if (!u->done[i]) copy_object(w, f, u->pages[i]->object);
+    if (j->status == RMR_OK) {
+      f->last = 0;
+      f->xref_streams = false;
+      finish(w, f);
+    }
+  } else if (u->started && j->status == RMR_OK)
+    finish(w, f);
+
+  /* Zero overlays leave an exact copy of the source. */
+  if (j->status == RMR_OK) assemble(w, out);
+  rmr_status s = update_status(u, error);
+  if (s == RMR_OK && report)
+    *report = (rmr_pdf_incremental_report){u->updated, u->original, !u->fresh};
+  stop(j, RMR_ERR_INVALID_ARGUMENT, "PDF update already finished");
+  return s;
+}
+
+rmr_status rmr_pdf_incremental(const uint8_t* source, size_t size,
+                               const rmr_pdf_overlay* overlays, size_t count,
+                               const rmr_limits* limits, rmr_cancel_fn cancel,
+                               void* context, rmr_buffer* out,
+                               rmr_pdf_incremental_report* report,
+                               rmr_error* error) {
+  if (!out)
+    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
+                    "missing PDF update input");
+  return rmr_pdf_incremental_output(source, size, overlays, count, limits,
+                                    cancel, context, nullptr, out, report,
+                                    error);
+}
+
+rmr_status rmr_pdf_incremental_output(const uint8_t* source, size_t size,
+                                      const rmr_pdf_overlay* overlays,
+                                      size_t count, const rmr_limits* given,
+                                      rmr_cancel_fn cancel, void* context,
+                                      const rmr_output* output, rmr_buffer* out,
+                                      rmr_pdf_incremental_report* report,
+                                      rmr_error* error) {
+  if (!source || !size || (!out && !output) || (count && !overlays))
+    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
+                    "missing PDF update input");
+  rmr_limits limits = given ? *given : rmr_limits_default();
+  if (count > limits.maximum_draws)
+    return rmr_fail(error, RMR_ERR_LIMIT, 0, "overlay count limit");
+
+  rmr_pdf_update* u = nullptr;
+  rmr_status s = rmr_pdf_update_create(source, size, false, &limits, cancel,
+                                       context, output, &u, error);
+  for (size_t i = 0; s == RMR_OK && i < count; i++)
+    s = rmr_pdf_update_page(u, &overlays[i], 1, error);
+  if (s == RMR_OK) s = rmr_pdf_update_finish(u, out, report, error);
+  rmr_pdf_update_free(u);
   return s;
 }
