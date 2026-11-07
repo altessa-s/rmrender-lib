@@ -1032,11 +1032,147 @@ static void contour_test(void) {
   rmr_plan_free(plan);
 }
 
+/* A fill nothing erases and, unless only_kept, every mark an eraser takes
+ * away whole — grain masks opaque and translucent, a fill, a line — and a
+ * grain mask with no contour; and a grain mask an eraser takes half of. */
+static rmr_plan* erased_marks(bool only_kept) {
+  static rmr_element witness[] = {{.kind = RMR_MOVE, .end = {10, 180}},
+                                  {.kind = RMR_LINE, .end = {190, 180}},
+                                  {.kind = RMR_LINE, .end = {190, 190}},
+                                  {.kind = RMR_LINE, .end = {10, 190}},
+                                  {.kind = RMR_CLOSE}};
+  static rmr_element band[] = {{.kind = RMR_MOVE, .end = {40.4, 40.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 40.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 60.4}},
+                               {.kind = RMR_LINE, .end = {40.4, 60.4}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element half[] = {{.kind = RMR_MOVE, .end = {40.4, 120.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 120.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 140.4}},
+                               {.kind = RMR_LINE, .end = {40.4, 140.4}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element whole[] = {{.kind = RMR_MOVE, .end = {20, 20}},
+                                {.kind = RMR_LINE, .end = {180, 20}},
+                                {.kind = RMR_LINE, .end = {180, 80}},
+                                {.kind = RMR_LINE, .end = {20, 80}},
+                                {.kind = RMR_CLOSE}};
+  static rmr_element left[] = {{.kind = RMR_MOVE, .end = {20, 100}},
+                               {.kind = RMR_LINE, .end = {100, 100}},
+                               {.kind = RMR_LINE, .end = {100, 160}},
+                               {.kind = RMR_LINE, .end = {20, 160}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_path_view covering[] = {{whole, 5}}, leftward[] = {{left, 5}};
+  static uint8_t bits[3][4 * 24];
+  for (size_t k = 0; k < sizeof bits; k++)
+    bits[k / sizeof *bits][k % sizeof *bits] = (uint8_t)(k * 37 + 11);
+
+  rmr_draw draws[7] = {0};
+  size_t count = 0;
+  draws[count++] = (rmr_draw){
+      .path = {witness, 5}, .mode = RMR_FILL, .color = {.1, .2, .6, 1}};
+  if (!only_kept) {
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0, 0, 0, 1},
+                   .erasers = covering,
+                   .eraser_count = 1,
+                   .mask = {bits[0], 30, 24, 4, {36, 36, 128, 28}}};
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0, 0, 0, .5},
+                   .erasers = covering,
+                   .eraser_count = 1,
+                   .mask = {bits[1], 30, 24, 4, {36, 36, 128, 28}}};
+    draws[count++] =
+        (rmr_draw){.mode = RMR_FILL,
+                   .color = {0, 0, 0, 1},
+                   .mask = {bits[1], 30, 24, 4, {36, 86, 128, 28}}};
+    draws[count++] = (rmr_draw){.path = {band, 5},
+                                .mode = RMR_FILL,
+                                .color = {.8, .1, .1, 1},
+                                .erasers = covering,
+                                .eraser_count = 1};
+    draws[count++] = (rmr_draw){.path = {band, 4},
+                                .mode = RMR_STROKE,
+                                .color = {.1, .6, .1, .5},
+                                .line_width = 6,
+                                .cap = RMR_CAP_ROUND,
+                                .join = RMR_JOIN_ROUND,
+                                .erasers = covering,
+                                .eraser_count = 1};
+  }
+  draws[count++] = (rmr_draw){.path = {half, 5},
+                              .mode = RMR_FILL,
+                              .color = {0, 0, 0, 1},
+                              .erasers = leftward,
+                              .eraser_count = 1,
+                              .mask = {bits[2], 30, 24, 4, {36, 116, 128, 28}}};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(draws, count, (rmr_rect){0, 0, 200, 200}, nullptr, &plan,
+                     nullptr));
+  return plan;
+}
+
+/* Page 1 of a PDF rendered by PDFium at size x size onto white. */
+static uint8_t* erased_raster(rmr_buffer pdf, int size) {
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc);
+  FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+  CHECK(page);
+  FPDF_BITMAP bm = FPDFBitmap_Create(size, size, 1);
+  CHECK(bm);
+  FPDFBitmap_FillRect(bm, 0, 0, size, size, 0xffffffff);
+  FPDF_RenderPageBitmap(bm, page, 0, 0, size, size, 0, 0);
+  CHECK(FPDFBitmap_GetStride(bm) == size * 4);
+  uint8_t* pixels = malloc((size_t)size * (size_t)size * 4);
+  CHECK(pixels);
+  memcpy(pixels, FPDFBitmap_GetBuffer(bm), (size_t)size * (size_t)size * 4);
+  FPDFBitmap_Destroy(bm);
+  FPDF_ClosePage(page);
+  FPDF_CloseDocument(doc);
+  return pixels;
+}
+
+/* What an eraser takes away whole, and a grain mask with no contour, paint
+ * nothing: Cairo's bitmap and PDF of the page are those of the page without
+ * them — no faint outline where the edge of a mask's clip falls inside a
+ * pixel, as at 2.37 pixels a unit and in PDFium's raster of the PDF. The
+ * outlines stand off whole points: a PDF rasterizes an erased mask finer than
+ * a point, and an edge within one of its pixels of a whole point keeps a
+ * fringe of a few percent (rmr_cairo.c). */
+static void erased_away(void) {
+  rmr_plan* plans[2] = {erased_marks(false), erased_marks(true)};
+  rmr_bitmap bitmaps[2] = {0};
+  uint8_t* pages[2] = {0};
+  for (size_t i = 0; i < 2; i++) {
+    OK(rmr_linux_bitmap(plans[i], 2.37, (rmr_color){1, 1, 1, 1}, nullptr,
+                        nullptr, nullptr, &bitmaps[i], nullptr));
+    const rmr_plan* page[] = {plans[i]};
+    rmr_buffer pdf = {0};
+    OK(rmr_linux_pdf(page, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
+    pages[i] = erased_raster(pdf, 400);
+    rmr_buffer_free(&pdf);
+  }
+  CHECK(bitmaps[0].stride == bitmaps[1].stride &&
+        bitmaps[0].height == bitmaps[1].height);
+  CHECK(!memcmp(bitmaps[0].pixels, bitmaps[1].pixels,
+                bitmaps[0].stride * bitmaps[0].height));
+  CHECK(!memcmp(pages[0], pages[1], (size_t)400 * 400 * 4));
+  for (size_t i = 0; i < 2; i++) {
+    rmr_bitmap_free(&bitmaps[i]);
+    free(pages[i]);
+    rmr_plan_free(plans[i]);
+  }
+}
+
 int main(int argc, char** argv) {
   argv = test_arguments(argc, argv);
   CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
 
   graphics();
+  erased_away();
   grain_options();
   images();
   pdf_source();

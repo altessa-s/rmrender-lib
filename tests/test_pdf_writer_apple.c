@@ -315,10 +315,179 @@ static void identity(bool mixed) {
   rmr_plan_free(plan);
 }
 
+/* Pixels that differ between two rasters of one size. */
+static size_t differing(const uint8_t* a, const uint8_t* b, size_t bytes) {
+  size_t count = 0;
+  for (size_t i = 0; i < bytes; i += 4) count += memcmp(a + i, b + i, 4) != 0;
+  return count;
+}
+
+/* A plan of a line nothing erases and, unless only_kept, every mark an
+ * eraser takes away whole — a grain mask, a fill, a line — and a grain mask
+ * of no contour at all; and a grain mask an eraser takes half of. */
+static rmr_plan* erased_marks(bool only_kept) {
+  static rmr_element witness[] = {{.kind = RMR_MOVE, .end = {-600, 1500}},
+                                  {.kind = RMR_LINE, .end = {600, 1500}},
+                                  {.kind = RMR_LINE, .end = {600, 1520}},
+                                  {.kind = RMR_LINE, .end = {-600, 1520}},
+                                  {.kind = RMR_CLOSE}};
+  static rmr_element band[] = {{.kind = RMR_MOVE, .end = {-200, 300}},
+                               {.kind = RMR_LINE, .end = {200, 300}},
+                               {.kind = RMR_LINE, .end = {200, 340}},
+                               {.kind = RMR_LINE, .end = {-200, 340}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element half[] = {{.kind = RMR_MOVE, .end = {-200, 700}},
+                               {.kind = RMR_LINE, .end = {200, 700}},
+                               {.kind = RMR_LINE, .end = {200, 740}},
+                               {.kind = RMR_LINE, .end = {-200, 740}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element whole[] = {{.kind = RMR_MOVE, .end = {-300, 200}},
+                                {.kind = RMR_LINE, .end = {300, 200}},
+                                {.kind = RMR_LINE, .end = {300, 440}},
+                                {.kind = RMR_LINE, .end = {-300, 440}},
+                                {.kind = RMR_CLOSE}};
+  static rmr_element left[] = {{.kind = RMR_MOVE, .end = {-300, 600}},
+                               {.kind = RMR_LINE, .end = {0, 600}},
+                               {.kind = RMR_LINE, .end = {0, 840}},
+                               {.kind = RMR_LINE, .end = {-300, 840}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element west[] = {{.kind = RMR_MOVE, .end = {-300, 200}},
+                               {.kind = RMR_LINE, .end = {10, 200}},
+                               {.kind = RMR_LINE, .end = {10, 440}},
+                               {.kind = RMR_LINE, .end = {-300, 440}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element east[] = {{.kind = RMR_MOVE, .end = {-10, 200}},
+                               {.kind = RMR_LINE, .end = {300, 200}},
+                               {.kind = RMR_LINE, .end = {300, 440}},
+                               {.kind = RMR_LINE, .end = {-10, 440}},
+                               {.kind = RMR_CLOSE}};
+  /* One eraser over it all; two taking it between them; one over half. */
+  static rmr_path_view covering[] = {{whole, 5}},
+                       halves[] = {{west, 5}, {east, 5}},
+                       leftward[] = {{left, 5}};
+  static uint8_t bits[4][5 * 40];
+  for (size_t k = 0; k < sizeof bits; k++)
+    bits[k / sizeof *bits][k % sizeof *bits] = (uint8_t)(k * 37 + 11);
+
+  rmr_draw draws[7] = {0};
+  size_t count = 0;
+  draws[count++] = (rmr_draw){
+      .path = {witness, 5}, .mode = RMR_FILL, .color = {0.1, 0.2, 0.6, 1}};
+  if (!only_kept) {
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0, 0, 0, 1},
+                   .erasers = covering,
+                   .eraser_count = 1,
+                   .mask = {bits[0], 40, 40, 5, {-210, 290, 420, 60}}};
+    draws[count++] =
+        (rmr_draw){.mode = RMR_FILL,
+                   .color = {0, 0, 0, 0.6},
+                   .mask = {bits[1], 40, 40, 5, {-210, 990, 420, 60}}};
+    draws[count++] = (rmr_draw){.path = {band, 5},
+                                .mode = RMR_FILL,
+                                .color = {0.8, 0.1, 0.1, 1},
+                                .blend = RMR_BLEND_DARKEN,
+                                .erasers = halves,
+                                .eraser_count = 2};
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0.2, 0.2, 0.2, 0.7},
+                   .erasers = halves,
+                   .eraser_count = 2,
+                   .mask = {bits[3], 40, 40, 5, {-210, 290, 420, 60}}};
+    draws[count++] = (rmr_draw){.path = {band, 4},
+                                .mode = RMR_STROKE,
+                                .color = {0.1, 0.6, 0.1, 0.5},
+                                .line_width = 6,
+                                .cap = RMR_CAP_ROUND,
+                                .join = RMR_JOIN_ROUND,
+                                .erasers = covering,
+                                .eraser_count = 1};
+  }
+  draws[count++] =
+      (rmr_draw){.path = {half, 5},
+                 .mode = RMR_FILL,
+                 .color = {0, 0, 0, 1},
+                 .erasers = leftward,
+                 .eraser_count = 1,
+                 .mask = {bits[2], 40, 40, 5, {-210, 690, 420, 60}}};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(draws, count, (rmr_rect){-702, 0, 1404, 1872}, nullptr,
+                     &plan, nullptr));
+  return plan;
+}
+
+/* A mark an eraser takes away whole, and a grain mask with no contour,
+ * paint nothing: in a bitmap, on a page CoreGraphics draws and on a page
+ * the writer writes — not the whole rectangle of the grain, which
+ * CoreGraphics draws under the clip of an empty path. What an eraser takes
+ * only part of still paints the rest, the same in all three. */
+static void erased_away(void) {
+  rmr_plan* erased = erased_marks(false);
+  rmr_plan* kept = erased_marks(true);
+  rmr_sheet sheet = {445.33216129,
+                     593.7762345,
+                     {0.317180616, 0, 0, -0.317180616, 222.666, 593.7762345}};
+  /* A bitmap's sheet is whole pixels. */
+  rmr_sheet canvas = {900, 1200, {0.64, 0, 0, -0.64, 450, 1200}};
+
+  rmr_bitmap bitmaps[2] = {0};
+  rmr_buffer native[2] = {0}, written[2] = {0};
+  for (size_t i = 0; i < 2; i++) {
+    const rmr_plan* plans[] = {i ? kept : erased};
+    OK(rmr_apple_bitmap_on_sheet(plans[0], &canvas, (rmr_color){1, 1, 1, 1},
+                                 nullptr, nullptr, nullptr, &bitmaps[i],
+                                 nullptr));
+    OK(rmr_apple_pdf_sheets(plans, &sheet, 1, nullptr, nullptr, nullptr,
+                            &native[i], nullptr));
+    rmr_pdf_page page = {.marks = plans[0], .sheet = sheet};
+    OK(rmr_apple_pdf_overlay(nullptr, &page, 1, nullptr, nullptr, nullptr,
+                             &written[i], nullptr, nullptr));
+  }
+  CHECK(bitmaps[0].width == bitmaps[1].width &&
+        bitmaps[0].height == bitmaps[1].height);
+  size_t bitmap_differing = differing(bitmaps[0].pixels, bitmaps[1].pixels,
+                                      bitmaps[0].stride * bitmaps[0].height);
+  if (bitmap_differing)
+    fprintf(stderr, "erased bitmap: %zu pixels differ\n", bitmap_differing);
+  CHECK(!bitmap_differing);
+
+  for (double scale = 1; scale <= 6; scale *= 2.5) {
+    size_t width[4], height[4];
+    uint8_t* pixels[4] = {
+        raster(native[0], scale, &width[0], &height[0]),
+        raster(written[0], scale, &width[1], &height[1]),
+        raster(native[1], scale, &width[2], &height[2]),
+        raster(written[1], scale, &width[3], &height[3]),
+    };
+    for (size_t i = 1; i < 4; i++) {
+      CHECK(width[i] == width[0] && height[i] == height[0]);
+      size_t count = differing(pixels[0], pixels[i], width[0] * height[0] * 4);
+      if (count)
+        fprintf(stderr, "erased scale %g, page %zu: %zu pixels differ\n", scale,
+                i, count);
+      CHECK(!count);
+    }
+    for (size_t i = 0; i < 4; i++) free(pixels[i]);
+  }
+
+  for (size_t i = 0; i < 2; i++) {
+    rmr_bitmap_free(&bitmaps[i]);
+    rmr_buffer_free(&native[i]);
+    rmr_buffer_free(&written[i]);
+  }
+  rmr_plan_free(erased);
+  rmr_plan_free(kept);
+}
+
 int main(void) {
   numbers();
   identity(false);
   identity(true);
+  erased_away();
   puts("pdf writer ok");
   return 0;
 }
