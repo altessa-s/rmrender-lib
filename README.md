@@ -315,7 +315,11 @@ policies or permissions.
 
 Each page's marks are planned as the page is drawn and freed after it, so a
 document of thousands of pages needs `maximum_plan_bytes` for one page's plan,
-not the whole document's.
+not the whole document's. Preserving and recomposed exports write each
+page's overlay objects as the page is drawn; one identical, down to what it
+refers to, to an object an earlier page wrote (a grain mask, a color profile)
+is referred to instead of written again, so that, as in a fresh export, the
+masks a document's ink shares take room once.
 
 Every PDF entry point has a `_with_options` variant (`rmr_apple_pdf`,
 `_pdf_sheets`, `_pdf_overlay`, `_pdf_incremental`, `_pdf_recompose`,
