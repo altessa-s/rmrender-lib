@@ -128,6 +128,103 @@ static rmr_plan* scene(const uint8_t* pdf, size_t pdf_size, rmr_buffer image,
   return plan;
 }
 
+/* A fill nothing erases and, unless only_kept, a grain mask an eraser takes
+ * away whole and one with no contour at all; and a grain mask an eraser takes
+ * the left half of. */
+static rmr_plan* erased_scene(const rmr_mask* grain, bool only_kept) {
+  static rmr_element box[] = {{.kind = RMR_MOVE, .end = {-180, 20}},
+                              {.kind = RMR_LINE, .end = {-60, 20}},
+                              {.kind = RMR_LINE, .end = {-60, 120}},
+                              {.kind = RMR_LINE, .end = {-180, 120}},
+                              {.kind = RMR_CLOSE}};
+  rmr_rect a = grain->box;
+  rmr_element area[] = {
+      {.kind = RMR_MOVE, .end = {a.x, a.y}},
+      {.kind = RMR_LINE, .end = {a.x + a.width, a.y}},
+      {.kind = RMR_LINE, .end = {a.x + a.width, a.y + a.height}},
+      {.kind = RMR_LINE, .end = {a.x, a.y + a.height}},
+      {.kind = RMR_CLOSE}};
+  rmr_element whole[] = {
+      {.kind = RMR_MOVE, .end = {a.x - 10, a.y - 10}},
+      {.kind = RMR_LINE, .end = {a.x + a.width + 10, a.y - 10}},
+      {.kind = RMR_LINE, .end = {a.x + a.width + 10, a.y + a.height + 10}},
+      {.kind = RMR_LINE, .end = {a.x - 10, a.y + a.height + 10}},
+      {.kind = RMR_CLOSE}};
+  rmr_element left[] = {
+      {.kind = RMR_MOVE, .end = {a.x - 10, a.y - 10}},
+      {.kind = RMR_LINE, .end = {a.x + a.width / 2, a.y - 10}},
+      {.kind = RMR_LINE, .end = {a.x + a.width / 2, a.y + a.height + 10}},
+      {.kind = RMR_LINE, .end = {a.x - 10, a.y + a.height + 10}},
+      {.kind = RMR_CLOSE}};
+  rmr_path_view covering[] = {{whole, 5}}, leftward[] = {{left, 5}};
+  rmr_mask_view m = {grain->bytes, grain->width, grain->height, grain->stride,
+                     grain->box};
+
+  rmr_draw d[4] = {
+      {.path = {box, 5}, .mode = RMR_FILL, .color = {.9, .2, .1, 1}}};
+  size_t count = 1;
+  if (!only_kept) {
+    d[count++] = (rmr_draw){.path = {area, 5},
+                            .mode = RMR_FILL,
+                            .color = {.1, .1, .1, 1},
+                            .mask = m,
+                            .erasers = covering,
+                            .eraser_count = 1};
+    d[count++] =
+        (rmr_draw){.mode = RMR_FILL, .color = {.1, .1, .1, .9}, .mask = m};
+  }
+  d[count++] = (rmr_draw){.path = {area, 5},
+                          .mode = RMR_FILL,
+                          .color = {.1, .1, .1, 1},
+                          .mask = m,
+                          .erasers = leftward,
+                          .eraser_count = 1};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(d, count, (rmr_rect){-200, 0, 400, 300}, nullptr, &plan,
+                     nullptr));
+  return plan;
+}
+
+/* A grain mask an eraser takes away whole, or one with no contour, paints
+ * nothing on the platform's bitmap or in the rasterized SVG. */
+static void erased(const char* tool, const rmr_mask* grain) {
+  rmr_sheet sheet = {800, 600, {2, 0, 0, -2, 400, 600}};
+  rmr_bitmap native_bitmaps[2] = {0}, drawn[2] = {0};
+  for (size_t i = 0; i < 2; i++) {
+    rmr_plan* plan = erased_scene(grain, i);
+    OK(native(bitmap_on_sheet)(plan, &sheet, (rmr_color){1, 1, 1, 1}, nullptr,
+                               nullptr, nullptr, &native_bitmaps[i], nullptr));
+    rmr_svg_pages pages = {0};
+    const rmr_plan* plans[] = {plan};
+    OK(native(svg)(plans, &sheet, 1, 72, nullptr, nullptr, nullptr, &pages,
+                   nullptr));
+    CHECK(svg_rasterize(tool, &pages.pages[0], 800, 600, &drawn[i]));
+    rmr_svg_pages_free(&pages);
+    rmr_plan_free(plan);
+  }
+
+  CHECK(native_bitmaps[0].stride == native_bitmaps[1].stride &&
+        native_bitmaps[0].height == native_bitmaps[1].height);
+  size_t differing = 0;
+  for (size_t i = 0; i < native_bitmaps[0].stride * native_bitmaps[0].height;
+       i += 4)
+    differing += memcmp(native_bitmaps[0].pixels + i,
+                        native_bitmaps[1].pixels + i, 4) != 0;
+  if (differing)
+    fprintf(stderr, "erased bitmap: %zu pixels differ\n", differing);
+  CHECK(!differing);
+
+  svg_difference d = svg_compare(&drawn[1], &drawn[0]);
+  printf("%s, erased: mean channel difference %.4f, strong pixels %.4f%%\n",
+         tool, d.mean, d.strong * 100);
+  CHECK(d.mean == 0 && d.strong == 0);
+
+  for (size_t i = 0; i < 2; i++) {
+    rmr_bitmap_free(&native_bitmaps[i]);
+    free(drawn[i].pixels);
+  }
+}
+
 int main(void) {
   const char* tool = svg_rasterizer();
   if (!tool) {
@@ -159,6 +256,7 @@ int main(void) {
   printf("%s: mean channel difference %.3f, strong pixels %.4f%%\n", tool,
          d.mean, d.strong * 100);
   CHECK(d.mean < 2.5 && d.strong < .01);
+  erased(tool, &grain);
 
   const char* keep = getenv("RMR_SVG_KEEP");
   if (keep && *keep) {
