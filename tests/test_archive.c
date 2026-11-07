@@ -19,17 +19,23 @@
   rmr_apple_document_pdf_preserving_to_output
 #define DOCUMENT_PDF_RECOMPOSED_TO_OUTPUT \
   rmr_apple_document_pdf_recomposed_to_output
+#define DOCUMENT_SVG_WITH_OPTIONS rmr_apple_document_svg_with_options
+#define FONTS rmr_apple_fonts
+#define FONTS_DIRECTORY rmr_apple_fonts_create_directory
+#define FONTS_FREE rmr_apple_fonts_free
 #define GRAIN_GROUPS false
 #include "archive_fixture.h"
 #define DOC "11111111-1111-1111-1111-111111111111"
 #define PAGE "22222222-2222-2222-2222-222222222222"
 #define DEAD "33333333-3333-3333-3333-333333333333"
-int main(void) {
+int main(int argc, char** argv) {
+  CHECK(argc == 2);
   matching();
   many_files();
   dense_document();
   document_options();
   document_output();
+  unreadable_pages(argv[1]);
 
   const char content[] =
       "{\"cPages\":{\"pages\":[{\"id\":\"" PAGE "\"},{\"id\":\"" DEAD

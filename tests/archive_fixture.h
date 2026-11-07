@@ -8,8 +8,10 @@
  * rmr_*_document_pdf, rmr_*_document_pdf_with_options and rmr_*_page_plan,
  * DOCUMENT_PDF_PRESERVING_WITH_OPTIONS, DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS
  * and DOCUMENT_PDF{,_PRESERVING,_RECOMPOSED}_TO_OUTPUT as its other PDF
- * exports, and GRAIN_GROUPS as whether RMR_PDF_GRAIN_GROUP changes its
- * output. */
+ * exports, DOCUMENT_SVG_WITH_OPTIONS as its SVG export, FONTS,
+ * FONTS_DIRECTORY and FONTS_FREE as its fonts type and the functions making
+ * them from a directory and freeing them, and GRAIN_GROUPS as whether
+ * RMR_PDF_GRAIN_GROUP changes its output. */
 #ifndef ARCHIVE_FIXTURE_H
 #define ARCHIVE_FIXTURE_H
 #include <rmlines/parser.h>
@@ -535,6 +537,269 @@ static void document_output(void) {
   rmr_archive_document_free(d);
   archive_free(&a);
   rm_bytes_free((uint8_t*)(uintptr_t)data.bytes);
+}
+
+/* The unreadable pages an export told of, and with which status. */
+typedef struct {
+  size_t pages[4];
+  rmr_status statuses[4];
+  size_t count;
+} told;
+
+static void tell(void* context, size_t page, rmr_status status) {
+  told* t = context;
+  CHECK(t->count < 4);
+  t->pages[t->count] = page;
+  t->statuses[t->count++] = status;
+}
+
+/* Whether b holds the bytes of s. */
+static bool holds(const rmr_buffer* b, const char* s) {
+  size_t n = strlen(s);
+  for (size_t i = 0; n <= b->size && i <= b->size - n; i++)
+    if (!memcmp(b->bytes + i, s, n)) return true;
+  return false;
+}
+
+/* Pages A, B and C, each holding ink on the Grid template, except B, which
+ * holds middle, or has no .rm file when middle is empty. With pdf, A and B
+ * alone, over its pages 0 and 1. */
+static built_archive trio(rmd_bytes ink, rmd_bytes middle, const fixture* pdf) {
+  const char* ids[] = {"A", "B", "C"};
+  built_archive a = {0};
+  if (pdf) {
+    const char content[] =
+        "{\"cPages\":{\"pages\":["
+        "{\"id\":\"A\",\"redir\":{\"value\":0}},"
+        "{\"id\":\"B\",\"redir\":{\"value\":1}}]}}";
+    a.content = strdup(content);
+    CHECK(a.content);
+    put_file(&a, CASE_DOC ".content",
+             (rmd_bytes){(const uint8_t*)a.content, strlen(content)});
+    put_file(&a, CASE_DOC ".pdf",
+             (rmd_bytes){(const uint8_t*)pdf->bytes, pdf->n});
+  } else {
+    put_content(&a, ids, 3, nullptr, 0, "Grid");
+  }
+  put_file(&a, CASE_DOC "/A.rm", ink);
+  if (middle.size) put_file(&a, CASE_DOC "/B.rm", middle);
+  if (!pdf) put_file(&a, CASE_DOC "/C.rm", ink);
+  return a;
+}
+
+/* d exported in mode, or as SVG pages into svg when it is given, with fonts,
+ * options, and resources counting the page plans built on a template into
+ * *templates. */
+static rmr_status unreadable_export(
+    const rmr_archive_document* d, export_mode mode, const FONTS* fonts,
+    const rmr_pdf_options* options, size_t* templates, rmr_buffer* out,
+    rmr_svg_pages* svg, rmr_document_report* report, rmr_error* error) {
+  *templates = 0;
+  rmr_page_resources resources = {.template = counted_template,
+                                  .template_context = templates};
+  if (svg)
+    return DOCUMENT_SVG_WITH_OPTIONS(d, &resources, fonts, RMR_PAPER_A4, 0, 0,
+                                     nullptr, options, nullptr, nullptr, svg,
+                                     report, error);
+  return mode == FRESH ? DOCUMENT_PDF_WITH_OPTIONS(
+                             d, &resources, fonts, RMR_PAPER_A4, 0, nullptr,
+                             options, nullptr, nullptr, out, report, error)
+         : mode == PRESERVING
+             ? DOCUMENT_PDF_PRESERVING_WITH_OPTIONS(
+                   d, &resources, fonts, RMR_PAPER_A4, 0, nullptr, options,
+                   nullptr, nullptr, out, report, error)
+             : DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS(
+                   d, &resources, fonts, RMR_PAPER_A4, 0, nullptr, options,
+                   nullptr, nullptr, out, report, error);
+}
+
+/* Whether two exports are the same file once their dates and IDs are. */
+static bool same_bytes(rmr_buffer* x, rmr_buffer* y) {
+  blank_volatile(x);
+  blank_volatile(y);
+  return x->size == y->size && !memcmp(x->bytes, y->bytes, x->size);
+}
+
+/* Pages whose .rm file does not parse, as rmr_unreadable_policy says: STRICT
+ * by default fails naming the page, BLANK draws what a page without a .rm
+ * file draws, PLACEHOLDER draws the label in the bundled face, on a sheet
+ * without its template or over the imported PDF page, in every mode and in
+ * SVG; the callback hears of each page reached; an older options struct reads
+ * STRICT. */
+static void unreadable_pages(const char* fonts_directory) {
+  FONTS* fonts = nullptr;
+  OK(FONTS_DIRECTORY(fonts_directory, nullptr, &fonts, nullptr));
+  rmd_bytes ink = stroked_page(2, 20),
+            junk = {(const uint8_t*)"not a page", 10},
+            newer = {(const uint8_t*)RM_HEADER_PREFIX "9          ",
+                     RM_HEADER_LENGTH},
+            none = {0};
+
+  built_archive a = trio(ink, junk, nullptr), gone = trio(ink, none, nullptr);
+  rmr_archive_document *d = open_archive(&a, false),
+                       *without = open_archive(&gone, false);
+  rm_page* page = nullptr;
+  rmr_status unreadable = RMR_ERR_LIMIT;
+  OK(rmr_archive_document_read_page(d, 0, &page, &unreadable, nullptr));
+  CHECK(unreadable == RMR_OK && page->stroke_count == 2);
+  rm_page_free(page);
+  OK(rmr_archive_document_read_page(d, 1, &page, &unreadable, nullptr));
+  CHECK(unreadable == RMR_ERR_BACKEND && !page->stroke_count &&
+        page->has_template_name);
+  rm_page_free(page);
+  OK(rmr_archive_document_read_page(without, 1, &page, &unreadable, nullptr));
+  CHECK(unreadable == RMR_OK && !page->stroke_count);
+  rm_page_free(page);
+  page = nullptr;
+  rmr_error error = {0};
+  CHECK(rmr_archive_document_parse_page(d, 1, &page, &error) ==
+            RMR_ERR_BACKEND &&
+        !page);
+
+  /* STRICT, the default: the export fails, naming page 1. */
+  size_t templates = 0;
+  told heard = {0};
+  rmr_pdf_options options = rmr_pdf_options_default();
+  options.on_unreadable = tell;
+  options.unreadable_context = &heard;
+  rmr_buffer out = {0};
+  CHECK(DOCUMENT_PDF(d, nullptr, fonts, RMR_PAPER_A4, 0, nullptr, nullptr,
+                     nullptr, &out, nullptr, &error) == RMR_ERR_BACKEND);
+  CHECK(!out.bytes && error.code == RMR_ERR_BACKEND && error.index == 1 &&
+        !strcmp(error.message,
+                "unreadable page 1 (B): RMLines could not parse it"));
+  for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++) {
+    heard = (told){0};
+    CHECK(unreadable_export(d, mode, fonts, &options, &templates, &out, nullptr,
+                            nullptr, &error) == RMR_ERR_BACKEND);
+    CHECK(!out.bytes && error.index == 1 && heard.count == 1 &&
+          heard.pages[0] == 1 && heard.statuses[0] == RMR_ERR_BACKEND);
+  }
+  heard = (told){0};
+  rmr_page_resources resources = {.template = counted_template,
+                                  .template_context = &templates};
+  OK(DOCUMENT_PDF_WITH_OPTIONS(d, &resources, fonts, RMR_PAPER_A4, 1, nullptr,
+                               &options, nullptr, nullptr, &out, nullptr,
+                               nullptr));
+  CHECK(!heard.count);
+  rmr_buffer_free(&out);
+
+  /* An options struct from before the policy reads STRICT whatever follows
+   * it; an unknown policy is refused. */
+  options.unreadable = RMR_UNREADABLE_BLANK;
+  options.struct_size = offsetof(rmr_pdf_options, unreadable);
+  CHECK(unreadable_export(d, FRESH, fonts, &options, &templates, &out, nullptr,
+                          nullptr, &error) == RMR_ERR_BACKEND);
+  options.struct_size = sizeof options;
+  options.unreadable = (rmr_unreadable_policy)3;
+  CHECK(unreadable_export(d, FRESH, fonts, &options, &templates, &out, nullptr,
+                          nullptr, &error) == RMR_ERR_INVALID_ARGUMENT);
+  CHECK(!strcmp(error.message, "invalid PDF options"));
+
+  /* BLANK: the file of the notebook without page 1's .rm, in every mode. */
+  options.unreadable = RMR_UNREADABLE_BLANK;
+  for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++) {
+    rmr_buffer blank = {0}, expected = {0};
+    rmr_document_report report = {0};
+    heard = (told){0};
+    OK(unreadable_export(d, mode, fonts, &options, &templates, &blank, nullptr,
+                         &report, nullptr));
+    CHECK(templates == 3 && heard.count == 1 && heard.pages[0] == 1 &&
+          report.document_pages == 3 && report.rendered_pages == 3);
+    OK(unreadable_export(without, mode, fonts, nullptr, &templates, &expected,
+                         nullptr, nullptr, nullptr));
+    CHECK(same_bytes(&blank, &expected));
+    rmr_buffer_free(&blank);
+    rmr_buffer_free(&expected);
+  }
+
+  /* PLACEHOLDER: the label needs fonts; with them it is drawn in Noto Sans,
+   * the same each time, on page 1 without its template. */
+  options.unreadable = RMR_UNREADABLE_PLACEHOLDER;
+  CHECK(unreadable_export(d, FRESH, nullptr, &options, &templates, &out,
+                          nullptr, nullptr, &error) == RMR_ERR_UNSUPPORTED);
+  CHECK(!out.bytes &&
+        !strcmp(error.message, "document font provider required"));
+  rmr_buffer blank = {0};
+  OK(unreadable_export(without, FRESH, fonts, nullptr, &templates, &blank,
+                       nullptr, nullptr, nullptr));
+  for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++) {
+    rmr_buffer first = {0}, again = {0};
+    heard = (told){0};
+    OK(unreadable_export(d, mode, fonts, &options, &templates, &first, nullptr,
+                         nullptr, nullptr));
+    CHECK(templates == 2 && heard.count == 1 && heard.pages[0] == 1);
+    size_t pages = 0;
+    OK(rmr_pdf_pages(first.bytes, first.size, nullptr, nullptr, 0, &pages,
+                     nullptr));
+    CHECK(pages == 3 && holds(&first, "NotoSans"));
+    CHECK(!holds(&blank, "NotoSans"));
+    OK(unreadable_export(d, mode, fonts, &options, &templates, &again, nullptr,
+                         nullptr, nullptr));
+    CHECK(same_bytes(&first, &again));
+    rmr_buffer_free(&first);
+    rmr_buffer_free(&again);
+  }
+  rmr_buffer_free(&blank);
+
+  /* SVG: the label as outlines on page 1 alone; STRICT fails as PDF does. */
+  rmr_svg_pages blank_svg = {0}, label_svg = {0};
+  options.unreadable = RMR_UNREADABLE_BLANK;
+  OK(unreadable_export(d, FRESH, fonts, &options, &templates, nullptr,
+                       &blank_svg, nullptr, nullptr));
+  options.unreadable = RMR_UNREADABLE_PLACEHOLDER;
+  heard = (told){0};
+  OK(unreadable_export(d, FRESH, fonts, &options, &templates, nullptr,
+                       &label_svg, nullptr, nullptr));
+  CHECK(blank_svg.count == 3 && label_svg.count == 3 && heard.count == 1);
+  for (size_t i = 0; i < 3; i += 2)
+    CHECK(blank_svg.pages[i].size == label_svg.pages[i].size &&
+          !memcmp(blank_svg.pages[i].bytes, label_svg.pages[i].bytes,
+                  blank_svg.pages[i].size));
+  CHECK(holds(&label_svg.pages[1], "#404040") &&
+        holds(&label_svg.pages[1], "#f2f2f2") &&
+        !holds(&blank_svg.pages[1], "#404040"));
+  rmr_svg_pages_free(&blank_svg);
+  rmr_svg_pages_free(&label_svg);
+  options.unreadable = RMR_UNREADABLE_STRICT;
+  CHECK(unreadable_export(d, FRESH, fonts, &options, &templates, nullptr,
+                          &blank_svg, nullptr, &error) == RMR_ERR_BACKEND);
+  CHECK(error.index == 1 && !blank_svg.pages);
+  rmr_archive_document_free(d);
+  rmr_archive_document_free(without);
+  archive_free(&a);
+  archive_free(&gone);
+
+  /* A page of a newer version fails as UNSUPPORTED, and is told so. */
+  a = trio(ink, newer, nullptr);
+  d = open_archive(&a, false);
+  heard = (told){0};
+  CHECK(unreadable_export(d, FRESH, fonts, &options, &templates, &out, nullptr,
+                          nullptr, &error) == RMR_ERR_UNSUPPORTED);
+  CHECK(error.index == 1 && heard.count == 1 &&
+        heard.statuses[0] == RMR_ERR_UNSUPPORTED);
+  rmr_archive_document_free(d);
+  archive_free(&a);
+
+  /* Over an imported PDF: the PDF page under the label in every mode, the
+   * original's bytes kept by a preserving export. */
+  fixture pdf = source(false);
+  a = trio(ink, junk, &pdf);
+  d = open_archive(&a, false);
+  options.unreadable = RMR_UNREADABLE_PLACEHOLDER;
+  for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++) {
+    rmr_buffer labelled = {0};
+    OK(unreadable_export(d, mode, fonts, &options, &templates, &labelled,
+                         nullptr, nullptr, nullptr));
+    CHECK(holds(&labelled, "NotoSans"));
+    if (mode == PRESERVING)
+      CHECK(labelled.size > pdf.n && !memcmp(labelled.bytes, pdf.bytes, pdf.n));
+    rmr_buffer_free(&labelled);
+  }
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  FONTS_FREE(fonts);
+  rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
 }
 
 #endif
