@@ -355,6 +355,42 @@ rmr_status s = rmr_linux_document_pdf_with_options(
     nullptr, &out, &report, &error);
 ```
 
+The document exports can also write the file as they produce it instead of
+returning one buffer: `rmr_apple_document_pdf_to_output`,
+`_document_pdf_preserving_to_output` and `_document_pdf_recomposed_to_output`
+(and the same for `rmr_linux_`) take the arguments of the `_with_options`
+functions and an `rmr_output` in place of the buffer. Its `write` callback gets
+the file's bytes in order, on the calling thread, in pieces of about 4 MiB;
+the file is the buffer function's, byte for byte, but what has been written
+no longer takes memory. A fresh export writes each page once it is deflated and
+the page tree, outline and cross-reference table at the end; on the Apple
+backend CoreGraphics' share of the file (source pages, text, images and
+whatever else it draws) is still collected until its context closes and
+written after the ink. A preserving export holds its overlays, as before, then
+writes the original file followed by the update; a recomposed export keeps its
+intermediate files in memory and writes the final rewrite as it goes.
+
+A `write` returning anything but `RMR_OK` stops the export with that status
+and the message "PDF output write failed"; `write` is not called again.
+Cancellation works as before. On any failure the output has received part of
+a file, so write to a temporary file and rename it once the export succeeds.
+`maximum_pdf_bytes` still bounds the whole file (and the inputs and
+intermediates it always bounded), so raise it for files beyond its default
+256 MiB.
+
+```c
+static rmr_status to_file(void* context, const uint8_t* bytes, size_t size) {
+  return fwrite(bytes, 1, size, context) == size ? RMR_OK : RMR_ERR_BACKEND;
+}
+
+rmr_output output = {RMR_OUTPUT_ABI, sizeof output, to_file, file};
+rmr_limits limits = rmr_limits_default();
+limits.maximum_pdf_bytes = SIZE_MAX / 2;
+rmr_status s = rmr_apple_document_pdf_to_output(
+    document, &resources, fonts, RMR_PAPER_A4, 0, &limits, nullptr, nullptr,
+    nullptr, &output, &report, &error);
+```
+
 ## SVG output
 
 Version 1.2.0 adds SVG output. Each page becomes one standalone SVG 1.1

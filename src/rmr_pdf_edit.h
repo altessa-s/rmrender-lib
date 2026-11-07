@@ -5,7 +5,22 @@
 /* Internal backend helpers; not part of the public SDK. */
 #ifndef RMR_PDF_EDIT_H
 #define RMR_PDF_EDIT_H
+#include <rmrender/output.h>
 #include <rmrender/pdf.h>
+
+/* rmr_pdf_incremental and rmr_pdf_rewrite writing the file to output, which
+ * the caller has checked, as it is written, out unused, when output is set;
+ * out otherwise. The incremental update copies source to output first. */
+RMR_API rmr_status rmr_pdf_incremental_output(
+    const uint8_t* source, size_t size, const rmr_pdf_overlay* overlays,
+    size_t count, const rmr_limits* limits, rmr_cancel_fn cancel, void* context,
+    const rmr_output* output, rmr_buffer* out,
+    rmr_pdf_incremental_report* report, rmr_error* error);
+RMR_API rmr_status rmr_pdf_rewrite_output(const uint8_t* source, size_t size,
+                                          const rmr_limits* limits,
+                                          rmr_cancel_fn cancel, void* context,
+                                          const rmr_output* output,
+                                          rmr_buffer* out, rmr_error* error);
 
 /* Appends an incremental update clipping a one-page PDF's content to path,
  * mapped through transform. */
@@ -61,6 +76,20 @@ RMR_API rmr_status rmr_pdf_builder_create(const rmr_limits* limits,
                                           rmr_pdf_builder** out);
 /* Releases the builder and any output it still holds; null is a no-op. */
 RMR_API void rmr_pdf_builder_free(rmr_pdf_builder* builder);
+
+/* Sends the file to output, which the caller has checked, as it is written
+ * instead of collecting it: merge and finish then complete it there and leave
+ * their out unused (it may be null). Set before anything is appended. Output
+ * leaves in pieces of about 4 MiB, the header in the first, so a base whose
+ * version merge would give the file must be given to rmr_pdf_builder_version
+ * before then. */
+RMR_API void rmr_pdf_builder_output(rmr_pdf_builder* builder,
+                                    const rmr_output* output);
+
+/* Gives the file the version of the PDF in base now, as merge would; merge
+ * then fails if its base has another once the header has been written. */
+RMR_API void rmr_pdf_builder_version(rmr_pdf_builder* builder,
+                                     const uint8_t* base, size_t size);
 
 /* The next unused object number; 0 once numbers are exhausted. */
 RMR_API uint32_t rmr_pdf_builder_reserve(rmr_pdf_builder* builder);

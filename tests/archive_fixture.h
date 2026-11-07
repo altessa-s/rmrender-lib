@@ -3,17 +3,22 @@
  * found in the LICENSE file. */
 
 /* Archive cases shared by the Apple and Cairo archive tests: page matching,
- * recovery, long documents and PDF options. The includer defines
+ * recovery, long documents, PDF options and output. The includer defines
  * DOCUMENT_PDF, DOCUMENT_PDF_WITH_OPTIONS and PAGE_PLAN as its backend's
  * rmr_*_document_pdf, rmr_*_document_pdf_with_options and rmr_*_page_plan,
- * and GRAIN_GROUPS as whether RMR_PDF_GRAIN_GROUP changes its output. */
+ * DOCUMENT_PDF_PRESERVING_WITH_OPTIONS, DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS
+ * and DOCUMENT_PDF{,_PRESERVING,_RECOMPOSED}_TO_OUTPUT as its other PDF
+ * exports, and GRAIN_GROUPS as whether RMR_PDF_GRAIN_GROUP changes its
+ * output. */
 #ifndef ARCHIVE_FIXTURE_H
 #define ARCHIVE_FIXTURE_H
 #include <rmlines/parser.h>
 #include <rmlines/writer.h>
 #include <rmrender/archive.h>
 #include <rmrender/pdf.h>
+#include <stddef.h>
 
+#include "pdf_fixture.h"
 #include "test.h"
 
 #define CASE_DOC "44444444-4444-4444-4444-444444444444"
@@ -340,6 +345,193 @@ static void document_options(void) {
                                   nullptr, &options, nullptr, nullptr, &out,
                                   nullptr, &error) == RMR_ERR_INVALID_ARGUMENT);
   CHECK(!out.bytes && !plans && !strcmp(error.message, "invalid PDF options"));
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  rm_bytes_free((uint8_t*)(uintptr_t)data.bytes);
+}
+
+/* An rmr_output keeping what it is given, failing with fail_status once more
+ * than fail_after bytes would have arrived, and cancelling the export through
+ * output_cancelled once cancel_after writes have been made. */
+typedef struct {
+  rmr_buffer bytes;
+  size_t calls, after_failure, fail_after, cancel_after;
+  rmr_status fail_status;
+  bool failed;
+} received;
+
+static rmr_status receive(void* context, const uint8_t* bytes, size_t size) {
+  received* r = context;
+  CHECK(bytes && size);
+  if (r->failed) r->after_failure++;
+  r->calls++;
+  if (r->fail_status != RMR_OK && r->bytes.size + size > r->fail_after) {
+    r->failed = true;
+    return r->fail_status;
+  }
+  uint8_t* grown = realloc(r->bytes.bytes, r->bytes.size + size);
+  CHECK(grown);
+  memcpy(grown + r->bytes.size, bytes, size);
+  r->bytes = (rmr_buffer){grown, r->bytes.size + size};
+  return RMR_OK;
+}
+
+static bool output_cancelled(void* context) {
+  const received* r = context;
+  return r->cancel_after && r->calls >= r->cancel_after;
+}
+
+typedef enum { FRESH, PRESERVING, RECOMPOSED } export_mode;
+
+/* d exported in mode into a buffer, or into r when r is given, under limits
+ * (null for the defaults); report and error as the export fills them. */
+static rmr_status export_pdf(const rmr_archive_document* d, export_mode mode,
+                             const rmr_limits* limits, received* r,
+                             rmr_buffer* out, rmr_document_report* report,
+                             rmr_error* error) {
+  if (!r)
+    return mode == FRESH ? DOCUMENT_PDF_WITH_OPTIONS(
+                               d, nullptr, nullptr, RMR_PAPER_A4, 0, limits,
+                               nullptr, nullptr, nullptr, out, report, error)
+           : mode == PRESERVING
+               ? DOCUMENT_PDF_PRESERVING_WITH_OPTIONS(
+                     d, nullptr, nullptr, RMR_PAPER_A4, 0, limits, nullptr,
+                     nullptr, nullptr, out, report, error)
+               : DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS(
+                     d, nullptr, nullptr, RMR_PAPER_A4, 0, limits, nullptr,
+                     nullptr, nullptr, out, report, error);
+  rmr_output output = {RMR_OUTPUT_ABI, sizeof output, receive, r};
+  return mode == FRESH
+             ? DOCUMENT_PDF_TO_OUTPUT(d, nullptr, nullptr, RMR_PAPER_A4, 0,
+                                      limits, nullptr, output_cancelled, r,
+                                      &output, report, error)
+         : mode == PRESERVING
+             ? DOCUMENT_PDF_PRESERVING_TO_OUTPUT(
+                   d, nullptr, nullptr, RMR_PAPER_A4, 0, limits, nullptr,
+                   output_cancelled, r, &output, report, error)
+             : DOCUMENT_PDF_RECOMPOSED_TO_OUTPUT(
+                   d, nullptr, nullptr, RMR_PAPER_A4, 0, limits, nullptr,
+                   output_cancelled, r, &output, report, error);
+}
+
+/* d exported in mode both ways gives the same file and report; returns the
+ * output's write count. */
+static size_t same_file(const rmr_archive_document* d, export_mode mode) {
+  rmr_buffer whole = {0};
+  rmr_document_report expected = {0}, report = {0};
+  received r = {0};
+  OK(export_pdf(d, mode, nullptr, nullptr, &whole, &expected, nullptr));
+  OK(export_pdf(d, mode, nullptr, &r, nullptr, &report, nullptr));
+  blank_volatile(&whole);
+  blank_volatile(&r.bytes);
+  CHECK(r.bytes.size == whole.size &&
+        !memcmp(r.bytes.bytes, whole.bytes, whole.size));
+  CHECK(!memcmp(&report, &expected, sizeof report));
+  rmr_buffer_free(&whole);
+  rmr_buffer_free(&r.bytes);
+  return r.calls;
+}
+
+/* Exports written to an rmr_output as they are produced: the buffer's file,
+ * in order and in pieces, in every mode and over an imported PDF; an output
+ * failing at any point stops the export with its status, never to be called
+ * again; cancellation is unchanged; maximum_pdf_bytes bounds the file; a
+ * malformed output is refused before anything is written. */
+static void document_output(void) {
+  enum { PAGES = 64 };
+  rmd_bytes data = stroked_page(80, 80);
+  char (*ids)[40] = calloc(PAGES, sizeof *ids);
+  CHECK(ids);
+  built_archive a = notebook(PAGES, data, ids, nullptr);
+  rmr_archive_document* d = open_archive(&a, false);
+
+  rmr_buffer whole = {0};
+  OK(export_pdf(d, FRESH, nullptr, nullptr, &whole, nullptr, nullptr));
+  CHECK(whole.size > (8u << 20));
+  CHECK(same_file(d, FRESH) > 2);
+
+  /* Failing at the first write, in the middle and at the last byte. */
+  size_t points[] = {0, whole.size / 2, whole.size - 1};
+  rmr_status failures[] = {RMR_ERR_BACKEND, RMR_ERR_UNSUPPORTED,
+                           RMR_ERR_OUT_OF_MEMORY};
+  for (size_t i = 0; i < 3; i++) {
+    received r = {.fail_after = points[i], .fail_status = failures[i]};
+    rmr_error error = {0};
+    CHECK(export_pdf(d, FRESH, nullptr, &r, nullptr, nullptr, &error) ==
+          failures[i]);
+    CHECK(r.failed && !r.after_failure && r.bytes.size <= points[i]);
+    CHECK(error.code == failures[i] &&
+          !strcmp(error.message, "PDF output write failed"));
+    rmr_buffer_free(&r.bytes);
+  }
+
+  /* Cancelled after the first write: reported as cancellation. */
+  received r = {.cancel_after = 1};
+  rmr_error error = {0};
+  CHECK(export_pdf(d, FRESH, nullptr, &r, nullptr, nullptr, &error) ==
+        RMR_ERR_CANCELLED);
+  CHECK(r.calls >= 1 && r.bytes.size < whole.size &&
+        strcmp(error.message, "PDF output write failed"));
+  rmr_buffer_free(&r.bytes);
+
+  /* The limit is the file's size, written or returned. */
+  rmr_limits limits = rmr_limits_default();
+  limits.maximum_pdf_bytes = whole.size;
+  r = (received){0};
+  OK(export_pdf(d, FRESH, &limits, &r, nullptr, nullptr, nullptr));
+  CHECK(r.bytes.size == whole.size);
+  rmr_buffer_free(&r.bytes);
+  limits.maximum_pdf_bytes = whole.size - 1;
+  r = (received){0};
+  CHECK(export_pdf(d, FRESH, &limits, &r, nullptr, nullptr, &error) ==
+        RMR_ERR_LIMIT);
+  CHECK(r.bytes.size < whole.size);
+  rmr_buffer_free(&r.bytes);
+  rmr_buffer_free(&whole);
+
+  /* A malformed output, or none, writes nothing. */
+  r = (received){0};
+  rmr_output bad[] = {
+      {RMR_OUTPUT_ABI + 1, sizeof(rmr_output), receive, &r},
+      {RMR_OUTPUT_ABI, offsetof(rmr_output, context), receive, &r},
+      {RMR_OUTPUT_ABI, sizeof(rmr_output), nullptr, &r}};
+  for (size_t i = 0; i < 4; i++) {
+    CHECK(DOCUMENT_PDF_TO_OUTPUT(d, nullptr, nullptr, RMR_PAPER_A4, 0, nullptr,
+                                 nullptr, nullptr, nullptr,
+                                 i < 3 ? &bad[i] : nullptr, nullptr,
+                                 &error) == RMR_ERR_INVALID_ARGUMENT);
+    CHECK(!strcmp(error.message, "invalid PDF output"));
+  }
+  CHECK(!r.calls);
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  free(ids);
+
+  /* Annotated pages of an imported PDF, in every mode. */
+  fixture pdf = source(false);
+  const char* listed[] = {"P0", "P1"};
+  a = (built_archive){0};
+  put_content(&a, listed, 2, nullptr, 0, nullptr);
+  free(a.content);
+  const char content[] =
+      "{\"cPages\":{\"pages\":["
+      "{\"id\":\"P0\",\"redir\":{\"value\":0}},"
+      "{\"id\":\"P1\",\"redir\":{\"value\":1}}]}}";
+  a.content = strdup(content);
+  CHECK(a.content);
+  a.files[0].data = (rmd_bytes){(const uint8_t*)a.content, strlen(content)};
+  put_file(&a, CASE_DOC "/P0.rm", data);
+  put_file(&a, CASE_DOC "/P1.rm", data);
+  put_file(&a, CASE_DOC ".pdf", (rmd_bytes){(const uint8_t*)pdf.bytes, pdf.n});
+  d = open_archive(&a, false);
+  CHECK(rmr_archive_document_page(d, 1)->has_source);
+  for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++)
+    CHECK(same_file(d, mode) >= 1);
+  r = (received){.fail_after = pdf.n, .fail_status = RMR_ERR_BACKEND};
+  CHECK(export_pdf(d, PRESERVING, nullptr, &r, nullptr, nullptr, &error) ==
+        RMR_ERR_BACKEND);
+  CHECK(!r.after_failure && !strcmp(error.message, "PDF output write failed"));
+  rmr_buffer_free(&r.bytes);
   rmr_archive_document_free(d);
   archive_free(&a);
   rm_bytes_free((uint8_t*)(uintptr_t)data.bytes);

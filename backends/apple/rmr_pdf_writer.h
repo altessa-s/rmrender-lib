@@ -13,6 +13,7 @@
 
 #ifndef RMR_APPLE_PDF_WRITER_H
 #define RMR_APPLE_PDF_WRITER_H
+#include <rmrender/output.h>
 #include <rmrender/pdf.h>
 
 typedef struct rmr_apple_writer rmr_apple_writer;
@@ -24,6 +25,13 @@ typedef struct rmr_apple_writer rmr_apple_writer;
 rmr_status rmr_apple_writer_create(const rmr_limits* limits, unsigned decimals,
                                    bool merged, rmr_apple_writer** out);
 void rmr_apple_writer_free(rmr_apple_writer* w);
+
+/* Merged documents: writes the document to output as it is produced instead
+ * of collecting it (see rmr_pdf_builder_output); merge then leaves its out
+ * unused. base, CoreGraphics' output so far, gives the document its version
+ * now, before any of it is written. Before the first page. */
+void rmr_apple_writer_output(rmr_apple_writer* w, const rmr_output* output,
+                             const uint8_t* base, size_t size);
 
 /* Where the writable tail of plan starts: after its last draw only
  * CoreGraphics can serialize (text, images, embedded PDFs, transparency

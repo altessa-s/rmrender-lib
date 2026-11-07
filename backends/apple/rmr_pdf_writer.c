@@ -712,6 +712,12 @@ void rmr_apple_writer_free(rmr_apple_writer* w) {
   free(w);
 }
 
+void rmr_apple_writer_output(rmr_apple_writer* w, const rmr_output* output,
+                             const uint8_t* base, size_t size) {
+  rmr_pdf_builder_version(w->builder, base, size);
+  rmr_pdf_builder_output(w->builder, output);
+}
+
 size_t rmr_apple_writer_pending(const rmr_apple_writer* w) {
   return rmr_pdf_pipeline_pending(w->pipeline);
 }

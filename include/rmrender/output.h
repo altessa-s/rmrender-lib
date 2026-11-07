@@ -52,4 +52,29 @@ typedef struct {
 /* {RMR_PDF_OPTIONS_ABI, sizeof(rmr_pdf_options), RMR_PDF_GRAIN_MASK, 0}. */
 RMR_API rmr_pdf_options rmr_pdf_options_default(void);
 
+/* Where the *_to_output entry points write a PDF: write receives the file's
+ * bytes in order, on the calling thread, as the export completes them, never
+ * with size 0; bytes are borrowed for the call only. It returns RMR_OK to go
+ * on; any other status stops the export, which returns that status with the
+ * message "PDF output write failed" and never calls write again. write must
+ * not call back into rmrender. Set abi_version to RMR_OUTPUT_ABI and
+ * struct_size to sizeof(rmr_output); a wrong abi_version, a struct_size
+ * smaller than this first version or a null write returns INVALID_ARGUMENT
+ * before anything is written.
+ *
+ * The file is the one the buffer entry points return, byte for byte, but what
+ * has been written no longer takes memory. On any failure, cancellation
+ * included, write has received part of a file, which the caller discards
+ * (write to a temporary file, renamed once the export succeeds).
+ * maximum_pdf_bytes still bounds the whole file as it bounds a buffer, and the
+ * inputs and intermediates it bounds stay bounded by it: raise it to write
+ * larger files. */
+#define RMR_OUTPUT_ABI 1u
+typedef struct {
+  uint32_t abi_version;
+  size_t struct_size;
+  rmr_status (*write)(void* context, const uint8_t* bytes, size_t size);
+  void* context;
+} rmr_output;
+
 #endif

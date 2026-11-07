@@ -10,6 +10,15 @@
 #define DOCUMENT_PDF rmr_apple_document_pdf
 #define PAGE_PLAN rmr_apple_page_plan
 #define DOCUMENT_PDF_WITH_OPTIONS rmr_apple_document_pdf_with_options
+#define DOCUMENT_PDF_PRESERVING_WITH_OPTIONS \
+  rmr_apple_document_pdf_preserving_with_options
+#define DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS \
+  rmr_apple_document_pdf_recomposed_with_options
+#define DOCUMENT_PDF_TO_OUTPUT rmr_apple_document_pdf_to_output
+#define DOCUMENT_PDF_PRESERVING_TO_OUTPUT \
+  rmr_apple_document_pdf_preserving_to_output
+#define DOCUMENT_PDF_RECOMPOSED_TO_OUTPUT \
+  rmr_apple_document_pdf_recomposed_to_output
 #define GRAIN_GROUPS false
 #include "archive_fixture.h"
 #define DOC "11111111-1111-1111-1111-111111111111"
@@ -20,6 +29,7 @@ int main(void) {
   many_files();
   dense_document();
   document_options();
+  document_output();
 
   const char content[] =
       "{\"cPages\":{\"pages\":[{\"id\":\"" PAGE "\"},{\"id\":\"" DEAD
