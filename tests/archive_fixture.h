@@ -546,7 +546,7 @@ typedef struct {
   size_t count;
 } told;
 
-static void tell(void* context, size_t page, rmr_status status) {
+static void note_unreadable(void* context, size_t page, rmr_status status) {
   told* t = context;
   CHECK(t->count < 4);
   t->pages[t->count] = page;
@@ -660,7 +660,7 @@ static void unreadable_pages(const char* fonts_directory) {
   size_t templates = 0;
   told heard = {0};
   rmr_pdf_options options = rmr_pdf_options_default();
-  options.on_unreadable = tell;
+  options.on_unreadable = note_unreadable;
   options.unreadable_context = &heard;
   rmr_buffer out = {0};
   CHECK(DOCUMENT_PDF(d, nullptr, fonts, RMR_PAPER_A4, 0, nullptr, nullptr,
