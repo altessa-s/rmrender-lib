@@ -38,9 +38,18 @@ typedef struct {
   uint32_t abi_version;
   size_t struct_size;
   rmr_pdf_grain grain;
+  /* Read when struct_size covers it. 0, the default, writes ink paths at full
+   * precision, exactly as CoreGraphics would. 1 to 6 round the Apple backend's
+   * ink path coordinates to that many decimal places of a point (stroke
+   * coordinates, in page units, to as many places, which is finer): 2 is
+   * invisible at print resolution and makes ink-heavy files about a quarter
+   * smaller. Pages holding text, images, embedded PDFs or transparency groups
+   * are drawn by CoreGraphics at full precision; the Cairo backend ignores this
+   * field. */
+  uint32_t decimals;
 } rmr_pdf_options;
 
-/* {RMR_PDF_OPTIONS_ABI, sizeof(rmr_pdf_options), RMR_PDF_GRAIN_MASK}. */
+/* {RMR_PDF_OPTIONS_ABI, sizeof(rmr_pdf_options), RMR_PDF_GRAIN_MASK, 0}. */
 RMR_API rmr_pdf_options rmr_pdf_options_default(void);
 
 #endif
