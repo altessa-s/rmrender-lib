@@ -289,8 +289,9 @@ rmr_status page_pdf(const uint8_t *bytes, size_t size, const char *fonts_dir,
 
 `rmr_archive_document_create` borrows an unpacked RMDoc archive and resolves
 its page order, templates and source-PDF pages; `rmr_apple_document_pdf`
-renders the whole document. Parsing errors fail the call; recoverable losses
-are counted in `rmr_document_report`.
+renders the whole document. Recoverable parser losses are counted in
+`rmr_document_report`; what happens to a page whose `.rm` file does not parse
+at all is the `unreadable` field of `rmr_pdf_options` (below).
 
 There are two ways to put marks on an imported PDF:
 
@@ -336,6 +337,30 @@ ink-heavy files about a quarter smaller. Pages with text, images, embedded
 PDFs or transparency groups keep full precision for those marks, and the
 Cairo backend ignores the field. Callers built against the first version of
 `rmr_pdf_options`, without the field, get the default.
+
+Its `unreadable` field says what the document exports do with an **unreadable
+page**: one whose `.rm` file is in the archive but does not parse (truncated,
+malformed, or of a version RMLines does not read). A listed page with no `.rm`
+file is not one: the tablet writes none for a page nobody wrote on, and it is
+drawn as an empty page on its template, as always.
+
+| `rmr_unreadable_policy` | Notebook page | Page over an imported PDF |
+|---|---|---|
+| `RMR_UNREADABLE_STRICT` (default) | the export fails with the parser's status (`BACKEND`, or `UNSUPPORTED` for a newer version), `error.index` the page and a message naming it and its ID | the same |
+| `RMR_UNREADABLE_BLANK` | an empty page on its template, as a page without a `.rm` file | the PDF page without marks |
+| `RMR_UNREADABLE_PLACEHOLDER` | a plain sheet of the page's size, no template, "Rendering error" in the middle | the PDF page with the label over its centre |
+
+The label is dark grey on a light rounded box, its type 5% of the page's
+width, set in Noto Sans, the face typed text is set in, through the same text
+path, so the PDF embeds it as it embeds typed text (and SVG pages carry it as
+outlines). It needs the export's fonts. `on_unreadable`, when set, is called
+with `unreadable_context` once for each unreadable page the export reaches,
+in page order, before it is drawn or before a strict export fails with it.
+`rmr_apple_document_svg_with_options` / `rmr_linux_document_svg_with_options`
+read the same fields for SVG, and `rmr_archive_document_read_page` answers an
+unreadable page as an empty one, with the status its parsing failed with.
+Allocation failures and limits fail the export whatever the policy. Callers
+built against an earlier `rmr_pdf_options` get `STRICT`, as before.
 
 PDF export of long documents writes their pages as it goes. The Apple
 backend serializes fills, strokes, grain masks and erasers itself, printing
