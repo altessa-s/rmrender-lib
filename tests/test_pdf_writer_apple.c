@@ -9,8 +9,10 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <rmrender/apple.h>
 #include <rmrender/apple_pdf.h>
+#include <rmrender/template.h>
 
 #include "../backends/common/rmr_pdf_stream.h"
+#include "../src/rmr_pdf_edit.h"
 #include "test.h"
 
 static uint64_t state = 0x243f6a8885a308d3u;
@@ -125,9 +127,9 @@ static void numbers(void) {
   free(values);
 }
 
-/* Page 1 of pdf rasterized at scale onto white. */
-static uint8_t* raster(rmr_buffer pdf, double scale, size_t* width,
-                       size_t* height) {
+/* Page number of pdf rasterized at scale onto white. */
+static uint8_t* raster_page(rmr_buffer pdf, size_t number, double scale,
+                            size_t* width, size_t* height) {
   CFDataRef data =
       CFDataCreate(kCFAllocatorDefault, pdf.bytes, (CFIndex)pdf.size);
   CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
@@ -135,7 +137,8 @@ static uint8_t* raster(rmr_buffer pdf, double scale, size_t* width,
   CGDataProviderRelease(provider);
   CFRelease(data);
   CHECK(document);
-  CGPDFPageRef page = CGPDFDocumentGetPage(document, 1);
+  CGPDFPageRef page = CGPDFDocumentGetPage(document, number);
+  CHECK(page);
   CGRect box = CGPDFPageGetBoxRect(page, kCGPDFMediaBox);
   *width = (size_t)ceil(box.size.width * scale);
   *height = (size_t)ceil(box.size.height * scale);
@@ -153,6 +156,12 @@ static uint8_t* raster(rmr_buffer pdf, double scale, size_t* width,
   CGContextRelease(cg);
   CGPDFDocumentRelease(document);
   return pixels;
+}
+
+/* Page 1 of pdf rasterized at scale onto white. */
+static uint8_t* raster(rmr_buffer pdf, double scale, size_t* width,
+                       size_t* height) {
+  return raster_page(pdf, 1, scale, width, height);
 }
 
 static bool contains(rmr_buffer b, const char* s) {
@@ -483,11 +492,577 @@ static void erased_away(void) {
   rmr_plan_free(kept);
 }
 
+/* Where s first occurs in b at or after from, SIZE_MAX if nowhere. */
+static size_t find(rmr_buffer b, const char* s, size_t from) {
+  size_t n = strlen(s);
+  if (from > b.size || n > b.size - from) return SIZE_MAX;
+  for (size_t i = from; i + n <= b.size; i++)
+    if (!memcmp(b.bytes + i, s, n)) return i;
+  return SIZE_MAX;
+}
+
+/* How many times s occurs in b. */
+static size_t occurrences(rmr_buffer b, const char* s) {
+  size_t count = 0;
+  for (size_t at = find(b, s, 0); at != SIZE_MAX; at = find(b, s, at + 1))
+    count++;
+  return count;
+}
+
+/* Pages number of a and b paint the same pixels at three scales. */
+static void same_page(rmr_buffer a, rmr_buffer b, size_t number,
+                      const char* label) {
+  for (double scale = 1; scale <= 6.25; scale *= 2.5) {
+    size_t w1, h1, w2, h2;
+    uint8_t* x = raster_page(a, number, scale, &w1, &h1);
+    uint8_t* y = raster_page(b, number, scale, &w2, &h2);
+    CHECK(w1 == w2 && h1 == h2);
+    size_t count = differing(x, y, w1 * h1 * 4);
+    if (count)
+      fprintf(stderr, "%s page %zu scale %g: %zu pixels differ\n", label,
+              number, scale, count);
+    CHECK(!count);
+    free(x);
+    free(y);
+  }
+}
+
+static const rmr_sheet tablet = {
+    612, 816, {0.4358974358974359, 0, 0, -0.4358974358974359, 306, 816}};
+
+/* Transparency groups of every kind of member: strokes of each join, grain
+ * masks, erased strokes and masked fills, over ink they blend with; groups
+ * one after another, one interrupted and taken up again under the same
+ * token, one off the page and one partly off it, one erased away. A group's
+ * alpha and blend mode are given. With text, the plan ends in an empty text
+ * run, which leaves every draw to CoreGraphics and paints nothing. */
+static rmr_plan* grouped(double alpha, rmr_blend blend, bool text) {
+  static rmr_element under[] = {{.kind = RMR_MOVE, .end = {-500, 200}},
+                                {.kind = RMR_LINE, .end = {400, 200}},
+                                {.kind = RMR_LINE, .end = {400, 900}},
+                                {.kind = RMR_LINE, .end = {-500, 900}},
+                                {.kind = RMR_CLOSE}};
+  static rmr_element swipe[] = {{.kind = RMR_MOVE, .end = {-600, 300.25}},
+                                {.kind = RMR_CURVE,
+                                 .control1 = {-300, 250},
+                                 .control2 = {0, 420},
+                                 .end = {350.5, 330}},
+                                {.kind = RMR_LINE, .end = {200, 520}}};
+  static rmr_element corner[] = {{.kind = RMR_MOVE, .end = {-400, 700}},
+                                 {.kind = RMR_LINE, .end = {-100, 600}},
+                                 {.kind = RMR_LINE, .end = {-380, 560}}};
+  static rmr_element box[] = {{.kind = RMR_MOVE, .end = {-100, 750}},
+                              {.kind = RMR_CURVE,
+                               .control1 = {50, 640},
+                               .control2 = {150, 900},
+                               .end = {250, 760}},
+                              {.kind = RMR_LINE, .end = {250, 980}},
+                              {.kind = RMR_LINE, .end = {-100, 980}},
+                              {.kind = RMR_CLOSE}};
+  static rmr_element cut[] = {{.kind = RMR_MOVE, .end = {-50, 280}},
+                              {.kind = RMR_LINE, .end = {60, 280}},
+                              {.kind = RMR_LINE, .end = {60, 1000}},
+                              {.kind = RMR_LINE, .end = {-50, 1000}},
+                              {.kind = RMR_CLOSE}};
+  static rmr_element away[] = {{.kind = RMR_MOVE, .end = {-2000, 300}},
+                               {.kind = RMR_LINE, .end = {-1500, 320}}};
+  static rmr_element edge[] = {{.kind = RMR_MOVE, .end = {500, 1700}},
+                               {.kind = RMR_LINE, .end = {900, 1900}}};
+  static rmr_element tiny[] = {{.kind = RMR_MOVE, .end = {0, 290}},
+                               {.kind = RMR_LINE, .end = {10, 290}}};
+  static rmr_path_view erasers[] = {{cut, 5}};
+  static uint8_t bits[16 * 40];
+  for (size_t k = 0; k < sizeof bits; k++) bits[k] = (uint8_t)(k * 53 + 7);
+
+  rmr_draw base = {
+      .color = {1, 1, 1, 1}, .group_alpha = alpha, .group_blend = blend};
+  rmr_draw draws[32];
+  size_t count = 0;
+  draws[count++] = (rmr_draw){
+      .path = {under, 5}, .mode = RMR_FILL, .color = {0.2, 0.5, 0.8, 1}};
+  draws[count++] = (rmr_draw){.path = {swipe, 3},
+                              .mode = RMR_STROKE,
+                              .color = {0.1, 0.1, 0.1, 1},
+                              .line_width = 3,
+                              .cap = RMR_CAP_ROUND,
+                              .join = RMR_JOIN_ROUND};
+  /* Group 1: strokes of each join, a grain mask and erased members. */
+  rmr_draw d = base;
+  d.group = 1;
+  d.path = (rmr_path_view){swipe, 3};
+  d.mode = RMR_STROKE;
+  d.color = (rmr_color){0.95, 0.85, 0.1, 1};
+  d.line_width = 40;
+  d.cap = RMR_CAP_ROUND;
+  d.join = RMR_JOIN_ROUND;
+  draws[count++] = d;
+  d.path = (rmr_path_view){corner, 3};
+  d.color = (rmr_color){0.9, 0.3, 0.2, 1};
+  d.line_width = 18;
+  d.cap = RMR_CAP_BUTT;
+  d.join = RMR_JOIN_MITER;
+  d.miter_limit = 4;
+  draws[count++] = d;
+  d.join = RMR_JOIN_BEVEL;
+  d.miter_limit = 0;
+  d.cap = RMR_CAP_SQUARE;
+  d.line_width = 6;
+  d.color = (rmr_color){0.3, 0.9, 0.2, 1};
+  draws[count++] = d;
+  d.path = (rmr_path_view){box, 5};
+  d.mode = RMR_FILL;
+  d.color = (rmr_color){0.5, 0.1, 0.6, 1};
+  d.mask = (rmr_mask_view){bits, 128, 40, 16, {-120, 700, 400, 300}};
+  draws[count++] = d;
+  d.erasers = erasers;
+  d.eraser_count = 1;
+  d.color = (rmr_color){0.1, 0.6, 0.6, 1};
+  draws[count++] = d;
+  d.mask = (rmr_mask_view){0};
+  d.path = (rmr_path_view){swipe, 3};
+  d.mode = RMR_STROKE;
+  d.line_width = 24;
+  d.cap = RMR_CAP_ROUND;
+  d.join = RMR_JOIN_ROUND;
+  d.color = (rmr_color){0.9, 0.5, 0.1, 1};
+  draws[count++] = d;
+  d.erasers = nullptr;
+  d.eraser_count = 0;
+  /* Ink between, then the same token again: a group of its own. */
+  draws[count++] = (rmr_draw){.path = {corner, 3},
+                              .mode = RMR_STROKE,
+                              .color = {0, 0, 0, 0.5},
+                              .line_width = 2};
+  d.path = (rmr_path_view){box, 5};
+  d.mode = RMR_FILL;
+  d.color = (rmr_color){0.2, 0.8, 0.4, 1};
+  draws[count++] = d;
+  /* Groups 2 and 3 one after the other, overlapping members inside. */
+  d.group = 2;
+  d.path = (rmr_path_view){under, 5};
+  d.color = (rmr_color){0.8, 0.2, 0.2, 1};
+  draws[count++] = d;
+  d.path = (rmr_path_view){box, 5};
+  d.color = (rmr_color){0.2, 0.2, 0.8, 1};
+  draws[count++] = d;
+  d.group = 3;
+  d.path = (rmr_path_view){swipe, 3};
+  d.mode = RMR_STROKE;
+  d.line_width = 60;
+  d.color = (rmr_color){0.7, 0.7, 0.1, 1};
+  draws[count++] = d;
+  /* Translucent ink, a group of its alpha and blend mode, then opaque ink:
+   * what the group sets must not outlast it. */
+  d = base;
+  d.path = (rmr_path_view){box, 5};
+  d.mode = RMR_FILL;
+  d.color = (rmr_color){0.6, 0.3, 0.1, 0.3};
+  d.blend = RMR_BLEND_DARKEN;
+  draws[count++] = d;
+  d.color.alpha = 1;
+  d.blend = RMR_BLEND_NORMAL;
+  d.group = 7;
+  d.group_alpha = 0.3;
+  d.group_blend = RMR_BLEND_DARKEN;
+  d.path = (rmr_path_view){under, 5};
+  draws[count++] = d;
+  d.group = 0;
+  d.color = (rmr_color){0.3, 0.3, 0.3, 1};
+  d.mask = (rmr_mask_view){bits, 128, 40, 16, {-120, 700, 400, 300}};
+  draws[count++] = d;
+  d.mask = (rmr_mask_view){0};
+  d.path = (rmr_path_view){corner, 3};
+  d.mode = RMR_STROKE;
+  d.line_width = 5;
+  draws[count++] = d;
+  d = base;
+  d.mode = RMR_STROKE;
+  d.color = (rmr_color){0.7, 0.7, 0.1, 1};
+  d.line_width = 60;
+  d.cap = RMR_CAP_ROUND;
+  d.join = RMR_JOIN_ROUND;
+  /* Off the page, partly off it, erased away. */
+  d.group = 4;
+  d.path = (rmr_path_view){away, 2};
+  draws[count++] = d;
+  d.group = 5;
+  d.path = (rmr_path_view){edge, 2};
+  draws[count++] = d;
+  d.group = 6;
+  d.path = (rmr_path_view){tiny, 2};
+  d.line_width = 4;
+  d.erasers = erasers;
+  d.eraser_count = 1;
+  draws[count++] = d;
+  if (text)
+    draws[count++] = (rmr_draw){.mode = RMR_TEXT,
+                                .color = {0, 0, 0, 1},
+                                .text = {nullptr, 0, 20, {0, 100}, {0}}};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(draws, count, (rmr_rect){-702, 0, 1404, 1872}, nullptr,
+                     &plan, nullptr));
+  return plan;
+}
+
+/* A source PDF of one blank page of width by height. */
+static rmr_buffer blank_page(double width, double height) {
+  CFMutableDataRef pdf = CFDataCreateMutable(kCFAllocatorDefault, 0);
+  CGDataConsumerRef consumer = CGDataConsumerCreateWithCFData(pdf);
+  CGRect box = CGRectMake(0, 0, width, height);
+  CGContextRef cg = CGPDFContextCreate(consumer, &box, nullptr);
+  CGDataConsumerRelease(consumer);
+  CGPDFContextBeginPage(cg, nullptr);
+  CGPDFContextEndPage(cg);
+  CGPDFContextClose(cg);
+  CGContextRelease(cg);
+  size_t size = (size_t)CFDataGetLength(pdf);
+  rmr_buffer out = {malloc(size), size};
+  CHECK(out.bytes);
+  memcpy(out.bytes, CFDataGetBytePtr(pdf), size);
+  CFRelease(pdf);
+  return out;
+}
+
+/* Transparency groups written by the writer paint what CoreGraphics'
+ * transparency layers paint, for every blend mode and a range of alphas: on
+ * a document's page, and on a page of a PDF updated in place, against the
+ * same update with CoreGraphics drawing the groups. */
+static void groups(void) {
+  static const double alphas[] = {0, 0.25, 0.6, 1};
+  for (unsigned blend = 0; blend <= RMR_BLEND_MULTIPLY; blend++)
+    for (size_t k = 0; k < sizeof alphas / sizeof *alphas; k++) {
+      rmr_plan* plan = grouped(alphas[k], (rmr_blend)blend, false);
+      const rmr_plan* plans[] = {plan};
+      rmr_buffer native = {0}, written = {0};
+      OK(rmr_apple_pdf_sheets(plans, &tablet, 1, nullptr, nullptr, nullptr,
+                              &native, nullptr));
+      rmr_pdf_page page = {.marks = plan, .sheet = tablet};
+      OK(rmr_apple_pdf_overlay(nullptr, &page, 1, nullptr, nullptr, nullptr,
+                               &written, nullptr, nullptr));
+      /* Written, not drawn: no CoreGraphics form. */
+      CHECK(contains(written, "/S /Transparency") && !contains(written, "/Fm"));
+      char label[64];
+      snprintf(label, sizeof label, "groups blend %u alpha %g", blend,
+               alphas[k]);
+      same_page(native, written, 1, label);
+      rmr_buffer_free(&native);
+      rmr_buffer_free(&written);
+      rmr_plan_free(plan);
+    }
+
+  rmr_buffer source = blank_page(tablet.width, tablet.height);
+  rmr_apple_pdf_source* src = nullptr;
+  OK(rmr_apple_pdf_source_create(source.bytes, source.size, nullptr, &src,
+                                 nullptr));
+  rmr_buffer updated[2] = {0};
+  for (int text = 0; text < 2; text++) {
+    rmr_plan* plan = grouped(0.4, RMR_BLEND_DARKEN, text);
+    rmr_pdf_page page = {.marks = plan,
+                         .sheet = tablet,
+                         .source_rect = {-702, 0, 1404, 1872},
+                         .has_source = true,
+                         .source_visible = true};
+    OK(rmr_apple_pdf_incremental(src, &page, 1, nullptr, nullptr, nullptr,
+                                 &updated[text], nullptr, nullptr));
+    rmr_plan_free(plan);
+  }
+  CHECK(contains(updated[0], "/S /Transparency") &&
+        !contains(updated[0], "/Fm"));
+  CHECK(contains(updated[1], "/Fm"));
+  same_page(updated[1], updated[0], 1, "updated groups");
+  rmr_buffer_free(&updated[0]);
+  rmr_buffer_free(&updated[1]);
+  rmr_apple_pdf_source_free(src);
+  rmr_buffer_free(&source);
+}
+
+/* The text of the first /BBox array in b, "none" without one. */
+static void first_box(rmr_buffer b, char out[160]) {
+  size_t at = find(b, "/BBox", 0);
+  size_t end = at == SIZE_MAX ? SIZE_MAX : find(b, "]", at);
+  if (at == SIZE_MAX || end == SIZE_MAX || end - at >= 160) {
+    snprintf(out, 160, "none");
+    return;
+  }
+  snprintf(out, 160, "%.*s", (int)(end - at + 1), (const char*)b.bytes + at);
+}
+
+/* A random path about center: moves, lines and curves, closed if asked. */
+static size_t random_path(rmr_element* e, double x, double y, double spread,
+                          bool closed) {
+  size_t n = 0;
+  x += uniform(-spread, spread) / 2;
+  y += uniform(-spread, spread) / 2;
+  e[n++] = (rmr_element){.kind = RMR_MOVE, .end = {x, y}};
+  for (int k = 1 + (int)(next() % 4); k > 0; k--) {
+    double nx = x + uniform(-spread, spread) / 2,
+           ny = y + uniform(-spread, spread) / 2;
+    e[n++] = next() & 1
+                 ? (rmr_element){.kind = RMR_LINE, .end = {nx, ny}}
+                 : (rmr_element){.kind = RMR_CURVE,
+                                 .control1 = {x + uniform(-spread, spread),
+                                              y + uniform(-spread, spread)},
+                                 .control2 = {nx + uniform(-spread, spread),
+                                              ny + uniform(-spread, spread)},
+                                 .end = {nx, ny}};
+    x = nx;
+    y = ny;
+  }
+  if (closed) e[n++] = (rmr_element){.kind = RMR_CLOSE};
+  return n;
+}
+
+/* A group's BBox as the writer prints it is CoreGraphics' own, for random
+ * groups of strokes of every cap, join and miter limit, fills, grain masks
+ * and erased members, at several scales, some partly or wholly off the page
+ * (a layer that misses the page is written by neither). */
+static void group_boxes(void) {
+  static const double scales[] = {0.4358974358974359, 1, 0.75, 2.5,
+                                  0.3333333333333333};
+  static uint8_t bits[64 * 8];
+  for (size_t k = 0; k < sizeof bits; k++) bits[k] = (uint8_t)next();
+  for (int c = 0; c < 300; c++) {
+    double a = scales[c % 5];
+    rmr_sheet sheet = {1404 * a, 1872 * a, {a, 0, 0, -a, 702 * a, 1872 * a}};
+    rmr_element paths[4][12], cuts[4][12];
+    rmr_path_view erasers[4];
+    rmr_draw draws[4];
+    size_t members = 1 + next() % 4;
+    double x = uniform(-400, 400), y = uniform(300, 1500),
+           spread = next() % 5 ? uniform(30, 500) : 2000;
+    for (size_t k = 0; k < members; k++) {
+      int kind = (int)(next() % 5);
+      bool stroke = kind == 0 || kind == 3;
+      size_t n = random_path(paths[k], x, y, spread, !stroke);
+      draws[k] =
+          (rmr_draw){.path = {paths[k], n},
+                     .mode = stroke ? RMR_STROKE : RMR_FILL,
+                     .color = {uniform(0, 1), uniform(0, 1), uniform(0, 1), 1},
+                     .line_width = uniform(0.5, 40),
+                     .cap = (rmr_cap)(next() % 3),
+                     .join = (rmr_join)(next() % 3),
+                     .miter_limit = next() & 1 ? 0 : uniform(1, 6),
+                     .group = 9,
+                     .group_alpha = 0.5,
+                     .group_blend = RMR_BLEND_DARKEN};
+      if (kind == 2)
+        draws[k].mask =
+            (rmr_mask_view){bits,
+                            64,
+                            64,
+                            8,
+                            {x + uniform(-spread, spread) * 0.6,
+                             y + uniform(-spread, spread) * 0.6,
+                             uniform(10, spread), uniform(10, spread)}};
+      if (kind >= 3) {
+        erasers[k] =
+            (rmr_path_view){cuts[k], random_path(cuts[k], x, y, spread, true)};
+        draws[k].erasers = &erasers[k];
+        draws[k].eraser_count = 1;
+      }
+    }
+    rmr_plan* plan = nullptr;
+    OK(rmr_plan_create(draws, members, (rmr_rect){-702, 0, 1404, 1872}, nullptr,
+                       &plan, nullptr));
+    const rmr_plan* plans[] = {plan};
+    rmr_buffer native = {0}, written = {0};
+    OK(rmr_apple_pdf_sheets(plans, &sheet, 1, nullptr, nullptr, nullptr,
+                            &native, nullptr));
+    rmr_pdf_page page = {.marks = plan, .sheet = sheet};
+    OK(rmr_apple_pdf_overlay(nullptr, &page, 1, nullptr, nullptr, nullptr,
+                             &written, nullptr, nullptr));
+    char want[160], got[160];
+    first_box(native, want);
+    first_box(written, got);
+    if (strcmp(want, got))
+      fprintf(stderr, "group %d: CoreGraphics %s, writer %s\n", c, want, got);
+    CHECK(!strcmp(want, got));
+    rmr_buffer_free(&native);
+    rmr_buffer_free(&written);
+    rmr_plan_free(plan);
+  }
+}
+
+/* A template of lines, a repeated group of lines and a fill, with a label
+ * after its first lines when labelled. */
+static rmr_template_document* template_model(bool labelled) {
+  char json[1024];
+  snprintf(json, sizeof json,
+           "{\"name\": \"Test\", \"items\": ["
+           "{\"type\": \"path\", \"data\": [\"M\", 0, 120, \"L\", "
+           "\"templateWidth\", 120]},"
+           "%s"
+           "{\"type\": \"group\", \"boundingBox\": {\"x\": 0, \"y\": 200, "
+           "\"width\": \"templateWidth\", \"height\": 64}, \"repeat\": "
+           "{\"rows\": \"down\"}, \"children\": [{\"type\": \"path\", "
+           "\"strokeColor\": \"#8C8C8C\", \"strokeWidth\": 1.5, \"data\": "
+           "[\"M\", 40, 0, \"L\", \"templateWidth - 40\", 0]}]},"
+           "{\"type\": \"path\", \"fillColor\": \"#262626\", \"data\": [\"M\", "
+           "100, 1700, \"L\", 300, 1700, \"L\", 300, 1780, \"Z\"]}]}",
+           labelled ? "{\"type\": \"text\", \"text\": \"Label\", "
+                      "\"fontSize\": 40, \"position\": {\"x\": 60, "
+                      "\"y\": 100}},"
+                    : "");
+  rmr_template_document* document = nullptr;
+  OK(rmr_template_document_decode(json, strlen(json), nullptr, &document,
+                                  nullptr));
+  return document;
+}
+
+/* The page's marks over the template: ink, and typed text's place taken
+ * by a text run first when typed. */
+static rmr_plan* templated(const rmr_template* model, bool typed) {
+  static rmr_element ink[] = {{.kind = RMR_MOVE, .end = {-300, 500}},
+                              {.kind = RMR_CURVE,
+                               .control1 = {-100, 400},
+                               .control2 = {100, 700},
+                               .end = {300, 520}}};
+  rmr_draw draws[2];
+  size_t count = 0;
+  if (typed)
+    draws[count++] = (rmr_draw){.mode = RMR_TEXT,
+                                .color = {0, 0, 0, 1},
+                                .text = {"Typed", 5, 30, {-500, 300}, {0}}};
+  draws[count++] = (rmr_draw){.path = {ink, 2},
+                              .mode = RMR_STROKE,
+                              .color = {0.1, 0.2, 0.7, 1},
+                              .line_width = 4,
+                              .cap = RMR_CAP_ROUND,
+                              .join = RMR_JOIN_ROUND};
+  rmr_plan *foreground = nullptr, *plan = nullptr;
+  OK(rmr_plan_create(draws, count, (rmr_rect){-702, 0, 1404, 1872}, nullptr,
+                     &foreground, nullptr));
+  rmr_text_provider text = rmr_apple_text_provider();
+  OK(rmr_template_background_plan_with_text(
+      model, (rmr_point){1404, 1872}, (rmr_point){1404, 1872}, foreground, true,
+      &text, nullptr, &plan, nullptr));
+  rmr_plan_free(foreground);
+  return plan;
+}
+
+/* The first content stream of page number of pdf begins with prefix. */
+static bool leads_with(rmr_buffer pdf, size_t number, const char* prefix) {
+  CFDataRef data =
+      CFDataCreate(kCFAllocatorDefault, pdf.bytes, (CFIndex)pdf.size);
+  CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+  CGPDFDocumentRef document = CGPDFDocumentCreateWithProvider(provider);
+  CGDataProviderRelease(provider);
+  CFRelease(data);
+  CHECK(document);
+  CGPDFDictionaryRef page =
+      CGPDFPageGetDictionary(CGPDFDocumentGetPage(document, number));
+  CGPDFArrayRef contents = nullptr;
+  CGPDFStreamRef first = nullptr;
+  bool leads = false;
+  if (CGPDFDictionaryGetArray(page, "Contents", &contents) &&
+      CGPDFArrayGetStream(contents, 0, &first)) {
+    CGPDFDataFormat format;
+    CFDataRef bytes = CGPDFStreamCopyData(first, &format);
+    size_t n = strlen(prefix);
+    leads = bytes && (size_t)CFDataGetLength(bytes) >= n &&
+            !memcmp(CFDataGetBytePtr(bytes), prefix, n);
+    if (bytes) CFRelease(bytes);
+  }
+  CGPDFDocumentRelease(document);
+  return leads;
+}
+
+/* A page's template is a form written once for the pages that draw it the
+ * same, under the page's ink or, labelled or under typed text, ahead of what
+ * CoreGraphics draws; either way every page paints what CoreGraphics' own
+ * page paints. */
+static void templates(void) {
+  for (int labelled = 0; labelled < 2; labelled++) {
+    rmr_template_document* document = template_model(labelled);
+    const rmr_template* model = rmr_template_document_model(document);
+    enum { PAGES = 4 };
+    rmr_plan* plans[PAGES];
+    rmr_pdf_page pages[PAGES];
+    rmr_sheet wide = {800,
+                      1066.6666666666667,
+                      {0.5698005698005698, 0, 0, -0.5698005698005698, 400,
+                       1066.6666666666667}};
+    for (size_t i = 0; i < PAGES; i++) {
+      plans[i] = templated(model, i == 1);
+      CHECK(rmr_plan_background(plans[i]) > 2);
+      pages[i] = (rmr_pdf_page){.marks = plans[i],
+                                .sheet = i == PAGES - 1 ? wide : tablet};
+    }
+    rmr_buffer native = {0}, written = {0};
+    rmr_sheet sheets[PAGES];
+    for (size_t i = 0; i < PAGES; i++) sheets[i] = pages[i].sheet;
+    OK(rmr_apple_pdf_sheets((const rmr_plan* const*)plans, sheets, PAGES,
+                            nullptr, nullptr, nullptr, &native, nullptr));
+    OK(rmr_apple_pdf_overlay(nullptr, pages, PAGES, nullptr, nullptr, nullptr,
+                             &written, nullptr, nullptr));
+    /* One form for the three pages of one sheet, one for the other. */
+    CHECK(occurrences(written, "/FormType 1 /BBox [-") == 2);
+    /* Typed text, and a label, leave the template's lines ahead of it. */
+    CHECK(leads_with(written, 2, "/RMRx"));
+    CHECK(leads_with(written, 1, "/RMRx") == (bool)labelled);
+    CHECK(!leads_with(written, 3, "/RMRx") || labelled);
+    for (size_t i = 0; i < PAGES; i++)
+      same_page(native, written, i + 1, labelled ? "labelled" : "template");
+    rmr_buffer_free(&native);
+    rmr_buffer_free(&written);
+    for (size_t i = 0; i < PAGES; i++) rmr_plan_free(plans[i]);
+    rmr_template_document_free(document);
+  }
+}
+
+/* a and b are the same file but for the dates and ID CoreGraphics stamps
+ * on it. */
+static bool same_but_stamps(rmr_buffer a, rmr_buffer b) {
+  size_t i = 0, j = 0;
+  while (i < a.size && j < b.size) {
+    bool date = i + 3 <= a.size && j + 3 <= b.size &&
+                !memcmp(a.bytes + i, "(D:", 3) &&
+                !memcmp(b.bytes + j, "(D:", 3);
+    bool id = i + 5 <= a.size && j + 5 <= b.size &&
+              !memcmp(a.bytes + i, "/ID [", 5) &&
+              !memcmp(b.bytes + j, "/ID [", 5);
+    if (date || id) {
+      char close = date ? ')' : ']';
+      while (i < a.size && a.bytes[i] != close) i++;
+      while (j < b.size && b.bytes[j] != close) j++;
+      continue;
+    }
+    if (a.bytes[i++] != b.bytes[j++]) return false;
+  }
+  return i == a.size && j == b.size;
+}
+
+/* A document of groups and shared templates comes out the same every time. */
+static void deterministic(void) {
+  rmr_template_document* document = template_model(true);
+  const rmr_template* model = rmr_template_document_model(document);
+  rmr_plan* plans[] = {grouped(0.5, RMR_BLEND_DARKEN, false),
+                       templated(model, false), templated(model, true),
+                       grouped(1, RMR_BLEND_MULTIPLY, false)};
+  enum { PAGES = sizeof plans / sizeof *plans };
+  rmr_pdf_page pages[PAGES];
+  for (size_t i = 0; i < PAGES; i++)
+    pages[i] = (rmr_pdf_page){.marks = plans[i], .sheet = tablet};
+  rmr_buffer runs[2] = {0};
+  for (size_t k = 0; k < 2; k++)
+    OK(rmr_apple_pdf_overlay(nullptr, pages, PAGES, nullptr, nullptr, nullptr,
+                             &runs[k], nullptr, nullptr));
+  CHECK(same_but_stamps(runs[0], runs[1]));
+  rmr_buffer_free(&runs[0]);
+  rmr_buffer_free(&runs[1]);
+  for (size_t i = 0; i < PAGES; i++) rmr_plan_free(plans[i]);
+  rmr_template_document_free(document);
+}
+
 int main(void) {
   numbers();
   identity(false);
   identity(true);
   erased_away();
+  groups();
+  group_boxes();
+  templates();
+  deterministic();
   puts("pdf writer ok");
   return 0;
 }
