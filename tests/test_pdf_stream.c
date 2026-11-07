@@ -460,6 +460,199 @@ static void builder(void) {
   rmr_buffer_free(&joined);
 }
 
+/* An rmr_output collecting what it is given, failing with fail_status once
+ * more than fail_after bytes would have arrived. */
+typedef struct {
+  rmr_buffer bytes;
+  size_t calls, after_failure, fail_after;
+  rmr_status fail_status;
+  bool failed;
+} collector;
+
+static rmr_status collect(void* context, const uint8_t* bytes, size_t size) {
+  collector* c = context;
+  CHECK(size > 0 && bytes);
+  if (c->failed) c->after_failure++;
+  c->calls++;
+  if (c->fail_status != RMR_OK && c->bytes.size + size > c->fail_after) {
+    c->failed = true;
+    return c->fail_status;
+  }
+  uint8_t* grown = realloc(c->bytes.bytes, c->bytes.size + size);
+  CHECK(grown);
+  memcpy(grown + c->bytes.size, bytes, size);
+  c->bytes = (rmr_buffer){grown, c->bytes.size + size};
+  return RMR_OK;
+}
+
+static rmr_output collector_output(collector* c) {
+  return (rmr_output){RMR_OUTPUT_ABI, sizeof(rmr_output), collect, c};
+}
+
+/* Appends count stream objects of size filler bytes each to b, stopping at
+ * the first failure, which it returns. */
+static rmr_status append_filler(rmr_pdf_builder* b, size_t count, size_t size) {
+  uint8_t* object = malloc(size + 64);
+  CHECK(object);
+  rmr_status s = RMR_OK;
+  for (size_t k = 0; k < count && s == RMR_OK; k++) {
+    uint32_t n = rmr_pdf_builder_reserve(b);
+    int h = snprintf((char*)object, 64, "%u 0 obj\n<< /Length %zu >>\nstream\n",
+                     n, size);
+    CHECK(h > 0);
+    memset(object + h, (int)('a' + k % 26), size);
+    memcpy(object + (size_t)h + size, "\nendstream\nendobj\n", 18);
+    size_t zero = 0;
+    s = rmr_pdf_builder_append(b, object, (size_t)h + size + 18, &n, &zero, 1,
+                               nullptr);
+  }
+  free(object);
+  return s;
+}
+
+/* The file builder() streams, of pages over pages and filler of several
+ * chunks, completed into out or, when out is null, into output. */
+static rmr_status streamed_file(const rmr_output* output, rmr_buffer* out,
+                                const rmr_limits* limits, rmr_error* error) {
+  rmr_buffer page = one_page(1);
+  rmr_pdf_builder* b = nullptr;
+  OK(rmr_pdf_builder_create(limits, nullptr, nullptr, &b));
+  if (output) rmr_pdf_builder_output(b, output);
+  enum { PAGES = 12 };
+  CHECK(rmr_pdf_builder_pages(b, PAGES));
+  for (size_t i = 0; i < PAGES; i++) {
+    uint32_t form = 0;
+    rmr_status s =
+        rmr_pdf_builder_form(b, page.bytes, page.size, &form, nullptr);
+    /* One more than a chunk, written past the buffer. */
+    if (s == RMR_OK && i % 3 == 0)
+      s = append_filler(b, 1, i == 6 ? 5 << 20 : (7 << 20) / 2);
+    if (s == RMR_OK)
+      s = rmr_pdf_builder_page(b, i, i % 2 ? page.bytes : nullptr,
+                               i % 2 ? page.size : 0, 200, 100, &form, 1,
+                               nullptr, 0, nullptr);
+    if (s != RMR_OK) break;
+  }
+  const uint8_t title[] = {'A', 0};
+  rmr_pdf_outline outline = {SIZE_MAX, title, 2, {1, {0, 0}}, true};
+  rmr_status s = rmr_pdf_builder_finish(b, &outline, 1, out, error);
+  rmr_pdf_builder_free(b);
+  rmr_buffer_free(&page);
+  return s;
+}
+
+/* Output written as it is produced: the bytes of the buffer, in order, the
+ * header in the first write; the version a base gives the file; a failing
+ * output stops the file with its status and is not called again; the output
+ * limit still holds. The incremental update and the rewrite stream alike. */
+static void streaming(void) {
+  rmr_buffer whole = {0};
+  OK(streamed_file(nullptr, &whole, nullptr, nullptr));
+  CHECK(whole.size > 3 * (4 << 20));
+  collector c = {0};
+  rmr_output o = collector_output(&c);
+  OK(streamed_file(&o, nullptr, nullptr, nullptr));
+  CHECK(c.bytes.size == whole.size &&
+        !memcmp(c.bytes.bytes, whole.bytes, whole.size));
+  CHECK(c.calls > 3 && !memcmp(c.bytes.bytes, "%PDF-1.7\n", 9));
+  rmr_buffer_free(&c.bytes);
+
+  /* Every output write failing at some point stops the file there. */
+  rmr_status failures[] = {RMR_ERR_BACKEND, RMR_ERR_UNSUPPORTED,
+                           RMR_ERR_CANCELLED};
+  size_t points[] = {0, 5 << 20, whole.size - 1};
+  for (size_t i = 0; i < 3; i++) {
+    c = (collector){.fail_after = points[i], .fail_status = failures[i]};
+    rmr_error e = {0};
+    CHECK(streamed_file(&o, nullptr, nullptr, &e) == failures[i]);
+    CHECK(c.failed && !c.after_failure && c.bytes.size <= points[i]);
+    CHECK(!strcmp(e.message, "PDF output write failed"));
+    rmr_buffer_free(&c.bytes);
+  }
+
+  /* maximum_pdf_bytes bounds the file written to an output as it bounds a
+   * buffer: exactly its size passes, a byte less fails. */
+  rmr_limits limits = rmr_limits_default();
+  limits.maximum_pdf_bytes = whole.size;
+  c = (collector){0};
+  OK(streamed_file(&o, nullptr, &limits, nullptr));
+  CHECK(c.bytes.size == whole.size);
+  rmr_buffer_free(&c.bytes);
+  limits.maximum_pdf_bytes = whole.size - 1;
+  c = (collector){0};
+  CHECK(streamed_file(&o, nullptr, &limits, nullptr) == RMR_ERR_LIMIT);
+  CHECK(c.bytes.size < whole.size);
+  rmr_buffer_free(&c.bytes);
+
+  /* A merged file takes its base's version, given before the header leaves;
+   * a base of another version after that fails. */
+  rmr_buffer base = one_page(1), merged = {0};
+  for (int pass = 0; pass < 3; pass++) {
+    rmr_pdf_builder* b = nullptr;
+    OK(rmr_pdf_builder_create(nullptr, nullptr, nullptr, &b));
+    c = (collector){0};
+    if (pass) rmr_pdf_builder_output(b, &o);
+    if (pass == 1) rmr_pdf_builder_version(b, base.bytes, base.size);
+    OK(append_filler(b, 2, 3 << 20));
+    rmr_error e = {0};
+    rmr_status s = rmr_pdf_builder_merge(b, base.bytes, base.size, nullptr, 0,
+                                         pass ? nullptr : &merged, &e);
+    rmr_pdf_builder_free(b);
+    if (pass == 0) {
+      OK(s);
+      CHECK(!memcmp(merged.bytes, "%PDF-1.4\n", 9));
+    } else if (pass == 1) {
+      OK(s);
+      CHECK(c.bytes.size == merged.size &&
+            !memcmp(c.bytes.bytes, merged.bytes, merged.size));
+    } else
+      CHECK(s == RMR_ERR_BACKEND &&
+            !strcmp(e.message, "PDF version changed after output began"));
+    rmr_buffer_free(&c.bytes);
+  }
+  rmr_buffer_free(&merged);
+
+  /* The rewrite and the incremental update write what they return. */
+  rmr_buffer rewritten = {0}, updated = {0};
+  OK(rmr_pdf_rewrite(whole.bytes, whole.size, nullptr, nullptr, nullptr,
+                     &rewritten, nullptr));
+  c = (collector){0};
+  OK(rmr_pdf_rewrite_output(whole.bytes, whole.size, nullptr, nullptr, nullptr,
+                            &o, nullptr, nullptr));
+  CHECK(c.bytes.size == rewritten.size &&
+        !memcmp(c.bytes.bytes, rewritten.bytes, rewritten.size));
+  rmr_buffer_free(&c.bytes);
+  rmr_pdf_overlay overlay = {.page = 3,
+                             .pdf = base.bytes,
+                             .size = base.size,
+                             .transform = {1, 0, 0, 1, 0, 0}};
+  for (size_t count = 0; count < 2; count++) {
+    rmr_pdf_incremental_report report = {0};
+    OK(rmr_pdf_incremental(whole.bytes, whole.size, &overlay, count, nullptr,
+                           nullptr, nullptr, &updated, nullptr, nullptr));
+    c = (collector){0};
+    OK(rmr_pdf_incremental_output(whole.bytes, whole.size, &overlay, count,
+                                  nullptr, nullptr, nullptr, &o, nullptr,
+                                  &report, nullptr));
+    CHECK(report.pages_updated == count && report.original_bytes == whole.size);
+    CHECK(c.bytes.size == updated.size &&
+          !memcmp(c.bytes.bytes, updated.bytes, updated.size));
+    CHECK(updated.size > whole.size || !count);
+    rmr_buffer_free(&c.bytes);
+    rmr_buffer_free(&updated);
+  }
+  c = (collector){.fail_after = 1 << 20, .fail_status = RMR_ERR_BACKEND};
+  rmr_error e = {0};
+  CHECK(rmr_pdf_incremental_output(whole.bytes, whole.size, &overlay, 1,
+                                   nullptr, nullptr, nullptr, &o, nullptr,
+                                   nullptr, &e) == RMR_ERR_BACKEND);
+  CHECK(!c.after_failure && !strcmp(e.message, "PDF output write failed"));
+  rmr_buffer_free(&c.bytes);
+  rmr_buffer_free(&rewritten);
+  rmr_buffer_free(&base);
+  rmr_buffer_free(&whole);
+}
+
 static void options(void) {
   /* Precision reduction is opt-in: off by default and for callers built
    * before the field existed. */
@@ -480,6 +673,7 @@ int main(void) {
   numbers();
   pipeline();
   builder();
+  streaming();
   options();
   puts("pdf stream ok");
   return 0;

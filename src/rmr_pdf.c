@@ -13,6 +13,7 @@
 #include <zlib.h>
 
 #include "rmr_internal.h"
+#include "rmr_pdf_edit.h"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -1259,7 +1260,9 @@ static void chunk_free(chunk* c) {
  * (its entries' mapped field), trailer values included. records, when set,
  * is the job holding the xref records instead of j. A chunked writer moves
  * each full megabytes of output aside instead of growing one buffer, so that
- * a long file never needs room for twice its size. */
+ * a long file never needs room for twice its size. A writer with an output
+ * hands its bytes on to it instead, a chunk's worth at a time, keeping none
+ * once they are written. */
 typedef struct {
   job* j;
   rmr_buffer data;
@@ -1271,12 +1274,30 @@ typedef struct {
   bool chunked;
   chunk *chunks, *last_chunk;
   size_t flushed;
+  const rmr_output* output;
 } writer;
 
 enum { CHUNK_BYTES = 4 << 20 };
 
 /* Offset in the output of the next byte written. */
 static size_t position(const writer* w) { return w->flushed + w->data.size; }
+
+/* Hands n bytes, which follow those buffered, to the writer's output. */
+static void emit(writer* w, const void* bytes, size_t n) {
+  if (w->j->status != RMR_OK || !n) return;
+  rmr_status s = w->output->write(w->output->context, bytes, n);
+  if (s != RMR_OK)
+    stop(w->j, s, "PDF output write failed");
+  else
+    w->flushed += n;
+}
+
+/* Hands what is buffered to the writer's output. */
+static void drain(writer* w) {
+  size_t n = w->data.size;
+  w->data.size = 0;
+  emit(w, w->data.bytes, n);
+}
 
 /* Appends bytes to the output, growing it up to maximum_pdf_bytes. */
 static void put(writer* w, const void* bytes, size_t n) {
@@ -1286,7 +1307,18 @@ static void put(writer* w, const void* bytes, size_t n) {
     return;
   }
 
-  if (w->chunked && w->data.size >= CHUNK_BYTES &&
+  /* Output goes on once a chunk's worth is buffered; as much again or more
+   * goes on at once, unbuffered. */
+  if (w->output && w->data.size + n > CHUNK_BYTES) {
+    drain(w);
+    if (n >= CHUNK_BYTES) {
+      emit(w, bytes, n);
+      return;
+    }
+    if (w->j->status != RMR_OK) return;
+  }
+
+  if (w->chunked && !w->output && w->data.size >= CHUNK_BYTES &&
       n > w->capacity - w->data.size) {
     chunk* c = chunk_new(w->data.size);
     if (!c) {
@@ -1859,18 +1891,33 @@ static void release(job* j) {
 
 rmr_status rmr_pdf_incremental(const uint8_t* source, size_t size,
                                const rmr_pdf_overlay* overlays, size_t count,
-                               const rmr_limits* given, rmr_cancel_fn cancel,
+                               const rmr_limits* limits, rmr_cancel_fn cancel,
                                void* context, rmr_buffer* out,
                                rmr_pdf_incremental_report* report,
                                rmr_error* error) {
-  if (!source || !size || !out || (count && !overlays))
+  if (!out)
+    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
+                    "missing PDF update input");
+  return rmr_pdf_incremental_output(source, size, overlays, count, limits,
+                                    cancel, context, nullptr, out, report,
+                                    error);
+}
+
+rmr_status rmr_pdf_incremental_output(const uint8_t* source, size_t size,
+                                      const rmr_pdf_overlay* overlays,
+                                      size_t count, const rmr_limits* given,
+                                      rmr_cancel_fn cancel, void* context,
+                                      const rmr_output* output, rmr_buffer* out,
+                                      rmr_pdf_incremental_report* report,
+                                      rmr_error* error) {
+  if (!source || !size || (!out && !output) || (count && !overlays))
     return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
                     "missing PDF update input");
 
   job j = {.limits = given ? *given : rmr_limits_default(),
            .cancel = cancel,
            .context = context};
-  writer w = {.j = &j};
+  writer w = {.j = &j, .output = output};
   file f;
   if (count > j.limits.maximum_draws)
     stop(&j, RMR_ERR_LIMIT, "overlay count limit");
@@ -1900,8 +1947,13 @@ rmr_status rmr_pdf_incremental(const uint8_t* source, size_t size,
     if (count && j.status == RMR_OK) finish(&w, &f);
   }
 
+  if (output) {
+    drain(&w);
+    free(w.data.bytes);
+    w.data = (rmr_buffer){0};
+  }
   if (j.status == RMR_OK) {
-    *out = w.data;
+    if (!output) *out = w.data;
     if (report) *report = (rmr_pdf_incremental_report){count, size, true};
   } else
     free(w.data.bytes);
@@ -1971,8 +2023,6 @@ rmr_status rmr_pdf_pages(const uint8_t* source, size_t size,
              : rmr_fail(error, j.status, 0,
                         j.reason ? j.reason : "PDF inspection failed");
 }
-
-#include "rmr_pdf_edit.h"
 
 /* Writes t applied to p as two PDF numbers, each followed by a space. */
 static void clip_point(writer* w, rmr_transform t, rmr_point p) {
@@ -2306,14 +2356,26 @@ static void header(writer* w, const uint8_t* source, size_t size) {
 rmr_status rmr_pdf_rewrite(const uint8_t* source, size_t size,
                            const rmr_limits* limits, rmr_cancel_fn cancel,
                            void* context, rmr_buffer* out, rmr_error* error) {
-  if (!source || !size || !out)
+  if (!out)
+    return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
+                    "missing PDF rewrite input");
+  return rmr_pdf_rewrite_output(source, size, limits, cancel, context, nullptr,
+                                out, error);
+}
+
+rmr_status rmr_pdf_rewrite_output(const uint8_t* source, size_t size,
+                                  const rmr_limits* limits,
+                                  rmr_cancel_fn cancel, void* context,
+                                  const rmr_output* output, rmr_buffer* out,
+                                  rmr_error* error) {
+  if (!source || !size || (!out && !output))
     return rmr_fail(error, RMR_ERR_INVALID_ARGUMENT, 0,
                     "missing PDF rewrite input");
 
   job j = {.limits = limits ? *limits : rmr_limits_default(),
            .cancel = cancel,
            .context = context};
-  writer w = {.j = &j};
+  writer w = {.j = &j, .output = output};
   file f;
 
   if (tick(&j) && open_file(&f, &j, source, size)) {
@@ -2344,7 +2406,10 @@ rmr_status rmr_pdf_rewrite(const uint8_t* source, size_t size,
     }
   }
 
-  if (j.status == RMR_OK)
+  if (output) {
+    drain(&w);
+    free(w.data.bytes);
+  } else if (j.status == RMR_OK)
     *out = w.data;
   else
     free(w.data.bytes);
@@ -2908,6 +2973,7 @@ struct rmr_pdf_builder {
   writer w;
   uint32_t tree, first_page, open, close;
   size_t page_count;
+  char version[3]; /* The header's, "1.7" until a base's replaces it. */
 };
 
 rmr_status rmr_pdf_builder_create(const rmr_limits* limits,
@@ -2921,6 +2987,7 @@ rmr_status rmr_pdf_builder_create(const rmr_limits* limits,
                .context = context};
   b->w = (writer){.j = &b->j, .next_number = 1, .chunked = true};
   /* rmr_pdf_builder_merge gives the file its base's version. */
+  memcpy(b->version, "1.7", 3);
   text(&b->w, "%PDF-1.7\n%\342\343\317\323\n");
   if (b->j.status != RMR_OK) {
     rmr_status s = b->j.status;
@@ -2941,6 +3008,13 @@ void rmr_pdf_builder_free(rmr_pdf_builder* b) {
   }
   release(&b->j);
   free(b);
+}
+
+void rmr_pdf_builder_output(rmr_pdf_builder* b, const rmr_output* output) {
+  if (b->w.chunks)
+    stop(&b->j, RMR_ERR_INVALID_ARGUMENT, "PDF output already collected");
+  else
+    b->w.output = output;
 }
 
 uint32_t rmr_pdf_builder_reserve(rmr_pdf_builder* b) {
@@ -2983,8 +3057,12 @@ rmr_status rmr_pdf_builder_append(rmr_pdf_builder* b, const uint8_t* bytes,
 }
 
 /* Moves the output, chunks first, into one exactly sized buffer, freeing
- * each chunk as it is copied. */
+ * each chunk as it is copied; with an output, hands it the rest instead. */
 static void assemble(writer* w, rmr_buffer* out) {
+  if (w->output) {
+    drain(w);
+    return;
+  }
   size_t size = position(w);
   uint8_t* bytes = rmr_alloc(size);
   if (!bytes) {
@@ -3111,12 +3189,27 @@ static void extend_page(rmr_pdf_builder* b, file* f, page* p,
 }
 
 /* Gives the file base's version when it has one of the same length, so that
- * recorded offsets stay valid. */
-static void version(writer* w, const uint8_t* base, size_t size) {
-  uint8_t* header = w->chunks ? w->chunks->bytes : w->data.bytes;
+ * recorded offsets stay valid. Once the header has gone to the output, the
+ * version can no longer change. */
+static void version(rmr_pdf_builder* b, const uint8_t* base, size_t size) {
+  writer* w = &b->w;
   if (size > 9 && base[5] >= '0' && base[5] <= '9' && base[6] == '.' &&
-      base[7] >= '0' && base[7] <= '9' && (base[8] == '\n' || base[8] == '\r'))
+      base[7] >= '0' && base[7] <= '9' &&
+      (base[8] == '\n' || base[8] == '\r')) {
+    if (w->output && w->flushed) {
+      if (memcmp(b->version, base + 5, 3))
+        stop(w->j, RMR_ERR_BACKEND, "PDF version changed after output began");
+      return;
+    }
+    uint8_t* header = w->chunks ? w->chunks->bytes : w->data.bytes;
     memcpy(header + 5, base + 5, 3);
+    memcpy(b->version, base + 5, 3);
+  }
+}
+
+void rmr_pdf_builder_version(rmr_pdf_builder* b, const uint8_t* base,
+                             size_t size) {
+  if (base && b->j.status == RMR_OK) version(b, base, size);
 }
 
 rmr_status rmr_pdf_builder_merge(rmr_pdf_builder* b, const uint8_t* base,
@@ -3126,11 +3219,11 @@ rmr_status rmr_pdf_builder_merge(rmr_pdf_builder* b, const uint8_t* base,
   job* j = &b->j;
   writer* w = &b->w;
   file f;
-  if (!base || !size || !out || (count && !pages))
+  if (!base || !size || (!out && !w->output) || (count && !pages))
     stop(j, RMR_ERR_INVALID_ARGUMENT, "missing PDF assembly input");
 
   if (tick(j) && open_file(&f, j, base, size)) {
-    version(w, base, size);
+    version(b, base, size);
     if (f.count > SIZE_MAX / sizeof(void*) ||
         f.page_count > SIZE_MAX / sizeof(void*))
       stop(j, RMR_ERR_LIMIT, "PDF assembly object limit");
@@ -3568,7 +3661,7 @@ rmr_status rmr_pdf_builder_finish(rmr_pdf_builder* b,
                                   rmr_error* error) {
   job* j = &b->j;
   writer* w = &b->w;
-  if (!out || !b->tree || (outline_count && !outline))
+  if ((!out && !w->output) || !b->tree || (outline_count && !outline))
     stop(j, RMR_ERR_INVALID_ARGUMENT, "missing PDF pages");
   if (outline_count >= j->limits.maximum_elements)
     stop(j, RMR_ERR_LIMIT, "navigation limit");
