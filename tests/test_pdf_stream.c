@@ -28,6 +28,16 @@ static double uniform(double low, double high) {
   return low + (high - low) * (double)(next() >> 11) / 9007199254740992.0;
 }
 
+/* The first n bytes of needle in the size bytes of haystack, or null; memmem,
+ * which Windows lacks. */
+static const char* search(const void* haystack, size_t size, const char* needle,
+                          size_t n) {
+  const char* h = haystack;
+  for (size_t i = 0; n <= size && i <= size - n; i++)
+    if (!memcmp(h + i, needle, n)) return h + i;
+  return nullptr;
+}
+
 static size_t format_c(char* out, size_t size, const char* f, ...) {
   va_list a;
   va_start(a, f);
@@ -249,12 +259,12 @@ static void pipeline(void) {
     unsigned number = 0;
     CHECK(sscanf(at, "%u 0 obj", &number) == 1 && number == expected++);
     /* The dictionary ends before any stream data, which can hold NULs. */
-    const char* stream = memmem(at, (size_t)(end - at), ">>\nstream\n", 10);
-    const char* next_object = memmem(at, (size_t)(end - at), "\nendobj\n", 8);
+    const char* stream = search(at, (size_t)(end - at), ">>\nstream\n", 10);
+    const char* next_object = search(at, (size_t)(end - at), "\nendobj\n", 8);
     CHECK(next_object);
     if (stream && stream < next_object) {
       stream += 3;
-      const char* length = memmem(at, (size_t)(stream - at), "/Length ", 8);
+      const char* length = search(at, (size_t)(stream - at), "/Length ", 8);
       CHECK(length);
       size_t size = (size_t)strtoull(length + 8, nullptr, 10);
       uLongf decoded = 60000;
@@ -386,9 +396,9 @@ static void builder(void) {
   OK(rmr_pdf_rewrite(out.bytes, out.size, nullptr, nullptr, nullptr, &rewritten,
                      nullptr));
   rmr_buffer_free(&rewritten);
-  CHECK(memmem(out.bytes, out.size, "/Outlines", 9));
-  CHECK(memmem(out.bytes, out.size, "/Subtype /Link", 14));
-  CHECK(!memmem(out.bytes, out.size, "/Group", 6));
+  CHECK(search(out.bytes, out.size, "/Outlines", 9));
+  CHECK(search(out.bytes, out.size, "/Subtype /Link", 14));
+  CHECK(!search(out.bytes, out.size, "/Group", 6));
   rmr_buffer_free(&out);
 
   /* Output of many chunks comes back whole and exactly sized. */

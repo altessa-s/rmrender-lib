@@ -3023,11 +3023,11 @@ static void resources_with(writer* w, file* f, node* resources,
   text(w, "<<\n");
   for (node* k = resources ? resources->child : nullptr; k && tick(w->j);
        k = k->next->next) {
-    size_t kind = 0;
-    while (kind < 3 && !named(k, kinds[kind])) kind++;
+    size_t slot = 0;
+    while (slot < 3 && !named(k, kinds[slot])) slot++;
     value(w, nullptr, k, 0);
     text(w, " ");
-    if (kind == 3 || !counts[kind]) {
+    if (slot == 3 || !counts[slot]) {
       value(w, f, k->next, 0);
       text(w, "\n");
       continue;
@@ -3040,25 +3040,25 @@ static void resources_with(writer* w, file* f, node* resources,
     }
     text(w, "<<\n");
     fields(w, f, existing, nullptr, 0);
-    for (size_t i = 0; i < counts[kind] && tick(w->j); i++) {
+    for (size_t i = 0; i < counts[slot] && tick(w->j); i++) {
       char name[24];
-      snprintf(name, sizeof name, "RMR%c%u", prefixes[kind], lists[kind][i]);
+      snprintf(name, sizeof name, "RMR%c%u", prefixes[slot], lists[slot][i]);
       if (get(existing, name)) {
         stop(w->j, RMR_ERR_INVALID_ARGUMENT, "PDF resource name in use");
         return;
       }
-      format(w, "/%s %u 0 R\n", name, lists[kind][i]);
+      format(w, "/%s %u 0 R\n", name, lists[slot][i]);
     }
     text(w, ">>\n");
-    written[kind] = true;
+    written[slot] = true;
   }
 
-  for (size_t kind = 0; kind < 3; kind++) {
-    if (written[kind] || !counts[kind]) continue;
-    format(w, "/%s <<\n", kinds[kind]);
-    for (size_t i = 0; i < counts[kind] && tick(w->j); i++)
-      format(w, "/RMR%c%u %u 0 R\n", prefixes[kind], lists[kind][i],
-             lists[kind][i]);
+  for (size_t slot = 0; slot < 3; slot++) {
+    if (written[slot] || !counts[slot]) continue;
+    format(w, "/%s <<\n", kinds[slot]);
+    for (size_t i = 0; i < counts[slot] && tick(w->j); i++)
+      format(w, "/RMR%c%u %u 0 R\n", prefixes[slot], lists[slot][i],
+             lists[slot][i]);
     text(w, ">>\n");
   }
   text(w, ">>");
