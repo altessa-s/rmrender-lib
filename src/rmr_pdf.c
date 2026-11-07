@@ -14,6 +14,7 @@
 
 #include "rmr_internal.h"
 #include "rmr_pdf_edit.h"
+#include "rmr_sha256.h"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -1314,50 +1315,12 @@ static void chunk_free(chunk* c) {
 #endif
 }
 
-/* A 128-bit content digest, the lanes rmr_pdf_hash mixes for fresh mode's
- * mask dedupe, taken incrementally over 64-bit little-endian words. */
-typedef struct {
-  uint64_t a, b;
-} digest;
-
-typedef struct {
-  digest d;
-  uint64_t word;
-  size_t total;
-} digester;
-
-/* MurmurHash3's 64-bit finalizer. */
-static uint64_t mix(uint64_t x) {
-  x ^= x >> 33;
-  x *= 0xff51afd7ed558ccdu;
-  x ^= x >> 33;
-  x *= 0xc4ceb9fe1a85ec53u;
-  x ^= x >> 33;
-  return x;
-}
-
-static void mix_word(digest* d, uint64_t w) {
-  d->a = mix(d->a ^ w) + 0x9e3779b97f4a7c15u;
-  d->b = mix(d->b + w * 0xbf58476d1ce4e5b9u) ^ (d->b >> 17);
-}
+typedef rmr_sha256 digester;
+typedef rmr_sha256_digest digest;
 
 /* Adds n bytes to the digest. */
 static void absorb(digester* h, const void* bytes, size_t n) {
-  const uint8_t* p = bytes;
-  size_t i = 0;
-  for (; i < n && h->total % 8; i++, h->total++)
-    h->word |= (uint64_t)p[i] << (8 * (h->total % 8));
-  if (i && h->total % 8 == 0) {
-    mix_word(&h->d, h->word);
-    h->word = 0;
-  }
-  for (; i + 8 <= n; i += 8, h->total += 8) {
-    uint64_t w = 0;
-    for (unsigned k = 0; k < 8; k++) w |= (uint64_t)p[i + k] << (8 * k);
-    mix_word(&h->d, w);
-  }
-  for (; i < n; i++, h->total++)
-    h->word |= (uint64_t)p[i] << (8 * (h->total % 8));
+  rmr_sha256_update(h, bytes, n);
 }
 
 /* Adds v as eight bytes. */
@@ -1367,19 +1330,20 @@ static void absorb_size(digester* h, uint64_t v) {
   absorb(h, b, sizeof b);
 }
 
-static digest digested(const digester* h) {
-  digest d = h->d;
-  d.a = mix(d.a ^ h->word ^ 0x94d049bb133111ebu ^ (uint64_t)h->total);
-  d.b = mix(d.b + h->word * 0x2545f4914f6cdd1du + (uint64_t)h->total);
-  return d;
+/* The first eight bytes of d, where a table of digests starts looking. */
+static size_t digest_slot(const digest* d) {
+  uint64_t v = 0;
+  for (unsigned k = 0; k < 8; k++) v |= (uint64_t)d->bytes[k] << (8 * k);
+  return (size_t)v;
 }
 
 /* Objects an update has imported, by digest: an object imported again,
  * identical down to the objects it refers to, is referred to rather than
- * written again. Only digests and object numbers are kept, in an open
- * addressing table charged to j's scratch budget (12 MiB at most); past
- * MAXIMUM_SHARED entries, or once the budget leaves no room to grow, objects
- * are no longer recorded, those recorded still shared. */
+ * written again. Only SHA-256 digests and object numbers are kept, in an
+ * open addressing table charged to j's scratch budget: 18 MiB at most, and no
+ * more than a quarter of the budget, so that the update's own records keep
+ * the rest. Past MAXIMUM_SHARED entries, or once the table may not grow,
+ * objects are no longer recorded, those recorded still shared. */
 typedef struct {
   digest d;
   uint32_t number;
@@ -1396,9 +1360,9 @@ enum { MAXIMUM_SHARED = 1 << 18 };
 /* The number of the object recorded under d; 0 when there is none. */
 static uint32_t ledger_find(const ledger* l, digest d) {
   if (!l->capacity) return 0;
-  for (size_t at = d.a & (l->capacity - 1); l->slots[at].number;
+  for (size_t at = digest_slot(&d) & (l->capacity - 1); l->slots[at].number;
        at = (at + 1) & (l->capacity - 1))
-    if (l->slots[at].d.a == d.a && l->slots[at].d.b == d.b)
+    if (!memcmp(l->slots[at].d.bytes, d.bytes, sizeof d.bytes))
       return l->slots[at].number;
   return 0;
 }
@@ -1411,7 +1375,9 @@ static void ledger_add(ledger* l, digest d, uint32_t number) {
     size_t capacity = l->capacity ? l->capacity * 2 : 1024,
            bytes = capacity * sizeof *l->slots,
            held = l->capacity * sizeof *l->slots;
-    if (bytes - held > j->limits.maximum_plan_bytes - j->allocated) return;
+    if (bytes > j->limits.maximum_plan_bytes / 4 ||
+        bytes - held > j->limits.maximum_plan_bytes - j->allocated)
+      return;
     shared_object* grown = rmr_calloc(capacity, sizeof *grown);
     if (!grown) {
       stop(j, RMR_ERR_OUT_OF_MEMORY, "PDF allocation failed");
@@ -1419,7 +1385,7 @@ static void ledger_add(ledger* l, digest d, uint32_t number) {
     }
     for (size_t i = 0; i < l->capacity; i++)
       if (l->slots[i].number) {
-        size_t at = l->slots[i].d.a & (capacity - 1);
+        size_t at = digest_slot(&l->slots[i].d) & (capacity - 1);
         while (grown[at].number) at = (at + 1) & (capacity - 1);
         grown[at] = l->slots[i];
       }
@@ -1428,7 +1394,7 @@ static void ledger_add(ledger* l, digest d, uint32_t number) {
     l->slots = grown;
     l->capacity = capacity;
   }
-  size_t at = d.a & (l->capacity - 1);
+  size_t at = digest_slot(&d) & (l->capacity - 1);
   while (l->slots[at].number) at = (at + 1) & (l->capacity - 1);
   l->slots[at] = (shared_object){d, number};
   l->count++;
@@ -3542,8 +3508,7 @@ static bool canonical(file* f, const sharing* s, digester* h, node* n,
     if (!e || e->generation != n->generation ||
         !(s->marks[e - f->entries] & SHARE_ABLE))
       return false;
-    absorb_size(h, s->sums[e - f->entries].a);
-    absorb_size(h, s->sums[e - f->entries].b);
+    absorb(h, s->sums[e - f->entries].bytes, sizeof(digest));
     return true;
   }
   if (n->type == NAME) {
@@ -3600,7 +3565,8 @@ static bool distinct(node* n) {
 /* The digest of imported object e: its canonical form, then its stream's
  * bytes as stored. False, the job still fine, when e cannot be shared. */
 static bool object_digest(file* f, const sharing* s, entry* e, digest* out) {
-  digester h = {0};
+  digester h;
+  rmr_sha256_init(&h);
   absorb(&h, e->stream ? "S" : "O", 1);
   if (!canonical(f, s, &h, e->object, 0)) return false;
   if (e->stream) {
@@ -3608,7 +3574,7 @@ static bool object_digest(file* f, const sharing* s, entry* e, digest* out) {
     absorb_size(&h, e->stream_size);
     absorb(&h, e->stream, e->stream_size);
   }
-  *out = digested(&h);
+  *out = rmr_sha256_final(&h);
   return true;
 }
 

@@ -445,19 +445,25 @@ static rmr_status erased_path(const rmr_draw* d, CGPathRef* out) {
   return RMR_ERR_UNSUPPORTED;
 }
 
+/* The first eight bytes of a digest, where the image table starts looking. */
+static size_t slot(const rmr_pdf_digest* d) {
+  uint64_t v = 0;
+  for (unsigned k = 0; k < 8; k++) v |= (uint64_t)d->bytes[k] << (8 * k);
+  return (size_t)v;
+}
+
 /* The entry for the mask's bytes, added with its dimensions when they were
  * not seen before (*found false); null on allocation failure. */
 static image_entry* image_lookup(catalog* c, const rmr_mask_view* m,
                                  bool* found) {
-  rmr_pdf_digest digest =
-      rmr_pdf_hash(m->bytes, m->stride * m->height, 0x5245414c4d41534bu);
+  rmr_pdf_digest digest = rmr_pdf_hash(m->bytes, m->stride * m->height);
   if (c->image_count + 1 > c->image_capacity / 4 * 3) {
     size_t capacity = c->image_capacity ? c->image_capacity * 2 : 256;
     image_entry* grown = calloc(capacity, sizeof *grown);
     if (!grown) return nullptr;
     for (size_t i = 0; i < c->image_capacity; i++)
       if (c->images[i].width) {
-        size_t at = c->images[i].digest.a & (capacity - 1);
+        size_t at = slot(&c->images[i].digest) & (capacity - 1);
         while (grown[at].width) at = (at + 1) & (capacity - 1);
         grown[at] = c->images[i];
       }
@@ -466,10 +472,10 @@ static image_entry* image_lookup(catalog* c, const rmr_mask_view* m,
     c->image_capacity = capacity;
   }
 
-  size_t at = digest.a & (c->image_capacity - 1);
+  size_t at = slot(&digest) & (c->image_capacity - 1);
   for (; c->images[at].width; at = (at + 1) & (c->image_capacity - 1))
-    if (c->images[at].digest.a == digest.a &&
-        c->images[at].digest.b == digest.b) {
+    if (!memcmp(c->images[at].digest.bytes, digest.bytes,
+                sizeof digest.bytes)) {
       *found = true;
       return &c->images[at];
     }
