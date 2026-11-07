@@ -31,7 +31,12 @@ RMR_API rmr_status rmr_pdf_rewrite_output(const uint8_t* source, size_t size,
  * file as a whole stays within maximum_pdf_bytes, the overlaid pages within
  * maximum_draws. With output set (checked by the caller) the file goes there
  * as it is written: the source first for an update, every source object
- * other than the pages first for a rewrite. */
+ * other than the pages first for a rewrite. An object a page's overlays
+ * import identical, down to the objects it refers to, to one an earlier
+ * page's imported (a grain mask, a color profile) refers to that one instead
+ * of being written again; pages, their content and forms, annotations,
+ * optional content and objects in reference cycles are always each page's
+ * own. */
 typedef struct rmr_pdf_update rmr_pdf_update;
 
 RMR_API rmr_status rmr_pdf_update_create(const uint8_t* source, size_t size,

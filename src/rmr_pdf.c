@@ -1314,13 +1314,134 @@ static void chunk_free(chunk* c) {
 #endif
 }
 
+/* A 128-bit content digest, the lanes rmr_pdf_hash mixes for fresh mode's
+ * mask dedupe, taken incrementally over 64-bit little-endian words. */
+typedef struct {
+  uint64_t a, b;
+} digest;
+
+typedef struct {
+  digest d;
+  uint64_t word;
+  size_t total;
+} digester;
+
+/* MurmurHash3's 64-bit finalizer. */
+static uint64_t mix(uint64_t x) {
+  x ^= x >> 33;
+  x *= 0xff51afd7ed558ccdu;
+  x ^= x >> 33;
+  x *= 0xc4ceb9fe1a85ec53u;
+  x ^= x >> 33;
+  return x;
+}
+
+static void mix_word(digest* d, uint64_t w) {
+  d->a = mix(d->a ^ w) + 0x9e3779b97f4a7c15u;
+  d->b = mix(d->b + w * 0xbf58476d1ce4e5b9u) ^ (d->b >> 17);
+}
+
+/* Adds n bytes to the digest. */
+static void absorb(digester* h, const void* bytes, size_t n) {
+  const uint8_t* p = bytes;
+  size_t i = 0;
+  for (; i < n && h->total % 8; i++, h->total++)
+    h->word |= (uint64_t)p[i] << (8 * (h->total % 8));
+  if (i && h->total % 8 == 0) {
+    mix_word(&h->d, h->word);
+    h->word = 0;
+  }
+  for (; i + 8 <= n; i += 8, h->total += 8) {
+    uint64_t w = 0;
+    for (unsigned k = 0; k < 8; k++) w |= (uint64_t)p[i + k] << (8 * k);
+    mix_word(&h->d, w);
+  }
+  for (; i < n; i++, h->total++)
+    h->word |= (uint64_t)p[i] << (8 * (h->total % 8));
+}
+
+/* Adds v as eight bytes. */
+static void absorb_size(digester* h, uint64_t v) {
+  uint8_t b[8];
+  for (unsigned k = 0; k < 8; k++) b[k] = (uint8_t)(v >> (8 * k));
+  absorb(h, b, sizeof b);
+}
+
+static digest digested(const digester* h) {
+  digest d = h->d;
+  d.a = mix(d.a ^ h->word ^ 0x94d049bb133111ebu ^ (uint64_t)h->total);
+  d.b = mix(d.b + h->word * 0x2545f4914f6cdd1du + (uint64_t)h->total);
+  return d;
+}
+
+/* Objects an update has imported, by digest: an object imported again,
+ * identical down to the objects it refers to, is referred to rather than
+ * written again. Only digests and object numbers are kept, in an open
+ * addressing table charged to j's scratch budget (12 MiB at most); past
+ * MAXIMUM_SHARED entries, or once the budget leaves no room to grow, objects
+ * are no longer recorded, those recorded still shared. */
+typedef struct {
+  digest d;
+  uint32_t number;
+} shared_object;
+
+typedef struct ledger {
+  job* j;
+  shared_object* slots;
+  size_t capacity, count;
+} ledger;
+
+enum { MAXIMUM_SHARED = 1 << 18 };
+
+/* The number of the object recorded under d; 0 when there is none. */
+static uint32_t ledger_find(const ledger* l, digest d) {
+  if (!l->capacity) return 0;
+  for (size_t at = d.a & (l->capacity - 1); l->slots[at].number;
+       at = (at + 1) & (l->capacity - 1))
+    if (l->slots[at].d.a == d.a && l->slots[at].d.b == d.b)
+      return l->slots[at].number;
+  return 0;
+}
+
+/* Records object number under d, unless the ledger is full. */
+static void ledger_add(ledger* l, digest d, uint32_t number) {
+  job* j = l->j;
+  if (l->count >= MAXIMUM_SHARED || ledger_find(l, d)) return;
+  if (l->count + 1 > l->capacity / 2) {
+    size_t capacity = l->capacity ? l->capacity * 2 : 1024,
+           bytes = capacity * sizeof *l->slots,
+           held = l->capacity * sizeof *l->slots;
+    if (bytes - held > j->limits.maximum_plan_bytes - j->allocated) return;
+    shared_object* grown = rmr_calloc(capacity, sizeof *grown);
+    if (!grown) {
+      stop(j, RMR_ERR_OUT_OF_MEMORY, "PDF allocation failed");
+      return;
+    }
+    for (size_t i = 0; i < l->capacity; i++)
+      if (l->slots[i].number) {
+        size_t at = l->slots[i].d.a & (capacity - 1);
+        while (grown[at].number) at = (at + 1) & (capacity - 1);
+        grown[at] = l->slots[i];
+      }
+    free(l->slots);
+    j->allocated = j->allocated - held + bytes;
+    l->slots = grown;
+    l->capacity = capacity;
+  }
+  size_t at = d.a & (l->capacity - 1);
+  while (l->slots[at].number) at = (at + 1) & (l->capacity - 1);
+  l->slots[at] = (shared_object){d, number};
+  l->count++;
+}
+
 /* renumber, when set, is the file whose objects are written under new numbers
  * (its entries' mapped field), trailer values included. records, when set,
  * is the job holding the xref records instead of j. A chunked writer moves
  * each full megabytes of output aside instead of growing one buffer, so that
  * a long file never needs room for twice its size. A writer with an output
  * hands its bytes on to it instead, a chunk's worth at a time, keeping none
- * once they are written. */
+ * once they are written. shared, when set, is the ledger of imported objects
+ * that imports refer to instead of writing them again. */
 typedef struct {
   job* j;
   rmr_buffer data;
@@ -1333,6 +1454,7 @@ typedef struct {
   chunk *chunks, *last_chunk;
   size_t flushed;
   const rmr_output* output;
+  ledger* shared;
 } writer;
 
 enum { CHUNK_BYTES = 4 << 20 };
@@ -3355,12 +3477,200 @@ static bool reach(writer* w, file* f, node* n, entry** stack, size_t* top) {
   return true;
 }
 
+/* Marks share() leaves on an import's objects. */
+enum { SHARE_OPEN = 1, SHARE_DONE = 2, SHARE_ABLE = 4, SHARE_OWN = 8 };
+
+/* share()'s marks and digests, by entry index of the imported file. */
+typedef struct {
+  uint8_t* marks;
+  digest* sums;
+} sharing;
+
+/* Pushes on todo, grown as needed, each object n refers to that share() has
+ * not yet opened. */
+static bool push_refs(file* f, node* n, const uint8_t* marks, entry*** todo,
+                      size_t* top, size_t* room) {
+  if (!n || !tick(f->j)) return f->j->status == RMR_OK;
+  if (n->type == REF) {
+    entry* e = lookup(f, n->number);
+    if (!e || !e->live || absent(e) || e->generation != n->generation ||
+        marks[e - f->entries] & (SHARE_OPEN | SHARE_DONE))
+      return true;
+    if (*top == *room) {
+      size_t grown = *room ? *room * 2 : 256;
+      entry** more = take(f->j, grown * sizeof *more);
+      if (!more) return false;
+      if (*top) memcpy(more, *todo, *top * sizeof *more);
+      *todo = more;
+      *room = grown;
+    }
+    (*todo)[(*top)++] = e;
+    return true;
+  }
+  if (n->type == ARRAY || n->type == DICT)
+    for (node* c = n->child; c; c = c->next)
+      if (!push_refs(f, c, marks, todo, top, room)) return false;
+  return true;
+}
+
+/* Adds name token n, its #xx escapes decoded, to h. */
+static void absorb_name(digester* h, const node* n) {
+  size_t length = 0;
+  for (size_t i = 1; i < n->length; i++, length++)
+    if (n->raw[i] == '#') i += 2;
+  absorb_size(h, length);
+  for (size_t i = 1; i < n->length; i++) {
+    uint8_t c = n->raw[i];
+    if (c == '#') {
+      c = (uint8_t)(hex(n->raw[i + 1]) * 16 + hex(n->raw[i + 2]));
+      i += 2;
+    }
+    absorb(h, &c, 1);
+  }
+}
+
+/* Adds n's canonical form to h: its kind, a dictionary's keys decoded and in
+ * order, a reference as the digest of the object referred to. False, the job
+ * still fine, when n refers to an object that cannot be shared. */
+static bool canonical(file* f, const sharing* s, digester* h, node* n,
+                      unsigned depth) {
+  if (!tick(f->j) || depth >= 64) return false;
+  uint8_t tag = (uint8_t)n->type;
+  absorb(h, &tag, 1);
+  if (n->type == REF) {
+    entry* e = lookup(f, n->number);
+    if (!e || e->generation != n->generation ||
+        !(s->marks[e - f->entries] & SHARE_ABLE))
+      return false;
+    absorb_size(h, s->sums[e - f->entries].a);
+    absorb_size(h, s->sums[e - f->entries].b);
+    return true;
+  }
+  if (n->type == NAME) {
+    absorb_name(h, n);
+    return true;
+  }
+  if (n->type == SCALAR) {
+    absorb_size(h, n->length);
+    absorb(h, n->raw, n->length);
+    return true;
+  }
+
+  size_t count = 0;
+  for (node* c = n->child; c; c = c->next) count++;
+  absorb_size(h, count);
+  if (n->type == ARRAY) {
+    for (node* c = n->child; c; c = c->next)
+      if (!canonical(f, s, h, c, depth + 1)) return false;
+    return true;
+  }
+
+  node *few[16], **keys = few;
+  count /= 2;
+  if (count > 16) {
+    /* Sorting costs work as unique_keys() charges it. */
+    size_t bits = 0;
+    for (size_t k = count; k; k >>= 1) bits++;
+    if (!charge(f->j, count * bits) ||
+        !(keys = take(f->j, count * sizeof *keys)))
+      return false;
+  }
+  size_t at = 0;
+  for (node* k = n->child; k; k = k->next->next) keys[at++] = k;
+  qsort(keys, count, sizeof *keys, key_order);
+  for (size_t i = 0; i < count; i++) {
+    absorb_name(h, keys[i]);
+    if (!canonical(f, s, h, keys[i]->next, depth + 1)) return false;
+  }
+  return true;
+}
+
+/* Objects whose identity matters, never shared: the document's structure,
+ * its pages, annotations and optional content. */
+static bool distinct(node* n) {
+  static const char* const kinds[] = {
+      "Catalog", "Pages", "Page",           "Annot",      "OCG",
+      "OCMD",    "Sig",   "StructTreeRoot", "StructElem", "Outlines"};
+  node* type = get(n, "Type");
+  for (size_t i = 0; i < sizeof kinds / sizeof *kinds; i++)
+    if (named(type, kinds[i])) return true;
+  return get(n, "Subtype") && get(n, "Rect"); /* An annotation untyped. */
+}
+
+/* The digest of imported object e: its canonical form, then its stream's
+ * bytes as stored. False, the job still fine, when e cannot be shared. */
+static bool object_digest(file* f, const sharing* s, entry* e, digest* out) {
+  digester h = {0};
+  absorb(&h, e->stream ? "S" : "O", 1);
+  if (!canonical(f, s, &h, e->object, 0)) return false;
+  if (e->stream) {
+    if (!charge(f->j, e->stream_size / 4096)) return false;
+    absorb_size(&h, e->stream_size);
+    absorb(&h, e->stream, e->stream_size);
+  }
+  *out = digested(&h);
+  return true;
+}
+
+/* Ahead of an import into a writer keeping a ledger: digests every object the
+ * roots reach, those it refers to first, and gives each the ledger has seen
+ * the number recorded there, so that the import refers to it instead of
+ * writing it again, nor what only it refers to. An object is shared when it
+ * is neither a page's content nor of distinct identity, takes no part in a
+ * reference cycle, and refers only to objects themselves shared. */
+static bool share(writer* w, file* f, node* const* roots, size_t count,
+                  sharing* s) {
+  job* j = f->j;
+  s->marks = take(j, f->count);
+  s->sums = take(j, f->count * sizeof *s->sums);
+  if (!s->marks || !s->sums) return false;
+  for (page* p = f->pages; p; p = p->next) {
+    node* c = get(p->object->object, "Contents");
+    entry* e = c && c->type == REF ? lookup(f, c->number) : nullptr;
+    if (e) s->marks[e - f->entries] |= SHARE_OWN;
+    if (e && e->object) c = e->object;
+    for (node* k = c && c->type == ARRAY ? c->child : nullptr; k; k = k->next)
+      if (k->type == REF && (e = lookup(f, k->number)))
+        s->marks[e - f->entries] |= SHARE_OWN;
+  }
+
+  entry** todo = nullptr;
+  size_t top = 0, room = 0;
+  for (size_t i = 0; i < count; i++)
+    if (!push_refs(f, roots[i], s->marks, &todo, &top, &room)) return false;
+  while (top && j->status == RMR_OK) {
+    entry* e = todo[top - 1];
+    size_t at = (size_t)(e - f->entries);
+    if (!(s->marks[at] & (SHARE_OPEN | SHARE_DONE))) {
+      s->marks[at] |= SHARE_OPEN;
+      node* n = object(f, e, 0);
+      if (!n || !push_refs(f, n, s->marks, &todo, &top, &room)) return false;
+      continue;
+    }
+    top--;
+    if (s->marks[at] & SHARE_DONE) continue;
+    /* Every object e refers to is done, or open: a cycle through e. */
+    s->marks[at] = (uint8_t)((s->marks[at] & ~SHARE_OPEN) | SHARE_DONE);
+    if (s->marks[at] & SHARE_OWN || distinct(e->object) ||
+        !object_digest(f, s, e, &s->sums[at]))
+      continue;
+    s->marks[at] |= SHARE_ABLE;
+    uint32_t number = ledger_find(w->shared, s->sums[at]);
+    if (number) e->mapped = number;
+  }
+  return j->status == RMR_OK;
+}
+
 /* Numbers and writes the objects the roots refer to and those they refer to
  * in turn: what a form or page imported from f draws with, without the
  * file's catalog, page tree or document information. Objects numbered
- * before the call (the page, its tree) are referred to, not written. */
+ * before the call (the page, its tree) are referred to, not written; with a
+ * ledger, so are those an earlier import wrote, and the objects written are
+ * recorded in it. */
 static bool import_reachable(writer* w, file* f, node* const* roots,
                              size_t count) {
+  sharing s = {0};
+  if (w->shared && !share(w, f, roots, count, &s)) return false;
   entry** stack = take(f->j, (f->count + 1) * sizeof *stack);
   if (!stack) return false;
   size_t top = 0, written = 0;
@@ -3386,6 +3696,11 @@ static bool import_reachable(writer* w, file* f, node* const* roots,
       text(w, "\nendstream");
     }
     end(w);
+  }
+  for (size_t i = 0; s.marks && i < written && w->j->status == RMR_OK; i++) {
+    size_t at = (size_t)(order[i] - f->entries);
+    if (s.marks[at] & SHARE_ABLE)
+      ledger_add(w->shared, s.sums[at], order[i]->mapped);
   }
   return w->j->status == RMR_OK && f->j->status == RMR_OK;
 }
@@ -3698,7 +4013,10 @@ rmr_status rmr_pdf_builder_finish(rmr_pdf_builder* b,
  * which also keeps the xref rows; each page's overlays are parsed and
  * imported under a job of their own, released once they are written, so that
  * neither memory nor work grows with the number of pages, and a page costs no
- * more than its own overlays do. */
+ * more than its own overlays do. An object an overlay imports identical to
+ * one an earlier page's did (a grain mask, a color profile) is referred to
+ * instead of written again; only a ledger of digests and object numbers,
+ * bounded, outlives the page. */
 struct rmr_pdf_update {
   job j;
   writer w;
@@ -3709,6 +4027,7 @@ struct rmr_pdf_update {
   uint32_t open, close;
   size_t updated, original;
   bool fresh, started;
+  ledger shared; /* objects the pages' overlays imported */
 };
 
 /* The update's failure as an rmr_status, filling error. */
@@ -3729,6 +4048,7 @@ void rmr_pdf_update_free(rmr_pdf_update* u) {
     chunk_free(c);
     c = next;
   }
+  free(u->shared.slots);
   release(&u->j);
   free(u);
 }
@@ -3762,7 +4082,9 @@ rmr_status rmr_pdf_update_create(const uint8_t* source, size_t size, bool fresh,
                .cancel = cancel,
                .context = context};
   /* Without an output the file is collected in chunks, assembled once. */
-  u->w = (writer){.j = &u->j, .output = output, .chunked = !output};
+  u->shared.j = &u->j;
+  u->w = (writer){
+      .j = &u->j, .output = output, .chunked = !output, .shared = &u->shared};
   u->fresh = fresh;
   u->original = size;
   job* j = &u->j;

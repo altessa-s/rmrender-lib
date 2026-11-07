@@ -378,14 +378,18 @@ static rmr_buffer blank_source(size_t count) {
   return (rmr_buffer){(uint8_t*)bytes, n};
 }
 
-/* Ink of distinct grain masks, a page's worth of overlay. */
-static rmr_plan* grain_marks(void) {
+/* Ink of distinct grain masks, a page's worth of overlay, no mask the same as
+ * another page's (identical masks are written once for all pages). */
+static rmr_plan* grain_marks(size_t page) {
   enum { MASKS = 300 };
   static uint8_t bits[MASKS][32];
   static rmr_element paths[MASKS][5];
   rmr_draw draws[MASKS];
   for (size_t i = 0; i < MASKS; i++) {
     for (size_t k = 0; k < 32; k++) bits[i][k] = (uint8_t)(i * 31 + k * 7);
+    bits[i][0] = (uint8_t)i;
+    bits[i][1] = (uint8_t)(i >> 8);
+    bits[i][2] = (uint8_t)page;
     double x = -90 + (double)(i % 30) * 6, y = 10 + (double)(i / 30) * 18;
     rmr_element* e = paths[i];
     e[0] = (rmr_element){.kind = RMR_MOVE, .end = {x, y}};
@@ -412,10 +416,11 @@ static void streamed_overlays(void) {
   rmr_apple_pdf_source* src = nullptr;
   assert(rmr_apple_pdf_source_create(pdf.bytes, pdf.size, nullptr, &src,
                                      nullptr) == RMR_OK);
-  rmr_plan* marks = grain_marks();
+  rmr_plan* marks[PAGES];
   rmr_pdf_page pages[PAGES];
+  for (size_t i = 0; i < PAGES; i++) marks[i] = grain_marks(i);
   for (size_t i = 0; i < PAGES; i++)
-    pages[i] = (rmr_pdf_page){.marks = marks,
+    pages[i] = (rmr_pdf_page){.marks = marks[i],
                               .sheet = {200, 200, {1, 0, 0, -1, 100, 200}},
                               .source_rect = {-100, 0, 200, 200},
                               .source_page = i,
@@ -444,7 +449,7 @@ static void streamed_overlays(void) {
     rmr_buffer_free(&all);
   }
 
-  rmr_plan_free(marks);
+  for (size_t i = 0; i < PAGES; i++) rmr_plan_free(marks[i]);
   rmr_apple_pdf_source_free(src);
   rmr_buffer_free(&pdf);
 }

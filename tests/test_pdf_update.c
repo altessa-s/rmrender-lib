@@ -600,13 +600,13 @@ static void long_document_check(void) {
          count == PAGES);
 
   /* Streamed, the same file leaves in pieces while pages are still being
-   * given their overlays. */
+   * given their overlays (fewer of them for the masks every page shares). */
   collected sink = {0};
   rmr_output output = {RMR_OUTPUT_ABI, sizeof output, collect_output, &sink};
   size_t before = 0;
   assert(update_all(&base, &overlay, PAGES, false, nullptr, &output, nullptr,
                     &before, &sink) == RMR_OK);
-  assert(sink.calls > 2 && before > base.n && before < updated.size);
+  assert(sink.calls >= 2 && before > base.n && before < updated.size);
   assert(sink.bytes.n == updated.size &&
          !memcmp(sink.bytes.bytes, updated.bytes, updated.size));
   grow_free(&sink.bytes);
@@ -729,10 +729,164 @@ static void page_budget_check(void) {
   grow_free(&base);
 }
 
+/* A one-page overlay drawing a one-bit mask of byte `mask`, width wide, in a
+ * gray ICC color space, the way a page of grain-textured ink brings its
+ * masks and profile. With cycle, its graphics state takes part in a
+ * reference cycle; with optional, a second image is optional content. */
+static generated textured_overlay(char mask, unsigned width, bool cycle,
+                                  bool optional) {
+  generated g = {0};
+  size_t next = 5, image = next++, space = next++, profile = next++;
+  size_t state = cycle ? next++ : 0, back = cycle ? next++ : 0;
+  size_t layered = optional ? next++ : 0, group = optional ? next++ : 0;
+  grow_add(&g, "%%PDF-1.7\n");
+  grow_object(&g);
+  grow_add(&g, "<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  grow_object(&g);
+  grow_add(&g, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+  grow_object(&g);
+  grow_add(&g,
+           "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 "
+           "0 R /Resources << /XObject << /I0 %zu 0 R",
+           image);
+  if (optional) grow_add(&g, " /I1 %zu 0 R", layered);
+  grow_add(&g, " >> /ColorSpace << /C0 %zu 0 R >>", space);
+  if (cycle) grow_add(&g, " /ExtGState << /G0 %zu 0 R >>", state);
+  grow_add(&g, " >> >>\nendobj\n");
+  const char* paint = "q /G0 gs Q q 9 0 0 9 0 0 cm /I0 Do Q";
+  grow_object(&g);
+  grow_add(&g, "<< /Length %zu >>\nstream\n%s\nendstream\nendobj\n",
+           strlen(paint), paint);
+  grow_object(&g);
+  grow_add(&g,
+           "<< /Type /XObject /Subtype /Image /Width %u /Height 1 /ImageMask "
+           "true /BitsPerComponent 1 /Length 1 >>\nstream\n%c\nendstream\n"
+           "endobj\n",
+           width, mask);
+  grow_object(&g);
+  grow_add(&g, "[/ICCBased %zu 0 R]\nendobj\n", profile);
+  grow_object(&g);
+  grow_add(&g,
+           "<< /N 1 /Alternate /DeviceGray /Length 12 >>\nstream\nTESTPROFILE!"
+           "\nendstream\nendobj\n");
+  if (cycle) {
+    grow_object(&g);
+    grow_add(&g, "<< /Type /ExtGState /ca 0.5 /Cycle %zu 0 R >>\nendobj\n",
+             back);
+    grow_object(&g);
+    grow_add(&g, "<< /Back %zu 0 R >>\nendobj\n", state);
+  }
+  if (optional) {
+    grow_object(&g);
+    grow_add(&g,
+             "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ImageMask "
+             "true /BitsPerComponent 1 /OC %zu 0 R /Length 1 >>\nstream\nO\n"
+             "endstream\nendobj\n",
+             group);
+    grow_object(&g);
+    grow_add(&g, "<< /Type /OCG /Name (Layer) >>\nendobj\n");
+  }
+  grow_finish(&g);
+  return g;
+}
+
+static size_t count_text(const uint8_t* bytes, size_t size, const char* text) {
+  size_t n = strlen(text), found = 0;
+  for (size_t i = 0; i + n <= size; i++)
+    if (!memcmp(bytes + i, text, n)) found++;
+  return found;
+}
+
+/* Page i of base given overlays[i % count], through an update (fresh: a
+ * rewrite) written to output when one is given. */
+static rmr_status update_cycling(const generated* base,
+                                 const generated* overlays, size_t count,
+                                 size_t pages, bool fresh,
+                                 const rmr_output* output, rmr_buffer* out) {
+  rmr_pdf_update* u = nullptr;
+  rmr_status s =
+      rmr_pdf_update_create((const uint8_t*)base->bytes, base->n, fresh,
+                            nullptr, nullptr, nullptr, output, &u, nullptr);
+  for (size_t i = 0; s == RMR_OK && i < pages; i++) {
+    const generated* g = &overlays[i % count];
+    rmr_pdf_overlay o = {.page = i,
+                         .pdf = (const uint8_t*)g->bytes,
+                         .size = g->n,
+                         .transform = {1, 0, 0, 1, 0, 0}};
+    s = rmr_pdf_update_page(u, &o, 1, nullptr);
+  }
+  if (s == RMR_OK) s = rmr_pdf_update_finish(u, out, nullptr, nullptr);
+  rmr_pdf_update_free(u);
+  return s;
+}
+
+/* Masks and profiles identical across pages are written once and referred
+ * to by every later page, in an update and a rewrite alike; masks differing
+ * in their bytes or their dimensions stay apart; objects in a cycle and
+ * optional content are each page's own. The file is the same, run again or
+ * streamed. */
+static void shared_objects_check(void) {
+  enum { PAGES = 30 };
+  generated base = long_source(PAGES);
+  generated overlays[] = {textured_overlay('A', 1, true, false),
+                          textured_overlay('B', 1, true, false),
+                          textured_overlay('A', 2, true, false)};
+  for (int fresh = 0; fresh < 2; fresh++) {
+    rmr_buffer out = {0}, again = {0};
+    assert(update_cycling(&base, overlays, 3, PAGES, fresh, nullptr, &out) ==
+           RMR_OK);
+    assert(count_text(out.bytes, out.size, "/ImageMask true") == 3);
+    assert(count_text(out.bytes, out.size, "/ICCBased") == 1);
+    assert(count_text(out.bytes, out.size, "TESTPROFILE!") == 1);
+    assert(count_text(out.bytes, out.size, "/Cycle") == PAGES);
+    assert(count_text(out.bytes, out.size, "/Back") == PAGES);
+    assert(count_text(out.bytes, out.size, "/Subtype /Form") == PAGES);
+    size_t count = 0;
+    assert(rmr_pdf_pages(out.bytes, out.size, nullptr, nullptr, 0, &count,
+                         nullptr) == RMR_OK &&
+           count == PAGES);
+    /* Every reference resolves: a rewrite renumbers them all. */
+    rmr_buffer rewritten = {0};
+    assert(rmr_pdf_rewrite(out.bytes, out.size, nullptr, nullptr, nullptr,
+                           &rewritten, nullptr) == RMR_OK);
+    rmr_buffer_free(&rewritten);
+
+    assert(update_cycling(&base, overlays, 3, PAGES, fresh, nullptr, &again) ==
+           RMR_OK);
+    assert(again.size == out.size && !memcmp(again.bytes, out.bytes, out.size));
+    collected sink = {0};
+    rmr_output output = {RMR_OUTPUT_ABI, sizeof output, collect_output, &sink};
+    assert(update_cycling(&base, overlays, 3, PAGES, fresh, &output, nullptr) ==
+           RMR_OK);
+    assert(sink.bytes.n == out.size &&
+           !memcmp(sink.bytes.bytes, out.bytes, out.size));
+    grow_free(&sink.bytes);
+    rmr_buffer_free(&again);
+    rmr_buffer_free(&out);
+  }
+
+  /* Optional content keeps its identity, and the image it governs with it;
+   * the mask and profile beside them are still shared. */
+  generated layered = textured_overlay('A', 1, false, true);
+  rmr_buffer out = {0};
+  assert(update_cycling(&base, &layered, 1, PAGES, false, nullptr, &out) ==
+         RMR_OK);
+  assert(count_text(out.bytes, out.size, "/Type /OCG") == PAGES);
+  assert(count_text(out.bytes, out.size, "/OC ") == PAGES);
+  assert(count_text(out.bytes, out.size, "/ImageMask true") == PAGES + 1);
+  assert(count_text(out.bytes, out.size, "TESTPROFILE!") == 1);
+  rmr_buffer_free(&out);
+
+  grow_free(&layered);
+  for (size_t i = 0; i < 3; i++) grow_free(&overlays[i]);
+  grow_free(&base);
+}
+
 int main(void) {
   long_document_check();
   fresh_matches_rewrite();
   page_budget_check();
+  shared_objects_check();
   select_check();
   select_labels_check();
   reserved_check();
