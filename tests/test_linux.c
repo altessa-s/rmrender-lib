@@ -151,6 +151,173 @@ static void graphics(void) {
   rmr_plan_free(plan);
 }
 
+/* Counts the forms nested in object and the images anywhere within it. */
+static void count_objects(FPDF_PAGEOBJECT object, int* forms, int* images) {
+  for (int i = 0; i < FPDFFormObj_CountObjects(object); i++) {
+    FPDF_PAGEOBJECT inner = FPDFFormObj_GetObject(object, (unsigned)i);
+    int type = FPDFPageObj_GetType(inner);
+    *images += type == FPDF_PAGEOBJ_IMAGE;
+    if (type == FPDF_PAGEOBJ_FORM) {
+      ++*forms;
+      count_objects(inner, forms, images);
+    }
+  }
+}
+
+/* The forms nested in the marks form of pdf's only page and the images in
+ * them, and the alpha its pixel (4, 4) renders with at 4 pixels per unit. */
+static void grain_shape(rmr_buffer pdf, int* forms, int* images,
+                        uint8_t* alpha) {
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc);
+  FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+  CHECK(page && FPDFPage_CountObjects(page) == 1);
+  FPDF_PAGEOBJECT marks = FPDFPage_GetObject(page, 0);
+  CHECK(FPDFPageObj_GetType(marks) == FPDF_PAGEOBJ_FORM);
+  *forms = *images = 0;
+  count_objects(marks, forms, images);
+  FPDF_BITMAP bm = FPDFBitmap_Create(32, 32, 1);
+  CHECK(bm);
+  FPDFBitmap_FillRect(bm, 0, 0, 32, 32, 0);
+  FPDF_RenderPageBitmap(bm, page, 0, 0, 32, 32, 0, 0);
+  const uint8_t* px = FPDFBitmap_GetBuffer(bm);
+  *alpha = px[4 * 128 + 4 * 4 + 3];
+  CHECK(px[4 * 128 + 4 * 4 + 2] == 255 && px[4 * 128 + 14 * 4 + 3] == 0);
+  FPDFBitmap_Destroy(bm);
+  FPDF_ClosePage(page);
+  FPDF_CloseDocument(doc);
+}
+
+/* Whether a and b hold the same PDF once their dates and document IDs are
+ * blanked; they are blanked in place, at their width, so both stay readable. */
+static bool same_pdf(rmr_buffer a, rmr_buffer b) {
+  rmr_buffer both[] = {a, b};
+  for (size_t k = 0; k < 2; k++)
+    for (size_t i = 0; i + 3 < both[k].size; i++)
+      if (!memcmp(both[k].bytes + i, "(D:", 3) ||
+          !memcmp(both[k].bytes + i, "/ID", 3))
+        for (i += 3; i < both[k].size && both[k].bytes[i] != ')' &&
+                     both[k].bytes[i] != ']';
+             i++)
+          both[k].bytes[i] = '0';
+  return a.size == b.size && !memcmp(a.bytes, b.bytes, a.size);
+}
+
+/* Grained ink by rmr_pdf_options: MASK, the default, draws opaque ink's
+ * stencil straight among the page's marks under one clip, as the Apple
+ * backend does; GROUP wraps each stroke in a transparency group of its own,
+ * as 1.4 did. Translucent ink is grouped either way. The entry points without
+ * options draw the defaults, and invalid options are refused before output. */
+static void grain_options(void) {
+  rmr_element shape[] = {{.kind = RMR_MOVE, .end = {0, 0}},
+                         {.kind = RMR_LINE, .end = {3, 0}},
+                         {.kind = RMR_LINE, .end = {3, 8}},
+                         {.kind = RMR_LINE, .end = {0, 8}},
+                         {.kind = RMR_CLOSE}};
+  uint8_t bits[] = {0x0f, 0x0f, 255, 255, 255, 255, 255, 255};
+  rmr_draw d = {.path = {shape, 5},
+                .color = {1, 0, 0, 1},
+                .mask = {bits, 8, 8, 1, {0, 0, 8, 8}}};
+  rmr_plan *plan = nullptr, *faint = nullptr;
+  OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &plan, nullptr));
+  d.color.alpha = .5;
+  OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &faint, nullptr));
+  const rmr_plan* plans[] = {plan};
+  const rmr_plan* faint_plans[] = {faint};
+
+  rmr_pdf_options options = rmr_pdf_options_default();
+  CHECK(options.abi_version == RMR_PDF_OPTIONS_ABI &&
+        options.struct_size == sizeof options &&
+        options.grain == RMR_PDF_GRAIN_MASK);
+  rmr_buffer plain = {0}, unset = {0}, mask = {0}, group = {0};
+  OK(rmr_linux_pdf(plans, 1, 1, nullptr, nullptr, nullptr, &plain, nullptr));
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, nullptr, nullptr, nullptr,
+                                &unset, nullptr));
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &mask, nullptr));
+  options.grain = RMR_PDF_GRAIN_GROUP;
+  OK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &group, nullptr));
+  CHECK(same_pdf(plain, unset) && same_pdf(plain, mask));
+  CHECK(group.size > mask.size);
+
+  int forms = 0, images = 0;
+  uint8_t alpha = 0;
+  grain_shape(mask, &forms, &images, &alpha);
+  CHECK(forms == 0 && images == 1 && alpha == 255);
+  grain_shape(group, &forms, &images, &alpha);
+  CHECK(forms == 1 && images == 1 && alpha == 255);
+
+  rmr_buffer faint_mask = {0}, faint_group = {0};
+  OK(rmr_linux_pdf(faint_plans, 1, 1, nullptr, nullptr, nullptr, &faint_mask,
+                   nullptr));
+  OK(rmr_linux_pdf_with_options(faint_plans, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &faint_group, nullptr));
+  CHECK(same_pdf(faint_mask, faint_group));
+  grain_shape(faint_mask, &forms, &images, &alpha);
+  CHECK(forms == 1 && images == 1 && alpha >= 126 && alpha <= 129);
+  rmr_buffer_free(&faint_mask);
+  rmr_buffer_free(&faint_group);
+
+  /* A newer caller's longer struct is read up to the fields known here. */
+  struct {
+    rmr_pdf_options known;
+    double later;
+  } longer = {options, 1};
+  longer.known.struct_size = sizeof longer;
+  rmr_buffer read = {0};
+  OK(rmr_linux_pdf_sheets_with_options(
+      plans,
+      &(rmr_sheet){.width = 8, .height = 8, .transform = {1, 0, 0, -1, 0, 8}},
+      1, nullptr, &longer.known, nullptr, nullptr, &read, nullptr));
+  grain_shape(read, &forms, &images, &alpha);
+  CHECK(forms == 1);
+  rmr_buffer_free(&read);
+
+  rmr_pdf_options wrong[] = {options, options, options};
+  wrong[0].abi_version = RMR_PDF_OPTIONS_ABI + 1;
+  wrong[1].struct_size = offsetof(rmr_pdf_options, grain);
+  wrong[2].grain = RMR_PDF_GRAIN_GROUP + 1;
+  for (size_t i = 0; i < 3; i++) {
+    rmr_error error = {0};
+    CHECK(rmr_linux_pdf_with_options(plans, 1, 1, nullptr, &wrong[i], nullptr,
+                                     nullptr, &read,
+                                     &error) == RMR_ERR_INVALID_ARGUMENT &&
+          !read.bytes && !strcmp(error.message, "invalid PDF options"));
+  }
+
+  /* Pages after the first are composed apart and imported, in order. */
+  rmr_plan* blank = nullptr;
+  OK(rmr_plan_create(nullptr, 0, (rmr_rect){0, 0, 8, 8}, nullptr, &blank,
+                     nullptr));
+  const rmr_plan* pages[] = {blank, plan, blank, plan};
+  rmr_buffer pdf = {0};
+  OK(rmr_linux_pdf(pages, 4, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc && FPDF_GetPageCount(doc) == 4);
+  for (int i = 0; i < 4; i++) {
+    FPDF_PAGE page = FPDF_LoadPage(doc, i);
+    CHECK(page);
+    FPDF_BITMAP bm = FPDFBitmap_Create(32, 32, 1);
+    CHECK(bm);
+    FPDFBitmap_FillRect(bm, 0, 0, 32, 32, 0);
+    FPDF_RenderPageBitmap(bm, page, 0, 0, 32, 32, 0, 0);
+    const uint8_t* px = FPDFBitmap_GetBuffer(bm);
+    CHECK(px[4 * 128 + 4 * 4 + 3] == (i % 2 ? 255 : 0));
+    FPDFBitmap_Destroy(bm);
+    FPDF_ClosePage(page);
+  }
+  FPDF_CloseDocument(doc);
+  rmr_buffer_free(&pdf);
+  rmr_buffer_free(&plain);
+  rmr_buffer_free(&unset);
+  rmr_buffer_free(&mask);
+  rmr_buffer_free(&group);
+  rmr_plan_free(blank);
+  rmr_plan_free(faint);
+  rmr_plan_free(plan);
+}
+
 static void preserved_objects(FPDF_DOCUMENT doc) {
   CHECK(FPDF_GetPageCount(doc) == 2);
   CHECK(FPDFDoc_GetAttachmentCount(doc) == 1);
@@ -560,6 +727,117 @@ static void pdf_source(void) {
   rmr_linux_pdf_source_free(src);
 }
 
+/* A source of count blank pages. */
+static rmr_buffer blank_source(size_t count) {
+  size_t capacity = 4096 + count * 160, n = 0;
+  char* bytes = malloc(capacity);
+  size_t* offsets = calloc(count + 3, sizeof *offsets);
+  CHECK(bytes && offsets);
+  n += (size_t)snprintf(bytes + n, capacity - n, "%%PDF-1.7\n");
+  offsets[1] = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  offsets[2] = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "2 0 obj\n<< /Type /Pages /Count %zu /Kids [", count);
+  for (size_t i = 0; i < count; i++)
+    n += (size_t)snprintf(bytes + n, capacity - n, "%zu 0 R ", i + 3);
+  n += (size_t)snprintf(bytes + n, capacity - n, "] >>\nendobj\n");
+  for (size_t i = 0; i < count; i++) {
+    offsets[i + 3] = n;
+    n += (size_t)snprintf(bytes + n, capacity - n,
+                          "%zu 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox "
+                          "[0 0 200 200] >>\nendobj\n",
+                          i + 3);
+  }
+  size_t x = n;
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "xref\n0 %zu\n0000000000 65535 f \n", count + 3);
+  for (size_t i = 1; i < count + 3; i++)
+    n += (size_t)snprintf(bytes + n, capacity - n, "%010zu 00000 n \n",
+                          offsets[i]);
+  n += (size_t)snprintf(bytes + n, capacity - n,
+                        "trailer\n<< /Size %zu /Root 1 0 R >>\nstartxref\n%zu\n"
+                        "%%%%EOF\n",
+                        count + 3, x);
+  CHECK(n < capacity);
+  free(offsets);
+  return (rmr_buffer){(uint8_t*)bytes, n};
+}
+
+/* Ink of distinct grain masks, a page's worth of overlay, no mask the same as
+ * another page's (identical masks are written once for all pages). */
+static rmr_plan* grain_marks(size_t page) {
+  enum { MASKS = 300 };
+  static uint8_t bits[MASKS][32];
+  static rmr_element paths[MASKS][5];
+  static rmr_draw draws[MASKS];
+  for (size_t i = 0; i < MASKS; i++) {
+    for (size_t k = 0; k < 32; k++) bits[i][k] = (uint8_t)(i * 31 + k * 7);
+    bits[i][0] = (uint8_t)i;
+    bits[i][1] = (uint8_t)(i >> 8);
+    bits[i][2] = (uint8_t)page;
+    double x = -90 + (double)(i % 30) * 6, y = 10 + (double)(i / 30) * 18;
+    rmr_element* e = paths[i];
+    e[0] = (rmr_element){.kind = RMR_MOVE, .end = {x, y}};
+    e[1] = (rmr_element){.kind = RMR_LINE, .end = {x + 5, y}};
+    e[2] = (rmr_element){.kind = RMR_LINE, .end = {x + 5, y + 16}};
+    e[3] = (rmr_element){.kind = RMR_LINE, .end = {x, y + 16}};
+    e[4] = (rmr_element){.kind = RMR_CLOSE};
+    draws[i] = (rmr_draw){.path = {e, 5},
+                          .mode = RMR_FILL,
+                          .color = {0.2, 0.2, 0.6, 1},
+                          .mask = {bits[i], 16, 16, 2, {x, y, 5, 16}}};
+  }
+  rmr_plan* p = nullptr;
+  OK(rmr_plan_create(draws, MASKS, (rmr_rect){-100, 0, 200, 200}, nullptr, &p,
+                     nullptr));
+  return p;
+}
+
+/* Overlays go into the update, or the recomposed file, as they are drawn: a
+ * document whose overlays together outgrow the plan budget, each well inside
+ * it, is written in both modes. */
+static void streamed_overlays(void) {
+  enum { PAGES = 100 };
+  rmr_buffer pdf = blank_source(PAGES);
+  rmr_linux_pdf_source* src = nullptr;
+  rmr_error error = {0};
+  OK(rmr_linux_pdf_source_create(pdf.bytes, pdf.size, nullptr, &src, &error));
+  rmr_plan* marks[PAGES];
+  rmr_pdf_page pages[PAGES];
+  for (size_t i = 0; i < PAGES; i++) marks[i] = grain_marks(i);
+  for (size_t i = 0; i < PAGES; i++)
+    pages[i] = (rmr_pdf_page){.marks = marks[i],
+                              .sheet = {.width = 200,
+                                        .height = 200,
+                                        .transform = {1, 0, 0, -1, 100, 200}},
+                              .source_rect = {-100, 0, 200, 200},
+                              .source_page = i,
+                              .has_source = true,
+                              .source_visible = true};
+  rmr_limits limits = rmr_limits_default();
+  limits.maximum_plan_bytes = 4 << 20;
+  for (int fresh = 0; fresh < 2; fresh++) {
+    rmr_buffer out = {0};
+    rmr_status s =
+        fresh ? rmr_linux_pdf_recompose(src, pages, PAGES, &limits, nullptr,
+                                        nullptr, &out, &error)
+              : rmr_linux_pdf_incremental(src, pages, PAGES, &limits, nullptr,
+                                          nullptr, &out, nullptr, &error);
+    if (s != RMR_OK) fprintf(stderr, "%s\n", error.message);
+    OK(s);
+    CHECK(out.size - pdf.size > limits.maximum_plan_bytes);
+    FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(out.bytes, out.size, nullptr);
+    CHECK(doc && FPDF_GetPageCount(doc) == PAGES);
+    FPDF_CloseDocument(doc);
+    rmr_buffer_free(&out);
+  }
+  for (size_t i = 0; i < PAGES; i++) rmr_plan_free(marks[i]);
+  rmr_linux_pdf_source_free(src);
+  rmr_buffer_free(&pdf);
+}
+
 static void images(void) {
   rmr_element clip[] = {{.kind = RMR_MOVE, .end = {0, 0}},
                         {.kind = RMR_LINE, .end = {8, 0}},
@@ -671,6 +949,13 @@ static void rotations(void) {
       CHECK(pa && pb);
       CHECK(fabs(FPDF_GetPageWidthF(pa) - FPDF_GetPageWidthF(pb)) < .01);
       CHECK(fabs(FPDF_GetPageHeightF(pa) - FPDF_GetPageHeightF(pb)) < .01);
+      /* The page is composed on its own and imported, links included. */
+      int at = 0;
+      FPDF_LINK link = nullptr;
+      CHECK(FPDFLink_Enumerate(pb, &at, &link));
+      FPDF_ACTION action = FPDFLink_GetAction(link);
+      CHECK(action && FPDFAction_GetType(action) == PDFACTION_URI &&
+            FPDFAction_GetURIPath(b, action, nullptr, 0) > 1);
 
       FPDF_BITMAP ba = FPDFBitmap_Create(60, 60, 1),
                   bb = FPDFBitmap_Create(60, 60, 1);
@@ -858,13 +1143,151 @@ static void contour_test(void) {
   rmr_plan_free(plan);
 }
 
+/* A fill nothing erases and, unless only_kept, every mark an eraser takes
+ * away whole — grain masks opaque and translucent, a fill, a line — and a
+ * grain mask with no contour; and a grain mask an eraser takes half of. */
+static rmr_plan* erased_marks(bool only_kept) {
+  static rmr_element witness[] = {{.kind = RMR_MOVE, .end = {10, 180}},
+                                  {.kind = RMR_LINE, .end = {190, 180}},
+                                  {.kind = RMR_LINE, .end = {190, 190}},
+                                  {.kind = RMR_LINE, .end = {10, 190}},
+                                  {.kind = RMR_CLOSE}};
+  static rmr_element band[] = {{.kind = RMR_MOVE, .end = {40.4, 40.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 40.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 60.4}},
+                               {.kind = RMR_LINE, .end = {40.4, 60.4}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element half[] = {{.kind = RMR_MOVE, .end = {40.4, 120.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 120.4}},
+                               {.kind = RMR_LINE, .end = {160.4, 140.4}},
+                               {.kind = RMR_LINE, .end = {40.4, 140.4}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_element whole[] = {{.kind = RMR_MOVE, .end = {20, 20}},
+                                {.kind = RMR_LINE, .end = {180, 20}},
+                                {.kind = RMR_LINE, .end = {180, 80}},
+                                {.kind = RMR_LINE, .end = {20, 80}},
+                                {.kind = RMR_CLOSE}};
+  static rmr_element left[] = {{.kind = RMR_MOVE, .end = {20, 100}},
+                               {.kind = RMR_LINE, .end = {100, 100}},
+                               {.kind = RMR_LINE, .end = {100, 160}},
+                               {.kind = RMR_LINE, .end = {20, 160}},
+                               {.kind = RMR_CLOSE}};
+  static rmr_path_view covering[] = {{whole, 5}}, leftward[] = {{left, 5}};
+  static uint8_t bits[3][4 * 24];
+  for (size_t k = 0; k < sizeof bits; k++)
+    bits[k / sizeof *bits][k % sizeof *bits] = (uint8_t)(k * 37 + 11);
+
+  rmr_draw draws[7] = {0};
+  size_t count = 0;
+  draws[count++] = (rmr_draw){
+      .path = {witness, 5}, .mode = RMR_FILL, .color = {.1, .2, .6, 1}};
+  if (!only_kept) {
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0, 0, 0, 1},
+                   .erasers = covering,
+                   .eraser_count = 1,
+                   .mask = {bits[0], 30, 24, 4, {36, 36, 128, 28}}};
+    draws[count++] =
+        (rmr_draw){.path = {band, 5},
+                   .mode = RMR_FILL,
+                   .color = {0, 0, 0, .5},
+                   .erasers = covering,
+                   .eraser_count = 1,
+                   .mask = {bits[1], 30, 24, 4, {36, 36, 128, 28}}};
+    draws[count++] =
+        (rmr_draw){.mode = RMR_FILL,
+                   .color = {0, 0, 0, 1},
+                   .mask = {bits[1], 30, 24, 4, {36, 86, 128, 28}}};
+    draws[count++] = (rmr_draw){.path = {band, 5},
+                                .mode = RMR_FILL,
+                                .color = {.8, .1, .1, 1},
+                                .erasers = covering,
+                                .eraser_count = 1};
+    draws[count++] = (rmr_draw){.path = {band, 4},
+                                .mode = RMR_STROKE,
+                                .color = {.1, .6, .1, .5},
+                                .line_width = 6,
+                                .cap = RMR_CAP_ROUND,
+                                .join = RMR_JOIN_ROUND,
+                                .erasers = covering,
+                                .eraser_count = 1};
+  }
+  draws[count++] = (rmr_draw){.path = {half, 5},
+                              .mode = RMR_FILL,
+                              .color = {0, 0, 0, 1},
+                              .erasers = leftward,
+                              .eraser_count = 1,
+                              .mask = {bits[2], 30, 24, 4, {36, 116, 128, 28}}};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(draws, count, (rmr_rect){0, 0, 200, 200}, nullptr, &plan,
+                     nullptr));
+  return plan;
+}
+
+/* Page 1 of a PDF rendered by PDFium at size x size onto white. */
+static uint8_t* erased_raster(rmr_buffer pdf, int size) {
+  FPDF_DOCUMENT doc = FPDF_LoadMemDocument64(pdf.bytes, pdf.size, nullptr);
+  CHECK(doc);
+  FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+  CHECK(page);
+  FPDF_BITMAP bm = FPDFBitmap_Create(size, size, 1);
+  CHECK(bm);
+  FPDFBitmap_FillRect(bm, 0, 0, size, size, 0xffffffff);
+  FPDF_RenderPageBitmap(bm, page, 0, 0, size, size, 0, 0);
+  CHECK(FPDFBitmap_GetStride(bm) == size * 4);
+  uint8_t* pixels = malloc((size_t)size * (size_t)size * 4);
+  CHECK(pixels);
+  memcpy(pixels, FPDFBitmap_GetBuffer(bm), (size_t)size * (size_t)size * 4);
+  FPDFBitmap_Destroy(bm);
+  FPDF_ClosePage(page);
+  FPDF_CloseDocument(doc);
+  return pixels;
+}
+
+/* What an eraser takes away whole, and a grain mask with no contour, paint
+ * nothing: Cairo's bitmap and PDF of the page are those of the page without
+ * them — no faint outline where the edge of a mask's clip falls inside a
+ * pixel, as at 2.37 pixels a unit and in PDFium's raster of the PDF. The
+ * outlines stand off whole points: a PDF rasterizes an erased mask finer than
+ * a point, and an edge within one of its pixels of a whole point keeps a
+ * fringe of a few percent (rmr_cairo.c). */
+static void erased_away(void) {
+  rmr_plan* plans[2] = {erased_marks(false), erased_marks(true)};
+  rmr_bitmap bitmaps[2] = {0};
+  uint8_t* pages[2] = {0};
+  for (size_t i = 0; i < 2; i++) {
+    OK(rmr_linux_bitmap(plans[i], 2.37, (rmr_color){1, 1, 1, 1}, nullptr,
+                        nullptr, nullptr, &bitmaps[i], nullptr));
+    const rmr_plan* page[] = {plans[i]};
+    rmr_buffer pdf = {0};
+    OK(rmr_linux_pdf(page, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr));
+    pages[i] = erased_raster(pdf, 400);
+    rmr_buffer_free(&pdf);
+  }
+  CHECK(bitmaps[0].stride == bitmaps[1].stride &&
+        bitmaps[0].height == bitmaps[1].height);
+  CHECK(!memcmp(bitmaps[0].pixels, bitmaps[1].pixels,
+                bitmaps[0].stride * bitmaps[0].height));
+  CHECK(!memcmp(pages[0], pages[1], (size_t)400 * 400 * 4));
+  for (size_t i = 0; i < 2; i++) {
+    rmr_bitmap_free(&bitmaps[i]);
+    free(pages[i]);
+    rmr_plan_free(plans[i]);
+  }
+}
+
 int main(int argc, char** argv) {
   argv = test_arguments(argc, argv);
   CHECK(argc == 1 || (argc == 3 && !strcmp(argv[1], "--pdf-fixtures")));
 
   graphics();
+  erased_away();
+  grain_options();
   images();
   pdf_source();
+  streamed_overlays();
   selected_objects_case(false);
   selected_objects_case(true);
   selected_annotations();

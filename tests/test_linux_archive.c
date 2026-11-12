@@ -4,19 +4,42 @@
 
 #include <rmlines/parser.h>
 #include <rmrender/linux_document.h>
+#ifdef RMR_TEST_FONTCONFIG
+#include <fontconfig/fontconfig.h>
+#include <pango/pangocairo.h>
+#endif
 
 #include "pdf_fixture.h"
 #include "test.h"
 #define DOCUMENT_PDF rmr_linux_document_pdf
 #define PAGE_PLAN rmr_linux_page_plan
+#define DOCUMENT_PDF_WITH_OPTIONS rmr_linux_document_pdf_with_options
+#define DOCUMENT_PDF_PRESERVING_WITH_OPTIONS \
+  rmr_linux_document_pdf_preserving_with_options
+#define DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS \
+  rmr_linux_document_pdf_recomposed_with_options
+#define DOCUMENT_PDF_TO_OUTPUT rmr_linux_document_pdf_to_output
+#define DOCUMENT_PDF_PRESERVING_TO_OUTPUT \
+  rmr_linux_document_pdf_preserving_to_output
+#define DOCUMENT_PDF_RECOMPOSED_TO_OUTPUT \
+  rmr_linux_document_pdf_recomposed_to_output
+#define DOCUMENT_SVG_WITH_OPTIONS rmr_linux_document_svg_with_options
+#define FONTS rmr_linux_fonts
+#define FONTS_DIRECTORY rmr_linux_fonts_create_directory
+#define FONTS_FREE rmr_linux_fonts_free
+#define GRAIN_GROUPS true
 #include "archive_fixture.h"
 #define DOC "11111111-1111-1111-1111-111111111111"
 #define PAGE "22222222-2222-2222-2222-222222222222"
 #define DEAD "33333333-3333-3333-3333-333333333333"
-int main(void) {
+int main(int argc, char** argv) {
+  CHECK(argc == 2);
   matching();
   many_files();
   dense_document();
+  document_options();
+  document_output();
+  unreadable_pages(argv[1]);
 
   const char content[] =
       "{\"cPages\":{\"pages\":[{\"id\":\"" PAGE "\"},{\"id\":\"" DEAD
@@ -106,5 +129,11 @@ int main(void) {
   CHECK(rmr_archive_document_create(&many_archive, DOC, true, &tight, &document,
                                     &error) == RMR_ERR_LIMIT);
   CHECK(!document && !strcmp(error.message, "page count limit"));
+#ifdef RMR_TEST_FONTCONFIG
+  /* Standalone test owns the process: release the default Pango font map,
+   * then Fontconfig's global caches, for LSan. */
+  pango_cairo_font_map_set_default(nullptr);
+  FcFini();
+#endif
   return 0;
 }

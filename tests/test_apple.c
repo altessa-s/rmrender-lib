@@ -65,6 +65,63 @@ static void masked_output(void) {
   rmr_plan_free(plan);
 }
 
+/* Blanks a PDF's dates and document ID in place, at their width. */
+static void blank_volatile(rmr_buffer* b) {
+  for (size_t i = 0; i + 3 < b->size; i++)
+    if (!memcmp(b->bytes + i, "(D:", 3) || !memcmp(b->bytes + i, "/ID", 3))
+      for (i += 3; i < b->size && b->bytes[i] != ')' && b->bytes[i] != ']'; i++)
+        b->bytes[i] = '0';
+}
+
+/* CoreGraphics draws grain masks straight onto the page whatever
+ * rmr_pdf_options say: both grain values give the bytes the entry points
+ * without options give, and invalid options are refused as on Cairo. */
+static void grain_options(void) {
+  rmr_element shape[] = {{.kind = RMR_MOVE, .end = {0, 0}},
+                         {.kind = RMR_LINE, .end = {3, 0}},
+                         {.kind = RMR_LINE, .end = {3, 8}},
+                         {.kind = RMR_LINE, .end = {0, 8}},
+                         {.kind = RMR_CLOSE}};
+  uint8_t bits[] = {0x0f, 0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  rmr_draw d = {.path = {shape, 5},
+                .color = {1, 0, 0, 1},
+                .mask = {bits, 8, 8, 1, {0, 0, 8, 8}}};
+  rmr_plan* plan = nullptr;
+  OK(rmr_plan_create(&d, 1, (rmr_rect){0, 0, 8, 8}, nullptr, &plan, nullptr));
+  const rmr_plan* pages[] = {plan};
+  rmr_sheet sheet = {.width = 8, .height = 8, .transform = {1, 0, 0, -1, 0, 8}};
+
+  rmr_pdf_options options = rmr_pdf_options_default();
+  rmr_buffer plain = {0}, mask = {0}, group = {0}, sheets = {0};
+  OK(rmr_apple_pdf(pages, 1, 1, nullptr, nullptr, nullptr, &plain, nullptr));
+  OK(rmr_apple_pdf_with_options(pages, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &mask, nullptr));
+  options.grain = RMR_PDF_GRAIN_GROUP;
+  OK(rmr_apple_pdf_with_options(pages, 1, 1, nullptr, &options, nullptr,
+                                nullptr, &group, nullptr));
+  OK(rmr_apple_pdf_sheets_with_options(pages, &sheet, 1, nullptr, nullptr,
+                                       nullptr, nullptr, &sheets, nullptr));
+  rmr_buffer* outputs[] = {&plain, &mask, &group};
+  for (size_t i = 0; i < 3; i++) {
+    blank_volatile(outputs[i]);
+    CHECK(outputs[i]->size == plain.size &&
+          !memcmp(outputs[i]->bytes, plain.bytes, plain.size));
+  }
+  CHECK(sheets.size > 0);
+
+  options.struct_size = offsetof(rmr_pdf_options, grain);
+  rmr_buffer refused = {0};
+  rmr_error error = {0};
+  CHECK(rmr_apple_pdf_with_options(pages, 1, 1, nullptr, &options, nullptr,
+                                   nullptr, &refused,
+                                   &error) == RMR_ERR_INVALID_ARGUMENT &&
+        !refused.bytes && !strcmp(error.message, "invalid PDF options"));
+
+  for (size_t i = 0; i < 3; i++) rmr_buffer_free(outputs[i]);
+  rmr_buffer_free(&sheets);
+  rmr_plan_free(plan);
+}
+
 static void composition_output(void) {
   rmr_plan* base = rectangle((rmr_color){0, 0, 0, 1}, RMR_BLEND_NORMAL);
   rmr_element hole[] = {{.kind = RMR_MOVE, .end = {-12, 0}},
@@ -101,6 +158,7 @@ static void composition_output(void) {
 int main(void) {
   composition_output();
   masked_output();
+  grain_options();
 
   rmr_plan* plan = rectangle((rmr_color){1, 0, 0, 0.5}, RMR_BLEND_NORMAL);
   rmr_bitmap b = {0};

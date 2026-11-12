@@ -126,7 +126,12 @@ The targets are `RMRender::linux`, `linux_text`, `linux_document` and
 ship them and their licenses with the application.
 
 Text always uses the bundled fonts through a private Fontconfig/Pango font
-map, never system font registration. PDFium is process-global and not thread
+map, never system font registration. Pango still loads Fontconfig's default
+configuration; where Fontconfig finds no `fonts.conf` of its own, as in
+minimal Linux containers, `FONTCONFIG_FILE` is pointed at an empty
+configuration in `$XDG_CACHE_HOME/rmrender` (Windows: see below) unless
+`FONTCONFIG_FILE`, `FONTCONFIG_PATH` or `FONTCONFIG_SYSROOT` is set, so
+nothing is printed on stderr. PDFium is process-global and not thread
 safe: RMRender initializes it once, serializes its own PDFium calls and keeps
 it alive for the life of the process, so applications must not call
 `FPDF_DestroyLibrary` and must coordinate their own PDFium use. A font
@@ -284,8 +289,9 @@ rmr_status page_pdf(const uint8_t *bytes, size_t size, const char *fonts_dir,
 
 `rmr_archive_document_create` borrows an unpacked RMDoc archive and resolves
 its page order, templates and source-PDF pages; `rmr_apple_document_pdf`
-renders the whole document. Parsing errors fail the call; recoverable losses
-are counted in `rmr_document_report`.
+renders the whole document. Recoverable parser losses are counted in
+`rmr_document_report`; what happens to a page whose `.rm` file does not parse
+at all is the `unreadable` field of `rmr_pdf_options` (below).
 
 There are two ways to put marks on an imported PDF:
 
@@ -306,6 +312,115 @@ An incremental update leaves existing signed byte ranges intact, so an approval
 signature can still verify for its own revision. The appended revision is
 **not signed**, and the library does not validate certificates, signature
 policies or permissions.
+
+Each page's marks are planned as the page is drawn and freed after it, so a
+document of thousands of pages needs `maximum_plan_bytes` for one page's plan,
+not the whole document's. Preserving and recomposed exports write each
+page's overlay objects as the page is drawn; one identical, down to what it
+refers to, to an object an earlier page wrote (a grain mask, a color profile)
+is referred to instead of written again, so that, as in a fresh export, the
+masks a document's ink shares take room once.
+
+Every PDF entry point has a `_with_options` variant (`rmr_apple_pdf`,
+`_pdf_sheets`, `_pdf_overlay`, `_pdf_incremental`, `_pdf_recompose`,
+`_document_pdf`, `_document_pdf_preserving`, `_document_pdf_recomposed`, and
+the same for `rmr_linux_`) taking an `rmr_pdf_options` from
+`rmr_pdf_options_default()`; null and the functions without options use the
+defaults. Its `grain` field picks how grained ink (pencils, brushes,
+ballpoints) is drawn. `RMR_PDF_GRAIN_MASK`, the default, puts each stroke's
+grain stencil straight on the page under its outline clip. `RMR_PDF_GRAIN_GROUP`
+gives each opaque stroke a transparency group of its own, as the Cairo backend
+did up to 1.4: about twice the bytes, and most viewers draw the stroke edges
+lighter. The Apple backend draws the mask way either way and accepts both.
+
+Its `decimals` field (0 by default) trades precision for size on the Apple
+backend: 1 to 6 round ink path coordinates to that many decimal places of a
+point. At the default the Apple backend writes ink exactly as CoreGraphics
+would, number for number; 2 is invisible at print resolution and makes
+ink-heavy files about a quarter smaller. Pages with text, images or embedded
+PDFs keep full precision for the marks from the first of them to the last,
+and the Cairo backend ignores the field. Callers built against the first version of
+`rmr_pdf_options`, without the field, get the default.
+
+Its `unreadable` field says what the document exports do with an **unreadable
+page**: one whose `.rm` file is in the archive but does not parse (truncated,
+malformed, or of a version RMLines does not read). A listed page with no `.rm`
+file is not one: the tablet writes none for a page nobody wrote on, and it is
+drawn as an empty page on its template, as always.
+
+| `rmr_unreadable_policy` | Notebook page | Page over an imported PDF |
+|---|---|---|
+| `RMR_UNREADABLE_STRICT` (default) | the export fails with the parser's status (`BACKEND`, or `UNSUPPORTED` for a newer version), `error.index` the page and a message naming it and its ID | the same |
+| `RMR_UNREADABLE_BLANK` | an empty page on its template, as a page without a `.rm` file | the PDF page without marks |
+| `RMR_UNREADABLE_PLACEHOLDER` | a plain sheet of the page's size, no template, "Rendering error" in the middle | the PDF page with the label over its centre |
+
+The label is dark grey on a light rounded box, its type 5% of the page's
+width, set in Noto Sans, the face typed text is set in, through the same text
+path, so the PDF embeds it as it embeds typed text (and SVG pages carry it as
+outlines). It needs the export's fonts. `on_unreadable`, when set, is called
+with `unreadable_context` once for each unreadable page the export reaches,
+in page order, before it is drawn or before a strict export fails with it.
+`rmr_apple_document_svg_with_options` / `rmr_linux_document_svg_with_options`
+read the same fields for SVG, and `rmr_archive_document_read_page` answers an
+unreadable page as an empty one, with the status its parsing failed with.
+Allocation failures and limits fail the export whatever the policy. Callers
+built against an earlier `rmr_pdf_options` get `STRICT`, as before.
+
+PDF export of long documents writes their pages as it goes. The Apple
+backend serializes fills, strokes, grain masks, erasers and transparency
+groups (erased shader strokes) itself, printing every number exactly as
+CoreGraphics prints it, writes each distinct page template once as a form
+the pages that use it share, and deflates pages on worker threads (one fewer
+than the processors, at most eight), leaving CoreGraphics the source pages,
+text, images and embedded PDFs; output is byte for byte the same whatever the
+number of threads. The Cairo backend
+finishes each page's Cairo PDF on worker threads and copies it into the
+output as it is, instead of re-parsing it with PDFium and holding the whole
+document there, so memory stays near the size of the output.
+
+```c
+rmr_pdf_options options = rmr_pdf_options_default();
+options.grain = RMR_PDF_GRAIN_GROUP;
+rmr_status s = rmr_linux_document_pdf_with_options(
+    document, &resources, fonts, RMR_PAPER_A4, 0, nullptr, &options, nullptr,
+    nullptr, &out, &report, &error);
+```
+
+The document exports can also write the file as they produce it instead of
+returning one buffer: `rmr_apple_document_pdf_to_output`,
+`_document_pdf_preserving_to_output` and `_document_pdf_recomposed_to_output`
+(and the same for `rmr_linux_`) take the arguments of the `_with_options`
+functions and an `rmr_output` in place of the buffer. Its `write` callback gets
+the file's bytes in order, on the calling thread, in pieces of about 4 MiB;
+the file is the buffer function's, byte for byte, but what has been written
+no longer takes memory. A fresh export writes each page once it is deflated and
+the page tree, outline and cross-reference table at the end; on the Apple
+backend CoreGraphics' share of the file (source pages, text, images and
+whatever else it draws) is still collected until its context closes and
+written after the ink. A preserving export holds its overlays, as before, then
+writes the original file followed by the update; a recomposed export keeps its
+intermediate files in memory and writes the final rewrite as it goes.
+
+A `write` returning anything but `RMR_OK` stops the export with that status
+and the message "PDF output write failed"; `write` is not called again.
+Cancellation works as before. On any failure the output has received part of
+a file, so write to a temporary file and rename it once the export succeeds.
+`maximum_pdf_bytes` still bounds the whole file (and the inputs and
+intermediates it always bounded), so raise it for files beyond its default
+256 MiB.
+
+```c
+static rmr_status to_file(void* context, const uint8_t* bytes, size_t size) {
+  return fwrite(bytes, 1, size, context) == size ? RMR_OK : RMR_ERR_BACKEND;
+}
+
+rmr_output output = {RMR_OUTPUT_ABI, sizeof output, to_file, file};
+rmr_limits limits = rmr_limits_default();
+limits.maximum_pdf_bytes = SIZE_MAX / 2;
+rmr_status s = rmr_apple_document_pdf_to_output(
+    document, &resources, fonts, RMR_PAPER_A4, 0, &limits, nullptr, nullptr,
+    nullptr, &output, &report, &error);
+```
 
 ## SVG output
 

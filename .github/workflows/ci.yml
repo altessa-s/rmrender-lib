@@ -94,6 +94,9 @@ jobs:
       - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rmr-deps" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
       - run: cmake --build build-consumer
       - run: LD_LIBRARY_PATH="$RUNNER_TEMP/rmr-deps/lib:$GITHUB_WORKSPACE/.deps/pdfium/lib" ./build-consumer/consumer
+      # Without a default Fontconfig configuration, as in minimal containers.
+      - run: rm /etc/fonts/fonts.conf
+      - run: RMR_TEST_FONTCONFIG_MISSING=1 ctest --test-dir build -R fontconfig_default --output-on-failure
   format:
     runs-on: ubuntu-24.04
     steps:
