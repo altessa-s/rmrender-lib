@@ -5,6 +5,11 @@
 # Pinned software renderer and patched PDFium, in addition to distro-SDK CI.
 name: Pinned renderer
 on: [push, pull_request, workflow_dispatch]
+# The sibling libraries every job builds against: the latest releases.
+env:
+  RMLINES_REF: v1.1.1
+  RMDOC_REF: v1.1.0
+  RMMARKS_REF: v1.1.0
 jobs:
   render:
     strategy:
@@ -23,9 +28,18 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update
       - if: runner.os == 'Linux'
-        run: sudo apt-get install -y clang-19 libclang-rt-19-dev cmake ninja-build pkg-config gperf make libpng-dev libjpeg-dev libbrotli-dev libexpat1-dev libffi-dev libpcre2-dev zlib1g-dev libgdk-pixbuf-2.0-dev poppler-utils
+        run: sudo apt-get install -y clang-19 libclang-rt-19-dev cmake ninja-build pkg-config gperf make libpng-dev libjpeg-dev libbrotli-dev libexpat1-dev libffi-dev libpcre2-dev zlib1g-dev libgdk-pixbuf-2.0-dev poppler-utils libxml2-utils
+      # The SVG raster test on Linux uses resvg's own static build, pinned by
+      # checksum: Ubuntu 24.04 packages no resvg, and its rsvg-convert would
+      # run under the pinned stack's LD_LIBRARY_PATH, loading those libraries
+      # in place of the ones it was built against.
+      - if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/resvg.tar.gz" https://github.com/linebender/resvg/releases/download/v0.49.0/resvg-linux-x86_64.tar.gz
+          echo "216637e75e909e53e3098b0875cd5f7da2fdc8b4359771b4a29b539afff9d3f5  $RUNNER_TEMP/resvg.tar.gz" | sha256sum -c -
+          sudo tar xzf "$RUNNER_TEMP/resvg.tar.gz" -C /usr/local/bin resvg
       - if: runner.os == 'macOS'
-        run: brew install llvm ninja pkg-config gperf gettext jpeg-turbo libpng brotli expat libffi pcre2 gdk-pixbuf poppler
+        run: brew install llvm ninja pkg-config gperf gettext jpeg-turbo libpng brotli expat libffi pcre2 gdk-pixbuf poppler librsvg
       - run: python3 -m pip install meson==1.11.0
       - name: Build rendering stack
         shell: bash
@@ -51,17 +65,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmlines-lib
-          ref: v1.1.0
+          ref: ${{ env.RMLINES_REF }}
           path: .deps/rmlines
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmdoc-lib
-          ref: v1.1.0
+          ref: ${{ env.RMDOC_REF }}
           path: .deps/rmdoc
       - uses: actions/checkout@v4
         with:
           repository: altessa-s/rmmarks-lib
-          ref: v1.1.0
+          ref: ${{ env.RMMARKS_REF }}
           path: .deps/rmmarks
       - name: Build and test
         shell: bash
@@ -77,7 +91,7 @@ jobs:
             cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/deps" -D"$(echo "$name" | tr '[:lower:]' '[:upper:]')_BUILD_TESTS"=OFF
             cmake --build "build-$name" --target install
           done
-          cmake -S . -B build -G Ninja -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake -S . -B build -G Ninja -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
           cmake --build build --target check -j4
           mkdir -p artifacts
           build/test_linux_emoji resources/fonts "artifacts/${{ matrix.name }}.png"
