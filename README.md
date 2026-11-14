@@ -519,8 +519,11 @@ the Apple backend writes a fresh PDF over an imported document that has an
 outline, because `CGPDFContextSetOutline` keeps the entries it converts, also
 on success and whatever form they are given in. Preserving and recomposed
 exports keep the original outline without CoreGraphics and do not leak, nor
-does the Cairo backend. CoreGraphics also leaks 96 bytes each time the Apple
-backend draws an imported page that has no content stream.
+does the Cairo backend. On macOS 15, `CGPDFDocumentGetOutline` also leaves
+its borrowed dictionary tree allocated after the document is released.
+The macOS leak check excludes only these outline allocation stacks.
+CoreGraphics also leaks 96 bytes each time the Apple backend draws an
+imported page that has no content stream.
 
 On the Cairo backend, PDF paints that require fallback rasterization,
 including eraser cuts and their enclosing transparency groups, use at most
