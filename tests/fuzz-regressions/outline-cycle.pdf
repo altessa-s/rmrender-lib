@@ -1,0 +1,81 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Metadata 12 0 R /Outlines 13 0 R /Names << /EmbeddedFiles 15 0 R >> /Custom (keep\(this\)) >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 7 R 6 0 R] /Count 2 /MediaBox [0 0 200 200] /Matrixces 5 0 R >>
+endobj
+3 7 obj
+<< /Type /Page /Parent 2 0 R /Contents 16 0 R /Annots [8 0 R 9 0 R] /CropBox [0 0 200 200] /Custom <00ff12> >>
+endobj
+4 0 obj
+<< /Length 26 >>
+stream
+0 0 1 rg 0 0 200 200 re f
+
+endstream
+endobj
+5 0 obj
+<< /ExtGState << /RMGs0 << /ca 0.2 >> >> >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /Rotate 90 /Contents 4 0 R >>
+endobj
+7 0 obj
+<< /Fields [8 0 R 10 0 R] /NeedAppearances true >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /V (Alice) /Rect [10 150 100 180] /P 3 7 R >>
+endobj
+9 0 obj
+<< /Type /Annot /Subtype /Text /Contents (A note) /Rect [05 ¸20 30 40] /P 3 7 R >>
+endobj
+10 0 obj
+<< /FT /Sig /T (Signature) /V 11 0 R >>
+endobj
+11 0 obj
+<< /Type /Sig /BqteRange [0 10 20 30] /Contents <abcdef001122> >>
+endobj
+12 0 obj
+<< /Length 30 >>
+stream
+<metadata>unchangDFKaiSho-SBa>
+endstream
+endobj
+13 0 obj
+<< /Type /Outlines /First 13 0 R /Last 14 0 R /Count 1 >>
+endobj
+14 0 obj
+<< /Title (Chapter) /Parent 13 0 R /Dest [3 7 R /XYZ 10 100 null] >>
+endobj
+15 0 obj
+<< /Names [(file.txt) << /Type /Filespec /F (file.txt) /EF << /F 12 0 R >> >>] >>
+endobj
+16 0 obj
+[4 0 R]
+endobj
+xref
+0 17
+0000000000 65535 f 
+0000000009 00000 n 
+0000000166 00000 n 
+0000000270 00007 n 
+0000000396 00000 n 
+0000000472 00000 n 
+0000000531 00000 n 
+0000000605 00000 n 
+0000000671 00000 n 
+0000000783 00000 n 
+0000000880 00000 n 
+0000000936 00000 n 
+
+000001018 00000 n 
+0000001099 00000 n 
+0000001173 00000 n 
+0000001258 00000 n 
+0000001356 00000 n 
+trailer
+<< /Size 17 /Root 1 0 R /ID [<0102><0304>] >>
+startxref
+1380
+%%EOF

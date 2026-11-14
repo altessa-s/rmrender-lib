@@ -209,7 +209,8 @@ static bool svg_temporary(const uint8_t* bytes, size_t size, char* path,
   return fclose(f) == 0 && ok;
 }
 
-/* Runs xmllint --noout over the document when available; true otherwise.
+/* Runs xmllint --noout over the document when available; true otherwise,
+ * unless the environment says the tool is required.
  * POSIX passes the path to the tool as is. Windows passes its ASCII spelling
  * (svg_tool_path), quoted because the CRT joins arguments into one command
  * line, and skips the check with a note when there is none. */
@@ -219,7 +220,7 @@ static bool svg_xmllint(const uint8_t* bytes, size_t size) {
 
 #ifdef _WIN32
   char tool[sizeof path], quoted[sizeof path + 2];
-  bool ok = true;
+  bool ok = true, missing = false;
   if (!svg_tool_path(path, tool, sizeof tool)) {
     printf("note: xmllint skipped; %s has no ASCII path\n", path);
   } else {
@@ -227,6 +228,7 @@ static bool svg_xmllint(const uint8_t* bytes, size_t size) {
     const char* argv[] = {"xmllint", "--noout", quoted, nullptr};
     intptr_t status = _spawnvp(_P_WAIT, "xmllint", argv);
     ok = status == 0 || (status == -1 && errno == ENOENT);
+    missing = status == -1 && errno == ENOENT;
   }
 #else
   char* argv[] = {"xmllint", "--noout", path, nullptr};
@@ -234,12 +236,18 @@ static bool svg_xmllint(const uint8_t* bytes, size_t size) {
   int spawned =
       posix_spawnp(&child, "xmllint", nullptr, nullptr, argv, environ);
   int status = 0;
-  bool ok = true;
+  bool ok = true, missing = spawned != 0;
   if (spawned == 0)
     ok = waitpid(child, &status, 0) == child && WIFEXITED(status) &&
          WEXITSTATUS(status) == 0;
 #endif
   svg_remove(path);
+  /* A build meant to have every tool (RMRENDER_REQUIRE_TOOL_TESTS) sets
+   * RMR_TEST_REQUIRE_TOOLS, and the check may not pass unrun there. */
+  if (missing && getenv("RMR_TEST_REQUIRE_TOOLS")) {
+    fputs("xmllint not found; RMRENDER_REQUIRE_TOOL_TESTS needs it\n", stderr);
+    return false;
+  }
   return ok;
 }
 

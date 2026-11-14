@@ -3,6 +3,12 @@ name: Windows Cairo
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
+# The sibling libraries every job builds against: the latest releases, by
+# commit.
+env:
+  RMLINES_REF: c479a9c0ac23c1ca549103e55856ea23610c31c8 # v1.1.1
+  RMDOC_REF: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
+  RMMARKS_REF: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
 jobs:
   windows:
     name: windows (${{ matrix.arch }}, shared ${{ matrix.shared }})
@@ -47,21 +53,22 @@ jobs:
             ${{ matrix.pkg }}-zlib
             ${{ matrix.pkg }}-poppler
             ${{ matrix.pkg }}-libxml2
+            ${{ matrix.pkg }}-librsvg
             ${{ matrix.pkg }}-ntldd
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmlines-lib
-          ref: 14ea47353d4881aefd4987ab332765cd06609296 # v1.1.0
+          ref: ${{ env.RMLINES_REF }}
           path: .deps/rmlines
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmdoc-lib
-          ref: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
+          ref: ${{ env.RMDOC_REF }}
           path: .deps/rmdoc
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: altessa-s/rmmarks-lib
-          ref: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
+          ref: ${{ env.RMMARKS_REF }}
           path: .deps/rmmarks
       - name: Build dependencies
         run: |
@@ -75,7 +82,7 @@ jobs:
       - name: Configure and test
         run: |
           export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
-          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/.deps/install"
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/.deps/install"
           cmake --build build --target all -j4
           # Font files must not pile up: none in the temporary directories, and
           # the shared cache must not grow when the same fonts load again.

@@ -4,19 +4,46 @@
 
 # A release is a tag. Pushing `v1.2.3` checks that the header says 1.2.3 —
 # the version lives there and nowhere else, and a tag that disagrees with it
-# is refused before anything is built — then builds and tests the portable
-# core with GCC and the full Apple package, and publishes a GitHub release
-# with generated notes. The release is source only: the backends depend on
-# platform graphics libraries the application ships.
+# is refused before anything is built — then builds, tests and packages the
+# library for three platforms and publishes the archives as a GitHub release
+# titled "rmrender 1.2.3", with generated notes.
+#
+# Each archive, rmrender-<version>-<platform>, is the installed tree of a
+# static Release build: lib/ (the rmrender libraries, and the rmlines, rmdoc
+# and rmmarks releases named in env below that its adapters link, as static
+# libraries), include/,
+# lib/cmake/ (CMake packages, FindPDFium.cmake beside RMRender's),
+# lib/pkgconfig/, share/rmrender/ (the bundled fonts and the other resources
+# the library reads at run time, with their licences) and share/licenses/,
+# plus LICENSE, COPYRIGHT and README.md at the top.
+#
+# - linux-x86_64: the Cairo backend, built with clang on Debian trixie.
+# - macos-arm64: the Apple (CoreGraphics) backend.
+# - windows-x86_64: the Cairo backend, built with clang in MSYS2 CLANG64 as
+#   windows.yml builds it (UCRT runtime).
+#
+# Nothing third-party is bundled. A consumer of the Cairo archives supplies
+# Cairo, Pango, Fontconfig, HarfBuzz, GdkPixbuf and zlib (Debian packages, or
+# the MSYS2 CLANG64 packages windows.yml installs) and a PDFium SDK
+# (scripts/fetch-pdfium.py fetches the pinned one) through PDFium_ROOT, as
+# LINUX.md and WINDOWS.md describe; the macOS archive needs only the system
+# frameworks and zlib.
 name: Release
 
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
+# Building reads the repositories; only publishing writes, in its own job.
 permissions:
-  contents: write
+  contents: read
 
+# The sibling libraries every job builds against: the latest releases, by
+# commit.
+env:
+  RMLINES_REF: c479a9c0ac23c1ca549103e55856ea23610c31c8 # v1.1.1
+  RMDOC_REF: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
+  RMMARKS_REF: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
 jobs:
   verify:
     name: The tag names the header's version
@@ -25,6 +52,8 @@ jobs:
       version: ${{ steps.header.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - id: header
         run: |
           read_part() { sed -n "s/^#define RMRENDER_VERSION_$1 \([0-9]*\)$/\1/p" include/rmrender/rmrender.h; }
@@ -34,58 +63,272 @@ jobs:
           test "$version" = "$tag" || { echo "::error::the tag does not match include/rmrender/rmrender.h"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  # The portable core alone, with GCC.
   core:
     needs: verify
     runs-on: ubuntu-24.04
     container: gcc:15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: apt-get update
-      - run: apt-get install -y cmake ninja-build python3 zlib1g-dev
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_WERROR=ON
+      - run: apt-get install -y cmake ninja-build python3 zlib1g-dev libxml2-utils
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON
       - run: cmake --build build --target all check
 
-  apple:
+  linux:
+    name: linux-x86_64
     needs: verify
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    env:
+      NAME: rmrender-${{ needs.verify.outputs.version }}-linux-x86_64
     steps:
-      - uses: actions/checkout@v4
-      - run: brew install llvm ninja
+      # git before the checkout, as in ci.yml: a clone dates files at checkout.
+      - run: apt-get update
+      - run: apt-get install -y git clang libclang-rt-19-dev cmake ninja-build pkg-config python3 ca-certificates libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libfontconfig1-dev zlib1g-dev poppler-utils librsvg2-bin libxml2-utils
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
           repository: altessa-s/rmlines-lib
-          ref: v1.1.0
+          ref: ${{ env.RMLINES_REF }}
           path: .deps/rmlines
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: altessa-s/rmdoc-lib
-          ref: v1.1.0
+          ref: ${{ env.RMDOC_REF }}
           path: .deps/rmdoc
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: altessa-s/rmmarks-lib
-          ref: v1.1.0
+          ref: ${{ env.RMMARKS_REF }}
           path: .deps/rmmarks
-      - name: Build the sibling libraries
+      - run: python3 scripts/fetch-pdfium.py --platform linux-x64 --output .deps/pdfium
+      - name: Build the sibling libraries into the package
+        shell: bash
         run: |
           for name in rmlines rmdoc rmmarks; do
             upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
-            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -D"${upper}_BUILD_TESTS"=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/deps"
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -D"${upper}_BUILD_TESTS"=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/stage/$NAME"
             cmake --build "build-$name" --target install
           done
-      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_BUILD_TYPE=Release -DRMRENDER_WERROR=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps"
+      # The PDFium SDK fetched here is upstream's, which keeps non-BMP
+      # ActualText on Windows only; pdfium_actualtext is left out by name.
+      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON -DRMRENDER_CHECK_EXCLUDE='^pdfium_actualtext$' -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME"
       - run: cmake --build build --target all check
+      - run: cmake --install build --prefix "stage/$NAME"
+      - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium"
+      - run: cmake --build build-consumer
+      - run: LD_LIBRARY_PATH="$GITHUB_WORKSPACE/.deps/pdfium/lib" ./build-consumer/consumer
+      - name: Package
+        shell: bash
+        run: |
+          cp LICENSE COPYRIGHT README.md "stage/$NAME/"
+          # rmlines installs no licence of its own; rmdoc's and rmmarks' are
+          # installed with them, rmdoc's with miniz's notice.
+          mkdir -p "stage/$NAME/share/licenses/rmlines"
+          cp .deps/rmlines/LICENSE .deps/rmlines/COPYRIGHT "stage/$NAME/share/licenses/rmlines/"
+          # Every licence the archive must carry; a missing one stops the job.
+          for file in rmlines/LICENSE rmdoc/LICENSE rmdoc/UNICODE-LICENSE.txt rmdoc/miniz/LICENSE.txt rmmarks/LICENSE rmmarks/UNICODE-LICENSE.txt rmrender/LICENSE; do
+            test -f "stage/$NAME/share/licenses/$file" || { echo "missing share/licenses/$file"; exit 1; }
+          done
+          for file in UNICODE-LICENSE.txt fonts/EBGaramond-OFL.txt fonts/NotoEmoji-OFL.txt fonts/NotoSans-OFL.txt fonts/NotoSansArabic-OFL.txt fonts/NotoSansDevanagari-OFL.txt fonts/NotoSansHebrew-OFL.txt fonts/NotoSansJP-OFL.txt fonts/NotoSansKR-OFL.txt fonts/NotoSansThaiLooped-OFL.txt; do
+            test -f "stage/$NAME/share/rmrender/$file" || { echo "missing share/rmrender/$file"; exit 1; }
+          done
+          mkdir -p dist
+          (cd stage && tar czf "../dist/$NAME.tar.gz" "$NAME")
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macos-arm64
+    needs: verify
+    runs-on: macos-15
+    env:
+      NAME: rmrender-${{ needs.verify.outputs.version }}-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # librsvg for the SVG raster checks; macOS ships xmllint.
+      - run: brew install llvm ninja librsvg
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmlines-lib
+          ref: ${{ env.RMLINES_REF }}
+          path: .deps/rmlines
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmdoc-lib
+          ref: ${{ env.RMDOC_REF }}
+          path: .deps/rmdoc
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmmarks-lib
+          ref: ${{ env.RMMARKS_REF }}
+          path: .deps/rmmarks
+      - name: Build the sibling libraries into the package
+        run: |
+          for name in rmlines rmdoc rmmarks; do
+            upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -D"${upper}_BUILD_TESTS"=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/stage/$NAME"
+            cmake --build "build-$name" --target install
+          done
+      - run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DRMRENDER_WERROR=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME"
+      - run: cmake --build build --target all check
+      - run: cmake --install build --prefix "stage/$NAME"
+      - run: cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER="$(brew --prefix llvm)/bin/clang" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME"
+      - run: cmake --build build-consumer
+      - run: ./build-consumer/consumer
+      - name: Package
+        run: |
+          cp LICENSE COPYRIGHT README.md "stage/$NAME/"
+          # rmlines installs no licence of its own; rmdoc's and rmmarks' are
+          # installed with them, rmdoc's with miniz's notice.
+          mkdir -p "stage/$NAME/share/licenses/rmlines"
+          cp .deps/rmlines/LICENSE .deps/rmlines/COPYRIGHT "stage/$NAME/share/licenses/rmlines/"
+          # Every licence the archive must carry; a missing one stops the job.
+          for file in rmlines/LICENSE rmdoc/LICENSE rmdoc/UNICODE-LICENSE.txt rmdoc/miniz/LICENSE.txt rmmarks/LICENSE rmmarks/UNICODE-LICENSE.txt rmrender/LICENSE; do
+            test -f "stage/$NAME/share/licenses/$file" || { echo "missing share/licenses/$file"; exit 1; }
+          done
+          for file in UNICODE-LICENSE.txt fonts/EBGaramond-OFL.txt fonts/NotoEmoji-OFL.txt fonts/NotoSans-OFL.txt fonts/NotoSansArabic-OFL.txt fonts/NotoSansDevanagari-OFL.txt fonts/NotoSansHebrew-OFL.txt fonts/NotoSansJP-OFL.txt fonts/NotoSansKR-OFL.txt fonts/NotoSansThaiLooped-OFL.txt; do
+            test -f "stage/$NAME/share/rmrender/$file" || { echo "missing share/rmrender/$file"; exit 1; }
+          done
+          mkdir -p dist
+          (cd stage && tar czf "../dist/$NAME.tar.gz" "$NAME")
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: windows-x86_64
+    needs: verify
+    runs-on: windows-2022
+    env:
+      NAME: rmrender-${{ needs.verify.outputs.version }}-windows-x86_64
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: CLANG64
+          update: false
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-cairo
+            mingw-w64-clang-x86_64-pango
+            mingw-w64-clang-x86_64-fontconfig
+            mingw-w64-clang-x86_64-harfbuzz
+            mingw-w64-clang-x86_64-gdk-pixbuf2
+            mingw-w64-clang-x86_64-zlib
+            mingw-w64-clang-x86_64-poppler
+            mingw-w64-clang-x86_64-libxml2
+            mingw-w64-clang-x86_64-librsvg
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmlines-lib
+          ref: ${{ env.RMLINES_REF }}
+          path: .deps/rmlines
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmdoc-lib
+          ref: ${{ env.RMDOC_REF }}
+          path: .deps/rmdoc
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          repository: altessa-s/rmmarks-lib
+          ref: ${{ env.RMMARKS_REF }}
+          path: .deps/rmmarks
+      - name: Build the sibling libraries into the package
+        run: |
+          for name in rmlines rmdoc rmmarks
+          do
+            upper=$(echo "$name" | tr '[:lower:]' '[:upper:]')
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -D"${upper}_BUILD_TESTS"=OFF -D"${upper}_BUILD_TOOLS"=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/stage/$NAME"
+            cmake --build "build-$name" --target install -j4
+          done
+      - run: python scripts/fetch-pdfium.py --platform win-x64 --output .deps/pdfium
+      # Upstream PDFium keeps non-BMP ActualText on Windows, so the check is
+      # required here, as in windows.yml.
+      - name: Configure, build and test
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PWD/build:$PATH"
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DRMRENDER_WERROR=ON -DRMRENDER_REQUIRE_PDFIUM_ACTUALTEXT=ON -DRMRENDER_REQUIRE_TOOL_TESTS=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME"
+          cmake --build build --target all check -j4
+          cmake --install build --prefix "stage/$NAME"
+      - name: Installed package consumer
+        run: |
+          export PATH="$PWD/.deps/pdfium/bin:$PATH"
+          cmake -S tests/installed_consumer -B build-consumer -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage/$NAME" -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium"
+          cmake --build build-consumer -j4
+          build-consumer/consumer.exe
+      - name: Package
+        run: |
+          cp LICENSE COPYRIGHT README.md "stage/$NAME/"
+          # rmlines installs no licence of its own; rmdoc's and rmmarks' are
+          # installed with them, rmdoc's with miniz's notice.
+          mkdir -p "stage/$NAME/share/licenses/rmlines"
+          cp .deps/rmlines/LICENSE .deps/rmlines/COPYRIGHT "stage/$NAME/share/licenses/rmlines/"
+          # Every licence the archive must carry; a missing one stops the job.
+          for file in rmlines/LICENSE rmdoc/LICENSE rmdoc/UNICODE-LICENSE.txt rmdoc/miniz/LICENSE.txt rmmarks/LICENSE rmmarks/UNICODE-LICENSE.txt rmrender/LICENSE; do
+            test -f "stage/$NAME/share/licenses/$file" || { echo "missing share/licenses/$file"; exit 1; }
+          done
+          for file in UNICODE-LICENSE.txt fonts/EBGaramond-OFL.txt fonts/NotoEmoji-OFL.txt fonts/NotoSans-OFL.txt fonts/NotoSansArabic-OFL.txt fonts/NotoSansDevanagari-OFL.txt fonts/NotoSansHebrew-OFL.txt fonts/NotoSansJP-OFL.txt fonts/NotoSansKR-OFL.txt fonts/NotoSansThaiLooped-OFL.txt; do
+            test -f "stage/$NAME/share/rmrender/$file" || { echo "missing share/rmrender/$file"; exit 1; }
+          done
+          mkdir -p dist
+          (cd stage && cmake -E tar cf "../dist/$NAME.zip" --format=zip "$NAME")
+          ls -l dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-x86_64
+          path: dist/*
+          if-no-files-found: error
 
   publish:
     name: Publish the release
-    needs: [verify, core, apple]
+    needs: [verify, core, linux, macos, windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
             --title "rmrender ${{ needs.verify.outputs.version }}" \
             --generate-notes --verify-tag

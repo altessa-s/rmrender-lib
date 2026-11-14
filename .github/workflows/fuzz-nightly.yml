@@ -1,0 +1,80 @@
+# Copyright 2026 ALTESSA SOLUTIONS INC.
+# Use of this source code is governed by an MIT-style license that can be
+# found in the LICENSE file.
+
+# Half an hour a night of libFuzzer over what the library reads from outside:
+# imported PDFs, .rm pages and .rmdoc archives (tests/fuzz_render.c), on the
+# Cairo backend. The ordinary suites replay the same target over the seeds on
+# every push (fuzz_replay); this run looks further.
+name: Nightly fuzz
+on:
+  schedule:
+    - cron: '43 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+# The sibling libraries every job builds against: the latest releases.
+env:
+  RMLINES_REF: v1.1.1
+  RMDOC_REF: v1.1.0
+  RMMARKS_REF: v1.1.0
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 60
+    steps:
+      # Debian's own clang 19 carries the sanitizer and libFuzzer runtimes,
+      # so no third-party package source is needed. git first, as in ci.yml.
+      - run: apt-get update
+      - run: apt-get install -y git clang libclang-rt-19-dev cmake ninja-build pkg-config python3 ca-certificates libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libfontconfig1-dev zlib1g-dev
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmlines-lib
+          ref: ${{ env.RMLINES_REF }}
+          path: .deps/rmlines
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmdoc-lib
+          ref: ${{ env.RMDOC_REF }}
+          path: .deps/rmdoc
+      - uses: actions/checkout@v4
+        with:
+          repository: altessa-s/rmmarks-lib
+          ref: ${{ env.RMMARKS_REF }}
+          path: .deps/rmmarks
+      - run: python3 scripts/fetch-pdfium.py --platform linux-x64 --output .deps/pdfium
+      # -O1, the usual level for libFuzzer builds, keeps one sanitized
+      # execution to tens of milliseconds. The format libraries are built the
+      # same way, so their parsers count towards coverage too.
+      - name: Build
+        shell: bash
+        env:
+          FLAGS: -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+        run: |
+          for name in rmlines rmdoc rmmarks; do
+            upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+            cmake -S ".deps/$name" -B "build-$name" -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_C_FLAGS="$FLAGS" -D"${upper}_BUILD_TESTS"=OFF -DRMLINES_BUILD_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/deps"
+            cmake --build "build-$name" --target install
+          done
+          cmake -S . -B build/fuzz -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_C_FLAGS="$FLAGS" -DRMRENDER_BUILD_TESTS=OFF -DRMRENDER_BUILD_FUZZERS=ON -DRMRENDER_BUILD_APPLE=OFF -DRMRENDER_BUILD_CAIRO=ON -DRMRENDER_BUILD_RMLINES=ON -DRMRENDER_BUILD_RMDOC=ON -DRMRENDER_BUILD_RMMARKS=ON -DPDFium_ROOT="$GITHUB_WORKSPACE/.deps/pdfium" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/deps"
+          cmake --build build/fuzz --target fuzz_render fuzz_seeds
+      - run: build/fuzz/fuzz_seeds build/fuzz/fuzz-seeds
+      - run: mkdir -p build/corpus
+      # The seeds are at most a few kilobytes; 64 KiB leaves room to grow
+      # without letting one input outweigh a page. One execution is bounded
+      # by the target's limits, so -timeout reports a hang within seconds.
+      # Fontconfig's font data looks lost to the check between inputs; see
+      # tests/fuzz_lsan.supp.
+      - run: LSAN_OPTIONS=suppressions="$GITHUB_WORKSPACE/tests/fuzz_lsan.supp" LD_LIBRARY_PATH="$GITHUB_WORKSPACE/.deps/pdfium/lib" build/fuzz/fuzz_render build/corpus build/fuzz/fuzz-seeds/pdf build/fuzz/fuzz-seeds/page build/fuzz/fuzz-seeds/archive -max_total_time=1800 -max_len=65536 -timeout=10 -print_final_stats=1 -artifact_prefix=build/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-failures
+          path: |
+            build/crash-*
+            build/leak-*
+            build/timeout-*
+            build/oom-*
+          if-no-files-found: ignore
