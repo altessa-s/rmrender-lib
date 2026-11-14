@@ -45,11 +45,12 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
-            export CC="$(brew --prefix llvm)/bin/clang"
-            export CXX="$(brew --prefix llvm)/bin/clang++"
-            export CFLAGS="-I$(brew --prefix gettext)/include"
-            export CXXFLAGS="$CFLAGS"
-            export LDFLAGS="-L$(brew --prefix gettext)/lib"
+            CC="$(brew --prefix llvm)/bin/clang"
+            CXX="$(brew --prefix llvm)/bin/clang++"
+            CFLAGS="-I$(brew --prefix gettext)/include"
+            CXXFLAGS="$CFLAGS"
+            LDFLAGS="-L$(brew --prefix gettext)/lib"
+            export CC CXX CFLAGS CXXFLAGS LDFLAGS
           else
             export CC=clang-19
             export CXX=clang++-19
@@ -81,7 +82,8 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
-            export CC="$(brew --prefix llvm)/bin/clang"
+            CC="$(brew --prefix llvm)/bin/clang"
+            export CC
           else
             export CC=clang-19
           fi
