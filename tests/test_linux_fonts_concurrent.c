@@ -15,6 +15,8 @@
 #include <fontconfig/fontconfig.h>
 #include <pango/pangocairo.h>
 #include <pango/pangofc-fontmap.h>
+
+#include "fontconfig_fixture.h"
 #endif
 
 #include "test.h"
@@ -214,6 +216,9 @@ int main(int argc, char** argv) {
   /* Before anything asks GLib for the user data directory, which it keeps. */
   char* root = g_dir_make_tmp("rmr-fonts-race-XXXXXX", nullptr);
   CHECK(root && g_setenv("XDG_DATA_HOME", root, true));
+#ifdef RMR_TEST_FONTCONFIG
+  char* fontconfig = test_fontconfig_directory(argv[1]);
+#endif
 
   bool mixed = argc == 3 && !strcmp(argv[2], "mixed");
   bool resolve = argc == 3 && !strcmp(argv[2], "resolver");
@@ -275,6 +280,7 @@ int main(int argc, char** argv) {
   }
   pango_cairo_font_map_set_default(nullptr);
   FcFini();
+  test_fontconfig_free(fontconfig);
 #endif
   puts("concurrent font map creation passed");
   return 0;

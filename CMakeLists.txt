@@ -494,7 +494,7 @@ if(RMRENDER_BUILD_TESTS)
             target_compile_definitions(test_linux_svg_visual PRIVATE RMR_TEST_FONTCONFIG)
             target_link_libraries(test_linux_svg_visual PRIVATE PkgConfig::RMR_CAIRO PkgConfig::RMR_PANGO)
         endif()
-        add_test(NAME linux_svg_visual COMMAND test_linux_svg_visual)
+        add_test(NAME linux_svg_visual COMMAND test_linux_svg_visual "${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts")
         if(RMR_RASTERIZER_MISSING)
             message(${RMR_TOOL_MISSING} "linux_svg_visual will skip: neither rsvg-convert nor resvg found")
         endif()
@@ -680,17 +680,20 @@ if(RMRENDER_BUILD_TESTS)
     # leaks ships with macOS and needs an unsanitized build. CoreGraphics keeps
     # the outline entries CGPDFContextSetOutline converts, about 300 bytes per
     # entry of a fresh export over an imported PDF with an outline, also on
-    # success; those blocks alone are excluded, by their allocation stack, so
-    # that any other leak fails the target. The sink sweep exports with and
-    # without an outline in every mode and through every failure path.
+    # success. On macOS 15 its outline reader also leaves the borrowed
+    # dictionary tree behind when the document is released. Exclude only
+    # these two allocation stacks so any other leak fails the target. The
+    # sink sweep exports with and without an outline through every failure.
     if(APPLE)
         find_program(RMR_LEAKS leaks)
         if(RMR_LEAKS AND TARGET test_sink_failures)
             add_custom_target(check_leaks COMMAND ${CMAKE_COMMAND} -E env MallocStackLogging=1 ${RMR_LEAKS}
-                --exclude=convertOutlineTree --atExit -- $<TARGET_FILE:test_sink_failures>
+                --exclude=convertOutlineTree --exclude=CGPDFDocumentGetOutline
+                --atExit -- $<TARGET_FILE:test_sink_failures>
                 ${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts
                 COMMAND ${CMAKE_COMMAND} -E env MallocStackLogging=1 ${RMR_LEAKS}
-                --exclude=convertOutlineTree --atExit -- $<TARGET_FILE:test_fuzz_regressions>
+                --exclude=convertOutlineTree --exclude=CGPDFDocumentGetOutline
+                --atExit -- $<TARGET_FILE:test_fuzz_regressions>
                 ${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz-regressions
                 DEPENDS test_sink_failures test_fuzz_regressions)
         elseif(RMR_LEAKS AND TARGET test_linux_sink_failures)

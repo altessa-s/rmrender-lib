@@ -1,0 +1,12 @@
+# Byte-exact documents, images and fonts must survive every checkout unchanged.
+*.pdf binary
+*.rm binary
+*.rmdoc binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ttf binary
+*.otf binary
+*.bin binary
+tests/fuzz-regressions/** binary
