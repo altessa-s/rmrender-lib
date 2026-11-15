@@ -2,27 +2,41 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file. */
 
+/* Built against an installed package with the Cairo backend, or with the
+ * Apple one when RMR_CONSUMER_APPLE is defined; the two share their API. */
+#ifdef RMR_CONSUMER_APPLE
+#include <rmrender/apple_document.h>
+#include <rmrender/apple_marks.h>
+#define PAGE_MARKS rmr_apple_page_marks
+#define PAGE_PLAN rmr_apple_page_plan
+#define PLANS_PDF rmr_apple_pdf
+#define SHEETS_SVG rmr_apple_svg
+#else
 #include <rmrender/linux_document.h>
 #include <rmrender/linux_marks.h>
+#define PAGE_MARKS rmr_linux_page_marks
+#define PAGE_PLAN rmr_linux_page_plan
+#define PLANS_PDF rmr_linux_pdf
+#define SHEETS_SVG rmr_linux_svg
+#endif
 
 int main(void) {
   rm_page page = {0};
   rmr_page_marks* marks = nullptr;
-  if (rmr_linux_page_marks(&page, (rmr_point){100, 100},
-                           (rmr_rect){0, 0, 100, 100}, (rm_str){0}, nullptr,
-                           nullptr, &marks, nullptr) != RMR_OK)
+  if (PAGE_MARKS(&page, (rmr_point){100, 100}, (rmr_rect){0, 0, 100, 100},
+                 (rm_str){0}, nullptr, nullptr, &marks, nullptr) != RMR_OK)
     return 1;
   int result = !rmm_page_is_empty(rmr_page_marks_view(marks));
   rmr_page_marks_free(marks);
 
   rmr_plan* plan = nullptr;
-  if (rmr_linux_page_plan(&page, (rmr_point){100, 100}, RMR_EDGE_RIBBON, 0,
-                          nullptr, nullptr, nullptr, &plan, nullptr) != RMR_OK)
+  if (PAGE_PLAN(&page, (rmr_point){100, 100}, RMR_EDGE_RIBBON, 0, nullptr,
+                nullptr, nullptr, &plan, nullptr) != RMR_OK)
     return 2;
 
   const rmr_plan* plans[] = {plan};
   rmr_buffer pdf = {0};
-  if (rmr_linux_pdf(plans, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr) !=
+  if (PLANS_PDF(plans, 1, 1, nullptr, nullptr, nullptr, &pdf, nullptr) !=
       RMR_OK)
     result = 3;
   else if (!pdf.bytes || !pdf.size)
@@ -30,8 +44,8 @@ int main(void) {
 
   rmr_sheet sheet = {100, 100, {1, 0, 0, -1, 50, 100}};
   rmr_svg_pages svg = {0};
-  if (!result && (rmr_linux_svg(plans, &sheet, 1, 0, nullptr, nullptr, nullptr,
-                                &svg, nullptr) != RMR_OK ||
+  if (!result && (SHEETS_SVG(plans, &sheet, 1, 0, nullptr, nullptr, nullptr,
+                             &svg, nullptr) != RMR_OK ||
                   svg.count != 1))
     result = 5;
 

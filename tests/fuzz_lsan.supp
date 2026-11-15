@@ -1,0 +1,14 @@
+# LeakSanitizer suppressions for the nightly libFuzzer run of fuzz_render.
+# The target loads its fonts once, in LLVMFuzzerInitialize, and frees them at
+# exit. Fontconfig holds those fonts' patterns and character sets behind
+# encoded offsets, which LeakSanitizer cannot follow, so libFuzzer's check
+# between inputs reports them as lost. Fontconfig's own default
+# configuration, which Pango loads once on a thread of its own, is held the
+# same way. Only allocations made under those two one-time setups are
+# suppressed; a pattern or font set leaked anywhere else is still reported.
+# A template matches any frame whose function name contains it, so the first
+# line covers rmr_linux_fonts_create and rmr_linux_fonts_create_directory,
+# the function the target calls. The replay tests run without these
+# suppressions.
+leak:rmr_linux_fonts_create
+leak:FcInitLoadConfigAndFonts

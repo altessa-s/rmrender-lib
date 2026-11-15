@@ -514,18 +514,48 @@ backend context. The library emits no logs and keeps no global caches; the one
 process-wide state is the Cairo backend's PDFium engine, described above. A
 template store serves one synchronous render at a time.
 
+Known limit: CoreGraphics leaks about 300 bytes per outline entry each time
+the Apple backend writes a fresh PDF over an imported document that has an
+outline, because `CGPDFContextSetOutline` keeps the entries it converts, also
+on success and whatever form they are given in. Preserving and recomposed
+exports keep the original outline without CoreGraphics and do not leak, nor
+does the Cairo backend. On macOS 15, `CGPDFDocumentGetOutline` also leaves
+its borrowed dictionary tree allocated after the document is released.
+The macOS leak check excludes only these outline allocation stacks.
+CoreGraphics also leaks 96 bytes each time the Apple backend draws an
+imported page that has no content stream.
+
+On the Cairo backend, PDF paints that require fallback rasterization,
+including eraser cuts and their enclosing transparency groups, use at most
+300 ppi. Pages with a rounded-out side over 7,863 points use the lower
+resolution described below to keep every fallback image within Cairo's
+32,767-pixel side limit and the caller's `maximum_bitmap_bytes` area budget
+(four bytes per pixel, with a minimum image of one pixel). This budget bounds
+each fallback image, rather than total process memory or all worker threads.
+Fine detail in those images can be reduced. Vector marks retain their
+geometry and resolution.
+
 ## Validation
 
-With every component enabled, `check` runs 37 suites with the Apple backend
-and 41 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
+With every component enabled, `check` runs 48 suites with the Apple backend
+and 54 with the Cairo backend: geometry, the backend lifecycle, invalid inputs,
 grain masks, allocation failure injected at each allocation, templates and JSON
 decoding, hostile and incremental PDFs, page selection and rewriting, bitmap,
-PDF, SVG and text output, Unicode layout, page composition, archives and full
-pages. The core alone builds and passes its suites on Linux with GCC. SVG
-output is checked for well-formed XML (with `xmllint` when installed) and, when
-`rsvg-convert` or `resvg` is installed, rasterized and compared with the
-backend's own bitmap of the same plan; without a rasterizer that suite is
-skipped.
+PDF, SVG and text output, Unicode layout, page composition, archives, full
+pages, document exports whose output fails at every write and around every
+byte (`test_sink_failures`, which takes `exhaustive` to try every byte), a
+replay of the fuzz target over seeds written from the fixtures, and the inputs
+the fuzzer found with what they must do (`tests/fuzz-regressions`). The core alone
+builds and passes its suites on Linux with GCC. SVG output is checked for
+well-formed XML (with `xmllint` when installed) and, when `rsvg-convert` or
+`resvg` is installed, rasterized and compared with the backend's own bitmap of
+the same plan; the Cairo backend's PDF text is read back with `pdftotext`.
+Without one of those tools its check is skipped, and configuration says so;
+`-DRMRENDER_REQUIRE_TOOL_TESTS=ON`, which CI sets, makes every such skip a
+failure, and `RMRENDER_CHECK_EXCLUDE` leaves a test out of `check` by name.
+On macOS, `check_leaks` runs the sink sweep under `leaks` in an unsanitized
+build. `-DRMRENDER_BUILD_FUZZERS=ON` with clang builds the libFuzzer target
+`fuzz_render`, which a nightly workflow runs.
 
 The Windows workflow builds static and DLL variants on x64 (CLANG64) and ARM64
 (CLANGARM64), checks that font files do not accumulate across runs, repeats the
@@ -552,6 +582,73 @@ swift scripts/generate-unicode.swift | cmp - backends/apple/rmr_alphabetic.c
 `tests/verify_pdf_signature.py --writer build/test_pdf_incremental` signs a
 generated PDF locally, applies two incremental updates and verifies the
 original signed bytes with OpenSSL.
+
+## Release archives
+
+Each release, `rmrender <version>`, carries three archives built, tested and
+installed by the release workflow: `rmrender-<version>-linux-x86_64.tar.gz`
+and `rmrender-<version>-windows-x86_64.zip` with the Cairo backend (Windows
+built with clang in MSYS2 CLANG64, as the Windows workflow builds it), and
+`rmrender-<version>-macos-arm64.tar.gz` with the Apple backend. Each holds the
+installed tree of a static Release build: the libraries with rmlines, rmdoc
+and rmmarks, which the adapters link, the headers, the CMake and pkg-config
+packages, the fonts and other resources under `share/rmrender` with their
+licences, each bundled library's licence under `share/licenses`, and
+`LICENSE`, `COPYRIGHT` and this README. Nothing third-party is
+bundled: with the Cairo archives, supply Cairo, Pango, Fontconfig, HarfBuzz,
+GdkPixbuf and zlib from the system or MSYS2, and a PDFium SDK through
+`PDFium_ROOT` (`scripts/fetch-pdfium.py` fetches the pinned one), as
+[LINUX.md](LINUX.md) and [WINDOWS.md](WINDOWS.md) describe. The macOS archive
+needs only the system frameworks and zlib.
+
+## Changes in 1.5.1
+
+Statuses are unchanged except where said. Messages:
+
+| Export | Cause | Was | Now |
+|---|---|---|---|
+| Apple, fresh | `maximum_pdf_bytes` below the file header | `RMR_ERR_OUT_OF_MEMORY` "PDF sink allocation failed" | `RMR_ERR_LIMIT` "PDF output byte limit" |
+| Apple, fresh | the caller's `rmr_output` refusing a write, through `rmr_apple_pdf_*` directly (document exports already said so) | "PDF overlay failed" | "PDF output write failed" |
+| Apple, fresh | the PDF being assembled failing: past `maximum_pdf_bytes`, its object, cross-reference or assembly limits, its memory | "PDF output byte limit" for every limit, "PDF overlay failed" otherwise | its own reason: "PDF output byte limit", "PDF object number limit", "xref allocation limit", "PDF assembly object limit", "PDF output allocation", "PDF allocation failed" |
+| Apple and Cairo, preserving and recomposed | output past `maximum_pdf_bytes` | "PDF output size limit" | "PDF output byte limit" |
+| Cairo, fresh | the PDF being assembled failing, as above | "PDF composition failed" | its own reason, as on Apple, or "PDF assembly failed" when none is available |
+| Cairo, fresh | a drawn part or composed page past `maximum_pdf_bytes` | "PDF composition failed", "backend execution failed or cancelled" | "PDF output byte limit" |
+| Cairo, fresh | cancelled while reading the source's links and outline | "PDF composition failed" | "PDF collection cancelled" |
+| Cairo, fresh | cancelled between pages | "PDF composition failed" | "PDF composition cancelled" |
+| Cairo, fresh | allocating its own output structures | "PDF composition failed" | "PDF sink allocation failed", as on Apple |
+| Cairo, preserving and recomposed (each page's marks), `rmr_linux_pdf*` | past `maximum_pdf_bytes`; cancelled; allocation; the PDF being assembled failing | "Linux PDF rendering failed" | "PDF output byte limit"; "PDF composition cancelled"; "PDF sink allocation failed"; its own reason |
+| Cairo, any PDF | Cairo failing a page | "PDF composition failed", "Linux PDF rendering failed" | "PDF drawing failed" |
+| Cairo, any PDF | a drawing failure | "Linux PDF rendering failed" | the drawing's own message |
+| Apple and Cairo, fresh | imported outline deeper than 128 levels, longer than 65,536 entries, or past `maximum_elements` to walk | Apple "PDF overlay failed" (depth only), Cairo accepted or "PDF composition failed" | `RMR_ERR_LIMIT` "PDF outline limit", before anything is written |
+| Apple, fresh | allocation while checking the imported outline (new check) | — | `RMR_ERR_OUT_OF_MEMORY` "PDF outline allocation failed" |
+
+- An export that fails for several reasons at once reports the one earliest
+  in the file, the same on every run; before, worker timing could pick
+  another message. Once it has decided to fail, nothing more is written to
+  the caller's `rmr_output`.
+- An imported outline whose entries link back to one another is dropped
+  from a fresh export on both backends. CoreGraphics never finished reading
+  such an outline; the Cairo backend walked it until the element limit. Both
+  backends walk an outline the same way, depth first with an entry's
+  children before its next sibling, with its own work budget separate from
+  link collection; whichever of a loop or a limit comes first decides.
+- Cairo: PDF exports with erasers on tall pages now succeed. Before drawing
+  each page whose rounded-out larger side exceeds 7,863 points, the backend
+  lowers both fallback resolutions from 300 ppi to at most
+  `300 × 7863 / side` and
+  `72 × sqrt(maximum_bitmap_bytes / 4 / (width × height))`, allowing for
+  pixel rounding and keeping a positive minimum of one pixel on the longer
+  axis. Fractional resolutions also let very large plain pages succeed.
+  This bounds fallback images even when Cairo
+  merges several cuts or rasterizes an enclosing transparency group. Other
+  marks remain vector, and pages up to 7,863 points keep their PDF bytes.
+  Each subsequent page starts with its own resolution. The stream failure
+  that left Cairo holding a page's recorded paints is also avoided.
+- Cairo: concurrent text measurement and rendering with separate font maps
+  no longer races FreeType's shared state. Font setup, shaping, drawing,
+  PDF font finalization and font destruction share a process-wide lock.
+  Vector-only segments finish independently, and host font resolvers run
+  outside the lock so they can wait for other text callers.
 
 ## Bindings
 

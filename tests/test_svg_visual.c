@@ -10,6 +10,8 @@
 #ifdef RMR_TEST_FONTCONFIG
 #include <fontconfig/fontconfig.h>
 #include <pango/pangocairo.h>
+
+#include "fontconfig_fixture.h"
 #endif
 #ifdef RMR_TEST_LINUX
 #include <rmrender/linux.h>
@@ -225,12 +227,19 @@ static void erased(const char* tool, const rmr_mask* grain) {
   }
 }
 
-int main(void) {
+int main(int argc, char** argv) {
   const char* tool = svg_rasterizer();
   if (!tool) {
     puts("no SVG rasterizer (rsvg-convert or resvg); skipped");
     return 77;
   }
+#ifdef RMR_TEST_FONTCONFIG
+  CHECK(argc == 2);
+  char* fontconfig = test_fontconfig_directory(argv[1]);
+#else
+  (void)argc;
+  (void)argv;
+#endif
 
   fixture pdf = source(false);
   rmr_mask grain = {0};
@@ -253,8 +262,8 @@ int main(void) {
   CHECK(svg_rasterize(tool, &pages.pages[0], 800, 600, &drawn));
 
   svg_difference d = svg_compare(&reference, &drawn);
-  printf("%s: mean channel difference %.3f, strong pixels %.4f%%\n", tool,
-         d.mean, d.strong * 100);
+  fprintf(stderr, "%s: mean channel difference %.3f, strong pixels %.4f%%\n",
+          tool, d.mean, d.strong * 100);
   CHECK(d.mean < 2.5 && d.strong < .01);
   erased(tool, &grain);
 
@@ -278,6 +287,7 @@ int main(void) {
    * TEXT label created, then Fontconfig's global caches, for LSan. */
   pango_cairo_font_map_set_default(nullptr);
   FcFini();
+  test_fontconfig_free(fontconfig);
 #endif
   return 0;
 }
