@@ -95,6 +95,11 @@
  * was bounded, one of these took seconds and gigabytes. Generous enough for
  * a sanitized build on a busy machine. */
 constexpr double PROMPT_SECONDS = 5;
+/* A legal outline is real work in proportion to what it writes: the largest
+ * one, 65,536 entries, takes about 5 s on a busy macOS runner. Each written
+ * title earns this much more, 16 s for the largest; a walk that went
+ * quadratic would still take far longer. */
+constexpr double SECONDS_PER_TITLE = 0.00025;
 
 static double seconds(void) {
   struct timespec t;
@@ -256,7 +261,8 @@ static void outline_case(const char* name, const uint8_t* pdf, size_t size,
       titles += !memcmp(out.bytes + i, "/Title", 6);
     printf("%-30s mode %d: status %d \"%s\", %zu titles, %.3f s\n", name, mode,
            (int)s, s ? e.message : "", titles, took);
-    CHECK(s == want[mode] && took < PROMPT_SECONDS);
+    CHECK(s == want[mode] &&
+          took < PROMPT_SECONDS + (double)titles * SECONDS_PER_TITLE);
     if (s != RMR_OK) CHECK(!out.bytes && e.message[0]);
     if (s != RMR_OK && !mode) CHECK(!strcmp(e.message, message));
     /* A dropped outline leaves no entry in a fresh export. */
