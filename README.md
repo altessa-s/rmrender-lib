@@ -601,6 +601,13 @@ GdkPixbuf and zlib from the system or MSYS2, and a PDFium SDK through
 [LINUX.md](LINUX.md) and [WINDOWS.md](WINDOWS.md) describe. The macOS archive
 needs only the system frameworks and zlib.
 
+## Changes in 1.5.2
+
+1.5.1 was tagged but not published: its release build stopped where GCC 15,
+optimising, could not prove that the SHA-256 padding fits its block. 1.5.2
+writes the length into the block directly and is otherwise 1.5.1, whose
+changes follow; CI now builds GCC's job optimised, as the release does.
+
 ## Changes in 1.5.1
 
 Statuses are unchanged except where said. Messages:
