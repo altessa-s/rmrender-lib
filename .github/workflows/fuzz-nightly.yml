@@ -77,4 +77,5 @@ jobs:
             build/leak-*
             build/timeout-*
             build/oom-*
+            build/slow-unit-*
           if-no-files-found: ignore
