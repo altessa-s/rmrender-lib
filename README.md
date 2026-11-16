@@ -382,30 +382,11 @@ options.progress = page_progress;
 options.progress_context = stderr;
 ```
 
-The first call is `(context, 0, total)` before drawing, then exactly one call
-per settled page, increasing through `total`. Settled means its page output
-is written and that page's work cannot fail any more. Reports may lag drawing
-by the pipeline window. A failed or cancelled page, or work still pending when
-the export fails or is cancelled, gets no completion call. `total` is the selected output page count after
-`maximum_pages`: live/recovered archive pages, source PDF pages if none are
-listed, or one blank sheet for an empty notebook. Missing `.rm` files,
-refused/hidden source references, skipped blocks and BLANK/PLACEHOLDER pages
-still produce pages and count toward `total`. STRICT and unsupported
-preserving/recomposed page selections fail without shrinking `total`.
-Validation can fail before progress starts; preflight failure after the initial
-call leaves only zero reported. Final PDF assembly can fail after all pages
-settle, so completion is not export success. The callback runs while the
-Cairo backend may hold its PDFium lock; it must be quick and must not reenter
-the library.
-A null callback adds no progress work or waits. Other plan/page/PDF editing
-APIs do not read these document-only fields.
-
-The fields are appended and read only when `struct_size` covers both; old
-option sizes default to no progress. Use `rmr_pdf_options_default()` as before
-(the version and size fields are still required). Existing source callers
-remain compatible. **Rebuild binary consumers**: the struct grew, including
-the by-value result of `rmr_pdf_options_default()`, so its binary ABI changed.
-Version macros are unchanged pending the maintainer's release.
+Progress starts at `(0, total)` and reports each settled page in order; it
+may lag drawing, and completion does not guarantee export success. Keep the
+callback quick and do not reenter rmrender. A null callback disables reports.
+See [`rmr_pdf_options` in output.h](include/rmrender/output.h) for the full
+contract, including totals, failures, threading and option-size compatibility.
 
 PDF export of long documents writes their pages as it goes. The Apple
 backend serializes fills, strokes, grain masks, erasers and transparency
