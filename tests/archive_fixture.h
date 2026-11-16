@@ -20,6 +20,7 @@
 #include <rmrender/pdf.h>
 #include <stddef.h>
 
+#include "../backends/common/rmr_progress.h"
 #include "image_fixture.h"
 #include "pdf_fixture.h"
 #include "test.h"
@@ -814,13 +815,17 @@ typedef struct {
   size_t calls, total, images;
   const rmr_limits* limits;
   received output;
+  rmr_buffer* pdf;
+  rmr_svg_pages* svg;
   rmr_error error;
   bool fail_image, cancel_image, cancelled, cancel_after_first;
+  bool image_failed;
 } drawing_progress;
 
 static void note_progress(void* context, size_t completed, size_t total) {
   drawing_progress* p = context;
   CHECK(p->thread == &progress_thread);
+  CHECK(!p->image_failed);
   CHECK(completed == p->calls && total == p->total);
   if (!completed) CHECK(!p->images);
   p->calls++;
@@ -837,11 +842,35 @@ static rmr_status progress_image(void* context, rm_str file,
   CHECK(file.length && p->thread == &progress_thread);
   p->images++;
   if (p->images == 2) {
+    if (p->fail_image || p->cancel_image) p->image_failed = true;
     if (p->fail_image) return RMR_ERR_BACKEND;
     if (p->cancel_image) p->cancelled = true;
   }
   *out = (rmr_asset_view){image_png, sizeof image_png};
   return RMR_OK;
+}
+
+/* Apple's cleanup drains currently have no reporting site. Exercise the
+ * shared silence contract directly too: settling earlier work after an
+ * acquire failure must update the watermark without calling the callback. */
+static void document_progress_cleanup(void) {
+  for (unsigned cancel = 0; cancel < 2; cancel++) {
+    drawing_progress p = {.thread = &progress_thread,
+                          .total = 2,
+                          .fail_image = !cancel,
+                          .cancel_image = cancel};
+    rmr_progress progress = {.fn = note_progress, .ctx = &p, .total = 2};
+    note_progress(&p, 0, 2);
+    rmr_asset_view image = {0};
+    rm_str file = {"picture.png", sizeof "picture.png" - 1};
+    OK(progress_image(&p, file, &image));
+    CHECK(progress_image(&p, file, &image) ==
+          (cancel ? RMR_OK : RMR_ERR_BACKEND));
+    CHECK(p.image_failed && p.images == 2);
+    rmr_progress_silence(&progress);
+    rmr_progress_advance_to(&progress, 1);
+    CHECK(p.calls == 1 && progress.completed == 1);
+  }
 }
 
 /* Own page with both ink and an attached image: exercises the native and
@@ -869,8 +898,8 @@ static rmd_bytes progress_page(void) {
   return (rmd_bytes){bytes, size};
 }
 
-/* The seven options-taking document entry points; all output is discarded
- * after checking the callback sequence, including partial streaming output. */
+/* The seven options-taking document entry points; optionally retain output
+ * for byte comparisons, including the bytes received by streaming exports. */
 static rmr_status progress_export(const rmr_archive_document* d, unsigned mode,
                                   size_t maximum,
                                   const rmr_pdf_options* options,
@@ -916,6 +945,17 @@ static rmr_status progress_export(const rmr_archive_document* d, unsigned mode,
       s = DOCUMENT_SVG_WITH_OPTIONS(
           d, &resources, nullptr, RMR_PAPER_A4, maximum, 0, p->limits, options,
           drawing_cancelled, p, &svg, nullptr, &p->error);
+  }
+  if (p->pdf) {
+    *p->pdf = mode < 3 ? out : p->output.bytes;
+    if (mode < 3)
+      out = (rmr_buffer){0};
+    else
+      p->output.bytes = (rmr_buffer){0};
+  }
+  if (p->svg) {
+    *p->svg = svg;
+    svg = (rmr_svg_pages){0};
   }
   rmr_buffer_free(&out);
   rmr_svg_pages_free(&svg);
@@ -1122,13 +1162,39 @@ static void document_progress(const char* fonts_directory) {
     rmr_archive_document* d = open_archive(&a, false);
     size_t total = imported ? 2u : 3u;
     for (unsigned mode = 0; mode < 7; mode++) {
-      drawing_progress p = {.thread = &progress_thread, .total = total};
+      rmr_buffer with_progress = {0}, without_progress = {0};
+      rmr_svg_pages with_svg = {0}, without_svg = {0};
+      drawing_progress p = {.thread = &progress_thread,
+                            .total = total,
+                            .pdf = &with_progress,
+                            .svg = &with_svg};
       rmr_pdf_options options = rmr_pdf_options_default();
       CHECK(!options.progress && !options.progress_context);
       options.progress = note_progress;
       options.progress_context = &p;
       OK(progress_export(d, mode, 0, &options, &p));
       CHECK(p.calls == total + 1 && p.images == total);
+      p = (drawing_progress){.thread = &progress_thread,
+                             .pdf = &without_progress,
+                             .svg = &without_svg};
+      options.progress = nullptr;
+      OK(progress_export(d, mode, 0, &options, &p));
+      CHECK(!p.calls && p.images == total);
+      if (mode < 6) {
+        CHECK(with_progress.size &&
+              same_bytes(&with_progress, &without_progress));
+      } else {
+        CHECK(with_svg.count == total && without_svg.count == total);
+        for (size_t i = 0; i < total; i++)
+          CHECK(with_svg.pages[i].size == without_svg.pages[i].size &&
+                !memcmp(with_svg.pages[i].bytes, without_svg.pages[i].bytes,
+                        with_svg.pages[i].size));
+      }
+      rmr_buffer_free(&with_progress);
+      rmr_buffer_free(&without_progress);
+      rmr_svg_pages_free(&with_svg);
+      rmr_svg_pages_free(&without_svg);
+      options.progress = note_progress;
 
       p = (drawing_progress){.thread = &progress_thread,
                              .total = total,

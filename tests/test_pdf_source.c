@@ -116,6 +116,42 @@ int main(void) {
                               &result, nullptr, &e) == RMR_ERR_LIMIT);
   CHECK(result.bytes == nullptr);
 
+  /* With no progress callback, a queued writer failure still precedes
+   * rebuilding the outline. Hide the source to leave the one-element work
+   * budget for its outline, whose destination lookup then exceeds it. */
+  enum { POINTS = 4096 };
+  rmr_element* path = calloc(POINTS, sizeof *path);
+  CHECK(path);
+  uint32_t seed = 123456789;
+  for (size_t i = 0; i < POINTS; i++) {
+    seed = 1664525u * seed + 1013904223u;
+    double x = (double)(seed & 0xffffff) / 16777216.0 * 100;
+    seed = 1664525u * seed + 1013904223u;
+    double y = (double)(seed & 0xffffff) / 16777216.0 * 200;
+    path[i] = (rmr_element){.kind = i ? RMR_LINE : RMR_MOVE, .end = {x, y}};
+  }
+  rmr_draw draw = {.path = {path, POINTS},
+                   .mode = RMR_STROKE,
+                   .color = {0, 0, 0, 1},
+                   .line_width = 1};
+  rmr_plan* dense = nullptr;
+  OK(rmr_plan_create(&draw, 1, (rmr_rect){0, 0, 100, 200}, nullptr, &dense,
+                     nullptr));
+  free(path);
+  rmr_pdf_page page = pages[0];
+  page.marks = dense;
+  page.source_visible = false;
+  limits = rmr_limits_default();
+  limits.maximum_elements = 1;
+  CHECK(rmr_apple_pdf_overlay(source, &page, 1, &limits, nullptr, nullptr,
+                              &result, nullptr, &e) == RMR_ERR_LIMIT);
+  CHECK(!result.bytes && !strcmp(e.message, "PDF overlay failed"));
+  limits.maximum_pdf_bytes = 4096;
+  CHECK(rmr_apple_pdf_overlay(source, &page, 1, &limits, nullptr, nullptr,
+                              &result, nullptr, &e) == RMR_ERR_LIMIT);
+  CHECK(!result.bytes && !strcmp(e.message, "PDF output byte limit"));
+  rmr_plan_free(dense);
+
   rmr_apple_pdf_source_free(source);
   rmr_plan_free(empty);
   return 0;
