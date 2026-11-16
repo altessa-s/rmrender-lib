@@ -642,6 +642,17 @@ GdkPixbuf and zlib from the system or MSYS2, and a PDFium SDK through
 [LINUX.md](LINUX.md) and [WINDOWS.md](WINDOWS.md) describe. The macOS archive
 needs only the system frameworks and zlib.
 
+## Changes in 1.6.0
+
+Document exports can report their progress page by page: `rmr_pdf_options`
+gains `progress` and `progress_context`, and every `rmr_apple_document_pdf*`,
+`rmr_linux_document_pdf*` and `*_document_svg_with_options` export calls the
+callback with `(0, total)` before drawing and once for each settled page, as
+described above. A null callback, or an `rmr_pdf_options` sized before these
+fields, reports nothing and costs nothing. The struct grew, so binary
+consumers must be rebuilt. The nightly fuzz workflow also keeps the inputs of
+its slow-unit findings.
+
 ## Changes in 1.5.2
 
 1.5.1 was tagged but not published: its release build stopped where GCC 15,
