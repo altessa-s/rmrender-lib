@@ -366,6 +366,47 @@ unreadable page as an empty one, with the status its parsing failed with.
 Allocation failures and limits fail the export whatever the policy. Callers
 built against an earlier `rmr_pdf_options` get `STRICT`, as before.
 
+Set `progress` and `progress_context` in `rmr_pdf_options` for synchronous
+progress on the calling thread in every `rmr_apple_document_pdf*` and
+`rmr_linux_document_pdf*` export taking options (buffer and streaming, fresh,
+preserving and recomposed), and in `*_document_svg_with_options`:
+
+```c
+static void page_progress(void* context, size_t completed, size_t total) {
+  /* Borrowed context; do not call back into rmrender. */
+  fprintf(context, "completed pages: %zu/%zu\n", completed, total);
+}
+
+rmr_pdf_options options = rmr_pdf_options_default();
+options.progress = page_progress;
+options.progress_context = stderr;
+```
+
+The first call is `(context, 0, total)` before drawing, then exactly one call
+per settled page, increasing through `total`. Settled means its page output
+is written and that page's work cannot fail any more. Reports may lag drawing
+by the pipeline window. A failed or cancelled page, or work still pending when
+the export fails or is cancelled, gets no completion call. `total` is the selected output page count after
+`maximum_pages`: live/recovered archive pages, source PDF pages if none are
+listed, or one blank sheet for an empty notebook. Missing `.rm` files,
+refused/hidden source references, skipped blocks and BLANK/PLACEHOLDER pages
+still produce pages and count toward `total`. STRICT and unsupported
+preserving/recomposed page selections fail without shrinking `total`.
+Validation can fail before progress starts; preflight failure after the initial
+call leaves only zero reported. Final PDF assembly can fail after all pages
+settle, so completion is not export success. The callback runs while the
+Cairo backend may hold its PDFium lock; it must be quick and must not reenter
+the library.
+A null callback adds no progress work or waits. Other plan/page/PDF editing
+APIs do not read these document-only fields.
+
+The fields are appended and read only when `struct_size` covers both; old
+option sizes default to no progress. Use `rmr_pdf_options_default()` as before
+(the version and size fields are still required). Existing source callers
+remain compatible. **Rebuild binary consumers**: the struct grew, including
+the by-value result of `rmr_pdf_options_default()`, so its binary ABI changed.
+Version macros are unchanged pending the maintainer's release.
+
 PDF export of long documents writes their pages as it goes. The Apple
 backend serializes fills, strokes, grain masks, erasers and transparency
 groups (erased shader strokes) itself, printing every number exactly as
@@ -600,6 +641,17 @@ GdkPixbuf and zlib from the system or MSYS2, and a PDFium SDK through
 `PDFium_ROOT` (`scripts/fetch-pdfium.py` fetches the pinned one), as
 [LINUX.md](LINUX.md) and [WINDOWS.md](WINDOWS.md) describe. The macOS archive
 needs only the system frameworks and zlib.
+
+## Changes in 1.6.0
+
+Document exports can report their progress page by page: `rmr_pdf_options`
+gains `progress` and `progress_context`, and every `rmr_apple_document_pdf*`,
+`rmr_linux_document_pdf*` and `*_document_svg_with_options` export calls the
+callback with `(0, total)` before drawing and once for each settled page, as
+described above. A null callback, or an `rmr_pdf_options` sized before these
+fields, reports nothing and costs nothing. The struct grew, so binary
+consumers must be rebuilt. The nightly fuzz workflow also keeps the inputs of
+its slow-unit findings.
 
 ## Changes in 1.5.2
 

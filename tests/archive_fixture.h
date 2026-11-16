@@ -20,6 +20,7 @@
 #include <rmrender/pdf.h>
 #include <stddef.h>
 
+#include "image_fixture.h"
 #include "pdf_fixture.h"
 #include "test.h"
 
@@ -360,6 +361,7 @@ typedef struct {
   size_t calls, after_failure, fail_after, cancel_after;
   rmr_status fail_status;
   bool failed;
+  size_t fail_call;
 } received;
 
 static rmr_status receive(void* context, const uint8_t* bytes, size_t size) {
@@ -367,9 +369,10 @@ static rmr_status receive(void* context, const uint8_t* bytes, size_t size) {
   CHECK(bytes && size);
   if (r->failed) r->after_failure++;
   r->calls++;
-  if (r->fail_status != RMR_OK && r->bytes.size + size > r->fail_after) {
+  if ((r->fail_call && r->calls == r->fail_call) ||
+      (r->fail_status != RMR_OK && r->bytes.size + size > r->fail_after)) {
     r->failed = true;
-    return r->fail_status;
+    return r->fail_status != RMR_OK ? r->fail_status : RMR_ERR_BACKEND;
   }
   uint8_t* grown = realloc(r->bytes.bytes, r->bytes.size + size);
   CHECK(grown);
@@ -800,6 +803,476 @@ static void unreadable_pages(const char* fonts_directory) {
   archive_free(&a);
   FONTS_FREE(fonts);
   rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
+}
+
+/* Document callbacks run on the caller, begin before drawing, and report
+ * only the settled prefix. Drawing can run ahead by the pipeline window. */
+static thread_local int progress_thread;
+
+typedef struct {
+  const void* thread;
+  size_t calls, total, images;
+  const rmr_limits* limits;
+  received output;
+  rmr_error error;
+  bool fail_image, cancel_image, cancelled, cancel_after_first;
+} drawing_progress;
+
+static void note_progress(void* context, size_t completed, size_t total) {
+  drawing_progress* p = context;
+  CHECK(p->thread == &progress_thread);
+  CHECK(completed == p->calls && total == p->total);
+  if (!completed) CHECK(!p->images);
+  p->calls++;
+  if (completed == 1 && p->cancel_after_first) p->cancelled = true;
+}
+
+static bool drawing_cancelled(void* context) {
+  return ((drawing_progress*)context)->cancelled;
+}
+
+static rmr_status progress_image(void* context, rm_str file,
+                                 rmr_asset_view* out) {
+  drawing_progress* p = context;
+  CHECK(file.length && p->thread == &progress_thread);
+  p->images++;
+  if (p->images == 2) {
+    if (p->fail_image) return RMR_ERR_BACKEND;
+    if (p->cancel_image) p->cancelled = true;
+  }
+  *out = (rmr_asset_view){image_png, sizeof image_png};
+  return RMR_OK;
+}
+
+/* Own page with both ink and an attached image: exercises the native and
+ * pipelined ink writers, without requiring fonts or filesystem assets. */
+static rmd_bytes progress_page(void) {
+  rm_draft_image image = {.file = "picture.png",
+                          .key = {1},
+                          .x = 0,
+                          .y = 0,
+                          .width = 32,
+                          .height = 32};
+  rm_draft_point points[] = {rm_draft_point_make(-20, 10),
+                             rm_draft_point_make(20, 50)};
+  rm_draft_stroke stroke =
+      rm_draft_stroke_make(RM_TOOL_BALLPOINT_2, RM_COLOR_BLACK, points, 2);
+  rm_page_draft draft = {.sheet = {1404, 1872, 1404, 1872},
+                         .column = rm_draft_column_of(RM_COLUMN_MEDIUM),
+                         .strokes = &stroke,
+                         .stroke_count = 1,
+                         .images = &image,
+                         .image_count = 1};
+  uint8_t* bytes = nullptr;
+  size_t size = 0;
+  CHECK(rm_write_page(&draft, &bytes, &size, nullptr) == RM_OK);
+  return (rmd_bytes){bytes, size};
+}
+
+/* The seven options-taking document entry points; all output is discarded
+ * after checking the callback sequence, including partial streaming output. */
+static rmr_status progress_export(const rmr_archive_document* d, unsigned mode,
+                                  size_t maximum,
+                                  const rmr_pdf_options* options,
+                                  drawing_progress* p) {
+  rmr_page_resources resources = {.image = progress_image, .image_context = p};
+  rmr_buffer out = {0};
+  rmr_svg_pages svg = {0};
+  rmr_output output = {RMR_OUTPUT_ABI, sizeof output, receive, &p->output};
+  rmr_status s;
+  switch (mode) {
+    case 0:
+      s = DOCUMENT_PDF_WITH_OPTIONS(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, p->limits, options,
+          drawing_cancelled, p, &out, nullptr, &p->error);
+      break;
+    case 1:
+      s = DOCUMENT_PDF_PRESERVING_WITH_OPTIONS(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, p->limits, options,
+          drawing_cancelled, p, &out, nullptr, &p->error);
+      break;
+    case 2:
+      s = DOCUMENT_PDF_RECOMPOSED_WITH_OPTIONS(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, p->limits, options,
+          drawing_cancelled, p, &out, nullptr, &p->error);
+      break;
+    case 3:
+      s = DOCUMENT_PDF_TO_OUTPUT(d, &resources, nullptr, RMR_PAPER_A4, maximum,
+                                 p->limits, options, drawing_cancelled, p,
+                                 &output, nullptr, &p->error);
+      break;
+    case 4:
+      s = DOCUMENT_PDF_PRESERVING_TO_OUTPUT(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, p->limits, options,
+          drawing_cancelled, p, &output, nullptr, &p->error);
+      break;
+    case 5:
+      s = DOCUMENT_PDF_RECOMPOSED_TO_OUTPUT(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, p->limits, options,
+          drawing_cancelled, p, &output, nullptr, &p->error);
+      break;
+    default:
+      CHECK(mode == 6);
+      s = DOCUMENT_SVG_WITH_OPTIONS(
+          d, &resources, nullptr, RMR_PAPER_A4, maximum, 0, p->limits, options,
+          drawing_cancelled, p, &svg, nullptr, &p->error);
+  }
+  rmr_buffer_free(&out);
+  rmr_svg_pages_free(&svg);
+  rmr_buffer_free(&p->output.bytes);
+  return s;
+}
+
+/* A plain imported PDF with n distinct pages and ink-free content. Repeating
+ * a simple source avoids annotation/signature limits in long pipeline runs. */
+static rmr_buffer progress_source(size_t n) {
+  fixture f = {0};
+  add(&f, "%%PDF-1.7\n");
+  obj(&f, 1, 0, "<< /Type /Catalog /Pages 2 0 R >>");
+  obj(&f, 2, 0, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  obj(&f, 3, 0,
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+      "/Resources << >> /Contents 4 0 R >>");
+  stream(&f, 4, "0 0 1 rg 0 0 200 200 re f\n");
+  size_t xref = f.n;
+  add(&f, "xref\n0 5\n0000000000 65535 f \n");
+  for (size_t j = 1; j < 5; j++) add(&f, "%010zu 00000 n \n", f.offsets[j]);
+  add(&f, "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n",
+      xref);
+  size_t* indices = calloc(n, sizeof *indices);
+  CHECK(indices);
+  rmr_buffer pdf = {0};
+  OK(rmr_pdf_select_pages((const uint8_t*)f.bytes, f.n, indices, n, nullptr,
+                          nullptr, nullptr, &pdf, nullptr));
+  free(indices);
+  return pdf;
+}
+
+/* Map every notebook page to the same-index imported page. pdf is borrowed. */
+static built_archive progress_import(size_t n, rmd_bytes ink, char (*ids)[40],
+                                     const rmr_buffer* pdf) {
+  built_archive a = notebook(n, ink, ids, nullptr);
+  free(a.content);
+  size_t size = 64 + n * 64;
+  a.content = malloc(size);
+  CHECK(a.content);
+  size_t at = (size_t)snprintf(a.content, size, "{\"pages\":[");
+  for (size_t j = 0; j < n; j++)
+    at += (size_t)snprintf(a.content + at, size - at, "%s\"%s\"", j ? "," : "",
+                           ids[j]);
+  at +=
+      (size_t)snprintf(a.content + at, size - at, "],\"redirectionPageMap\":[");
+  for (size_t j = 0; j < n; j++)
+    at += (size_t)snprintf(a.content + at, size - at, "%s%zu", j ? "," : "", j);
+  at += (size_t)snprintf(a.content + at, size - at, "]}");
+  CHECK(at < size);
+  a.files[0].data = (rmd_bytes){(const uint8_t*)a.content, at};
+  put_file(&a, CASE_DOC ".pdf", (rmd_bytes){pdf->bytes, pdf->size});
+  return a;
+}
+
+static void document_progress_long(void) {
+  /* workers() is capped at 8, so 40 exceeds both 2*workers+2 and 16. */
+  enum { N = 40 };
+  rmd_bytes ink = progress_page();
+  char ids[N][40];
+  rmr_buffer pdf = progress_source(N);
+  for (unsigned imported = 0; imported < 2; imported++) {
+    built_archive a = imported ? progress_import(N, ink, ids, &pdf)
+                               : notebook(N, ink, ids, nullptr);
+    rmr_archive_document* d = open_archive(&a, false);
+    for (unsigned mode = 0; mode < 7; mode++) {
+      drawing_progress p = {.thread = &progress_thread, .total = N};
+      rmr_pdf_options options = rmr_pdf_options_default();
+      options.progress = note_progress;
+      options.progress_context = &p;
+      OK(progress_export(d, mode, 0, &options, &p));
+      CHECK(p.calls == N + 1 && p.images == N);
+      p = (drawing_progress){
+          .thread = &progress_thread, .total = N, .cancel_after_first = true};
+      rmr_status cancelled = progress_export(d, mode, 0, &options, &p);
+      CHECK(p.calls >= 2 && p.calls <= p.images + 1 && p.images <= N);
+      CHECK(cancelled == RMR_ERR_CANCELLED ||
+            (cancelled == RMR_OK && p.calls == N + 1 && p.images == N));
+      p = (drawing_progress){
+          .thread = &progress_thread, .total = N, .cancel_image = true};
+      CHECK(progress_export(d, mode, 0, &options, &p) == RMR_ERR_CANCELLED);
+      CHECK(p.calls >= 1 && p.calls <= 2 && p.images == 2);
+    }
+    rmr_archive_document_free(d);
+    archive_free(&a);
+  }
+  /* Empty update pages behind pending ink must not jump its watermark. */
+  built_archive a = progress_import(N, ink, ids, &pdf);
+  for (size_t j = 2; j <= N; j += 2)
+    a.files[j].data = (rmd_bytes){(const uint8_t*)RM_HEADER, RM_HEADER_LENGTH};
+  rmr_archive_document* d = open_archive(&a, false);
+  for (unsigned mode = 0; mode < 6; mode++) {
+    drawing_progress p = {.thread = &progress_thread, .total = N};
+    rmr_pdf_options options = rmr_pdf_options_default();
+    options.progress = note_progress;
+    options.progress_context = &p;
+    OK(progress_export(d, mode, 0, &options, &p));
+    CHECK(p.calls == N + 1 && p.images == N / 2);
+  }
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  rmr_buffer_free(&pdf);
+  rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
+}
+
+/* A page whose compressed ink alone exceeds the writer's 4 MiB output
+ * buffer, so refusing write 2 fails while page 1's batch is collected,
+ * rather than during final assembly. Fixed pseudo-random coordinates keep
+ * its paths incompressible without external assets. Fineliner is vector ink. */
+static rmd_bytes progress_large_page(void) {
+  enum { STROKES = 60000, POINTS = 16 };
+  rm_draft_point* points = calloc(POINTS * STROKES, sizeof *points);
+  rm_draft_stroke* strokes = calloc(STROKES, sizeof *strokes);
+  CHECK(points && strokes);
+  uint32_t seed = 123456789;
+  for (size_t i = 0; i < POINTS * STROKES; i++) {
+    seed = 1664525u * seed + 1013904223u;
+    float x = (float)(seed & 0xffffff) / 16777216.0f * 1300 - 650;
+    seed = 1664525u * seed + 1013904223u;
+    float y = (float)(seed & 0xffffff) / 16777216.0f * 1800 + 30;
+    points[i] = rm_draft_point_make(x, y);
+  }
+  for (size_t i = 0; i < STROKES; i++)
+    strokes[i] = rm_draft_stroke_make(RM_TOOL_FINELINER_2, RM_COLOR_BLACK,
+                                      points + i * POINTS, POINTS);
+  rm_page_draft draft = {.sheet = {1404, 1872, 1404, 1872},
+                         .column = rm_draft_column_of(RM_COLUMN_MEDIUM),
+                         .strokes = strokes,
+                         .stroke_count = STROKES};
+  uint8_t* bytes = nullptr;
+  size_t size = 0;
+  CHECK(rm_write_page(&draft, &bytes, &size, nullptr) == RM_OK);
+  free(points);
+  free(strokes);
+  return (rmd_bytes){bytes, size};
+}
+
+static void document_progress_sink_failures(void) {
+  enum { N = 3 };
+  rmd_bytes ink = progress_large_page();
+  char ids[N][40];
+  rmr_buffer pdf = progress_source(N);
+  built_archive a = progress_import(N, ink, ids, &pdf);
+  for (size_t j = 2; j <= N; j++)
+    a.files[j].data = (rmd_bytes){(const uint8_t*)RM_HEADER, RM_HEADER_LENGTH};
+  rmr_archive_document* d = open_archive(&a, false);
+  for (unsigned mode = 3; mode < 6; mode++) {
+    drawing_progress p = {.thread = &progress_thread, .total = N};
+    rmr_pdf_options options = rmr_pdf_options_default();
+    options.progress = note_progress;
+    options.progress_context = &p;
+    p.output.fail_call = 2;
+    CHECK(progress_export(d, mode, 0, &options, &p) == RMR_ERR_BACKEND);
+    CHECK(p.output.failed && p.output.calls == 2 && !p.output.after_failure);
+    CHECK(!strcmp(p.error.message, "PDF output write failed"));
+    CHECK(p.calls == 1); /* highest reported = 0 < failing page 1 */
+  }
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  rmr_buffer_free(&pdf);
+  rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
+}
+
+/* These limits fail when a queued page's output is collected, after drawing.
+ * Parsing and planning retain their normal budgets. On Cairo, finishing the
+ * recorded segment on a worker can itself exceed the output-byte limit. */
+static void document_progress_limit_failures(void) {
+  enum { N = 3 };
+  rmd_bytes ink = stroked_page(40, 30);
+  char ids[N][40];
+  rmr_buffer pdf = progress_source(N);
+  for (unsigned imported = 0; imported < 2; imported++) {
+    built_archive a = imported ? progress_import(N, ink, ids, &pdf)
+                               : notebook(N, ink, ids, nullptr);
+    rmr_archive_document* d = open_archive(&a, false);
+    for (unsigned mode = 0; mode < 6; mode++) {
+      drawing_progress p = {.thread = &progress_thread, .total = N};
+      rmr_pdf_options options = rmr_pdf_options_default();
+      options.progress = note_progress;
+      options.progress_context = &p;
+      rmr_limits limits = rmr_limits_default();
+      /* Enough for the initial source/header, too little for dense page 1. */
+      limits.maximum_pdf_bytes = imported ? 2 * pdf.size + 128 : 1024;
+      p.limits = &limits;
+      CHECK(progress_export(d, mode, 0, &options, &p) == RMR_ERR_LIMIT);
+      CHECK(!strcmp(p.error.message, "PDF output byte limit") ||
+            !strcmp(p.error.message, "PDF input size limit"));
+      CHECK(p.calls == 1); /* page 1's writer failed; it was never settled */
+    }
+    rmr_archive_document_free(d);
+    archive_free(&a);
+  }
+  rmr_buffer_free(&pdf);
+  rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
+}
+
+static void document_progress(const char* fonts_directory) {
+  rmd_bytes data = progress_page();
+  char ids[3][40];
+  fixture pdf = source(false);
+  for (unsigned imported = 0; imported < 2; imported++) {
+    built_archive a =
+        imported ? trio(data, data, &pdf) : notebook(3, data, ids, nullptr);
+    rmr_archive_document* d = open_archive(&a, false);
+    size_t total = imported ? 2u : 3u;
+    for (unsigned mode = 0; mode < 7; mode++) {
+      drawing_progress p = {.thread = &progress_thread, .total = total};
+      rmr_pdf_options options = rmr_pdf_options_default();
+      CHECK(!options.progress && !options.progress_context);
+      options.progress = note_progress;
+      options.progress_context = &p;
+      OK(progress_export(d, mode, 0, &options, &p));
+      CHECK(p.calls == total + 1 && p.images == total);
+
+      p = (drawing_progress){.thread = &progress_thread,
+                             .total = total,
+                             .cancel_after_first = true};
+      rmr_status cancelled = progress_export(d, mode, 0, &options, &p);
+      /* A callback can first run during the final drain. If drawing already
+       * finished, the settled tail is reported and the export can succeed.
+       * Otherwise cancellation stops further drawing at the next check. */
+      CHECK(p.calls >= 2 && p.calls <= p.images + 1 && p.images <= total);
+      CHECK(cancelled == RMR_ERR_CANCELLED ||
+            (cancelled == RMR_OK && p.calls == total + 1 && p.images == total));
+
+      p = (drawing_progress){
+          .thread = &progress_thread, .total = total, .cancel_image = true};
+      CHECK(progress_export(d, mode, 0, &options, &p) == RMR_ERR_CANCELLED);
+      /* Page two was acquired but failed/cancelled; at most page one
+       * has settled, and cleanup must not report any pending pages. */
+      CHECK(p.calls >= 1 && p.calls <= 2 && p.images == 2);
+
+      p = (drawing_progress){
+          .thread = &progress_thread, .total = total, .fail_image = true};
+      CHECK(progress_export(d, mode, 0, &options, &p) == RMR_ERR_BACKEND);
+      /* Page two was acquired but failed/cancelled; at most page one
+       * has settled, and cleanup must not report any pending pages. */
+      CHECK(p.calls >= 1 && p.calls <= 2 && p.images == 2);
+
+      /* Null callbacks and earlier/truncated option sizes never read the
+       * borrowed context, even when its stored value cannot be dereferenced. */
+      p = (drawing_progress){.thread = &progress_thread};
+      options.progress = nullptr;
+      options.progress_context = (void*)(uintptr_t)1;
+      OK(progress_export(d, mode, 0, &options, &p));
+      CHECK(!p.calls && p.images == total);
+      options.progress = note_progress;
+      const size_t old_sizes[] = {offsetof(rmr_pdf_options, progress),
+                                  offsetof(rmr_pdf_options, progress_context)};
+      for (size_t i = 0; i < 2; i++) {
+        p = (drawing_progress){.thread = &progress_thread};
+        options.struct_size = old_sizes[i];
+        OK(progress_export(d, mode, 0, &options, &p));
+        CHECK(!p.calls && p.images == total);
+      }
+      options.struct_size = sizeof options;
+      options.progress_context = &p;
+      /* Also truncate a three-page notebook to two, preserving the exact
+       * sequence and ending at the truncated total. */
+      if (!imported) {
+        p = (drawing_progress){.thread = &progress_thread, .total = total - 1};
+        OK(progress_export(d, mode, total - 1, &options, &p));
+        CHECK(p.calls == total && p.images == total - 1);
+      }
+      p = (drawing_progress){.thread = &progress_thread, .total = 1};
+      rmr_status s = progress_export(d, mode, 1, &options, &p);
+      if (imported && (mode == 1 || mode == 4)) {
+        CHECK(s == RMR_ERR_UNSUPPORTED && p.calls == 1 && !p.images);
+      } else {
+        OK(s);
+        CHECK(p.calls == 2 && p.images == 1);
+      }
+    }
+    rmr_archive_document_free(d);
+    archive_free(&a);
+  }
+  /* Empty notebooks, absent .rm files and source-only documents still have
+   * output pages. Refusing a source reference never shrinks the total. */
+  for (unsigned kind = 0; kind < 4; kind++) {
+    built_archive a = {0};
+    const char* listed[] = {"A", "B", "C"};
+    if (kind < 2)
+      put_content(&a, listed, kind ? 3 : 0, nullptr, 0, nullptr);
+    else {
+      put_file(&a, CASE_DOC ".pdf",
+               (rmd_bytes){(const uint8_t*)pdf.bytes, pdf.n});
+      if (kind == 3) {
+        const char content[] =
+            "{\"pages\":[\"A\",\"B\"],\"redirectionPageMap\":[0,99]}";
+        a.content = strdup(content);
+        CHECK(a.content);
+        put_file(&a, CASE_DOC ".content",
+                 (rmd_bytes){(const uint8_t*)a.content, strlen(content)});
+      }
+    }
+    rmr_archive_document* d = open_archive(&a, false);
+    size_t total = kind == 0 ? 1u : kind == 1 ? 3u : 2u;
+    for (unsigned mode = 0; mode < 7; mode++) {
+      drawing_progress p = {.thread = &progress_thread, .total = total};
+      rmr_pdf_options options = rmr_pdf_options_default();
+      options.progress = note_progress;
+      options.progress_context = &p;
+      rmr_status status = progress_export(d, mode, 0, &options, &p);
+      if (kind == 3 && (mode == 1 || mode == 4))
+        CHECK(status == RMR_ERR_UNSUPPORTED && p.calls == 2);
+      else if (kind == 3 && (mode == 2 || mode == 5))
+        CHECK(status == RMR_ERR_UNSUPPORTED && p.calls == 1);
+      else {
+        OK(status);
+        CHECK(p.calls == total + 1);
+      }
+      CHECK(!p.images);
+    }
+    rmr_archive_document_free(d);
+    archive_free(&a);
+  }
+
+  /* STRICT fails during preflight, leaving only zero. BLANK and PLACEHOLDER
+   * keep the unreadable page in the total and complete it normally. */
+  FONTS* fonts = nullptr;
+  OK(FONTS_DIRECTORY(fonts_directory, nullptr, &fonts, nullptr));
+  rmd_bytes ink = stroked_page(1, 4);
+  built_archive a = trio(ink, (rmd_bytes){(const uint8_t*)"bad", 3}, nullptr);
+  rmr_archive_document* d = open_archive(&a, false);
+  for (rmr_unreadable_policy policy = RMR_UNREADABLE_STRICT;
+       policy <= RMR_UNREADABLE_PLACEHOLDER; policy++) {
+    for (export_mode mode = FRESH; mode <= RECOMPOSED; mode++) {
+      drawing_progress p = {.thread = &progress_thread, .total = 3};
+      rmr_pdf_options options = rmr_pdf_options_default();
+      options.unreadable = policy;
+      options.progress = note_progress;
+      options.progress_context = &p;
+      size_t templates = 0;
+      rmr_buffer out = {0};
+      rmr_svg_pages svg = {0};
+      for (unsigned is_svg = 0; is_svg < 2; is_svg++) {
+        p.calls = 0;
+        rmr_status status = unreadable_export(
+            d, mode, fonts, &options, &templates, is_svg ? nullptr : &out,
+            is_svg ? &svg : nullptr, nullptr, nullptr);
+        if (policy == RMR_UNREADABLE_STRICT)
+          CHECK(status == RMR_ERR_BACKEND && p.calls == 1);
+        else {
+          OK(status);
+          CHECK(p.calls == 4);
+        }
+        rmr_buffer_free(&out);
+        rmr_svg_pages_free(&svg);
+        p.images = 0;
+      }
+    }
+  }
+  rmr_archive_document_free(d);
+  archive_free(&a);
+  FONTS_FREE(fonts);
+  rm_bytes_free((uint8_t*)(uintptr_t)ink.bytes);
+  rm_bytes_free((uint8_t*)(uintptr_t)data.bytes);
 }
 
 #endif

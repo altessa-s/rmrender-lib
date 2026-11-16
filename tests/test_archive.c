@@ -30,11 +30,15 @@
 #define DEAD "33333333-3333-3333-3333-333333333333"
 int main(int argc, char** argv) {
   CHECK(argc == 2);
+  document_progress_sink_failures();
+  document_progress_limit_failures();
+  document_progress_long();
   matching();
   many_files();
   dense_document();
   document_options();
   document_output();
+  document_progress(argv[1]);
   unreadable_pages(argv[1]);
 
   const char content[] =
