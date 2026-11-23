@@ -83,6 +83,22 @@ int main(void) {
         !rmr_plan_draw(p, 1)->path.count && !rmr_plan_draw(p, 2)->eraser_count);
   rmr_plan_free(p);
 
+  strokes[1].tool = (rm_pen_tool)22;
+  p = plan_for(strokes, 3);
+  CHECK(rmr_plan_draw(p, 0)->eraser_count == 1 &&
+        !rmr_plan_draw(p, 1)->path.count && !rmr_plan_draw(p, 2)->eraser_count);
+  rmr_plan_free(p);
+
+  strokes[1].point_count = 1;
+  vertical[0].y = 20;
+  p = plan_for(strokes, 2);
+  CHECK(rmr_plan_draw(p, 0)->eraser_count == 1 && !rmr_plan_draw(p, 1)->path.count);
+#ifdef RMRENDER_TEST_APPLE
+  CHECK(pdf_alpha(p) == 0);
+#endif
+  rmr_plan_free(p);
+  vertical[0].y = 0;
+  strokes[1].point_count = 2;
   p = plan_for(strokes, 2);
 
 #ifdef RMRENDER_TEST_APPLE

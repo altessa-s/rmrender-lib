@@ -35,6 +35,13 @@ int main(void) {
   CHECK(style.stroked && style.color.alpha == 0.25098 && style.color.red == 0 &&
         style.cap == RMR_CAP_BUTT && style.join == RMR_JOIN_MITER);
 
+  stroke.color = (rm_pen_color)16; /* HighlighterGray on the wire. */
+  OK(rmr_lines_style(&stroke, &style, nullptr));
+  CHECK(style.color.red == 199.0 / 255 && style.color.blue == 198.0 / 255);
+  stroke.tool = (rm_pen_tool)22; /* MaskedEraser is a non-ink tool. */
+  OK(rmr_lines_style(&stroke, &style, nullptr));
+  CHECK(style.eraser);
+  stroke.tool = RM_TOOL_HIGHLIGHTER_1;
   stroke.has_argb = true;
   stroke.argb = 0x40211e1c;
   OK(rmr_lines_style(&stroke, &style, nullptr));
