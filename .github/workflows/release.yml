@@ -41,7 +41,7 @@ permissions:
 # The sibling libraries every job builds against: the latest releases, by
 # commit.
 env:
-  RMLINES_REF: 4069e6f542a321a625447c9639faad3728232806 # v1.1.2
+  RMLINES_REF: d2b35cd90058544be11a7b0d059a59c4881e8c3f # v1.2.0
   RMDOC_REF: aea7ed1670e2aa34ee0281d00eedc372b80b3f7c # v1.1.0
   RMMARKS_REF: 565f2dfe0d2e31a218c4a874bdba96417d1ddc83 # v1.1.0
 jobs:
