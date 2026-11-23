@@ -7,7 +7,7 @@ name: Pinned renderer
 on: [push, pull_request, workflow_dispatch]
 # The sibling libraries every job builds against: the latest releases.
 env:
-  RMLINES_REF: v1.1.2
+  RMLINES_REF: v1.2.0
   RMDOC_REF: v1.1.0
   RMMARKS_REF: v1.1.0
 jobs:

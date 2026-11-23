@@ -66,6 +66,11 @@ int main(void) {
   stroke.tool = RM_TOOL_ERASER_AREA;
   equal(bounds(&page, RMR_EDGE_UNCUT, 0), -50, 0, 100, 200);
 
+  stroke.tool = (rm_pen_tool)22;
+  point.x = 120;
+  point.y = 20;
+  equal(bounds(&page, RMR_EDGE_CENTRELINE, 0), -50, 0, 100, 200);
+
   page.stroke_count = 0;
   rm_page_image image = {
       .vertices = {
