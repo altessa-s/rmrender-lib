@@ -92,7 +92,8 @@ int main(void) {
   strokes[1].point_count = 1;
   vertical[0].y = 20;
   p = plan_for(strokes, 2);
-  CHECK(rmr_plan_draw(p, 0)->eraser_count == 1 && !rmr_plan_draw(p, 1)->path.count);
+  CHECK(rmr_plan_draw(p, 0)->eraser_count == 1 &&
+        !rmr_plan_draw(p, 1)->path.count);
 #ifdef RMRENDER_TEST_APPLE
   CHECK(pdf_alpha(p) == 0);
 #endif
